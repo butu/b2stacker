@@ -65,7 +65,7 @@ pip install pyinstaller
 pyinstaller packaging/astrostack.spec --noconfirm   # → dist/AstroStack.exe
 ```
 
-Jeder Push auf `main` baut die exe auf GitHub (Windows) und testet sie; ein Tag `v*` veröffentlicht sie als Release.
+Jeder Push auf `main` baut die exe auf GitHub (Windows), testet sie und veröffentlicht sie als Release `v<Version>` (Version in `astrostack/__init__.py`; gleiche Version → Datei wird ersetzt).
 
 Chart.js (MIT) liegt eingebettet unter `astrostack/report/vendor/`, damit der Bericht auch ohne
 Internet funktioniert.
