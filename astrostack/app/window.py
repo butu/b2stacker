@@ -104,6 +104,7 @@ def run(port: int = 8765):
             webbrowser.open(url)
         return
     url = _start_server(port)
+    logbook.event("window_start", url=url)
     try:
         import webview
     except Exception as e:  # noqa: BLE001
@@ -141,7 +142,9 @@ def run(port: int = 8765):
 
     w.events.closing += on_closing
     w.events.loaded += on_loaded
+    w.events.shown += lambda: logbook.event("window_shown")
     try:
+        logbook.event("webview_start", gui=getattr(webview, "guilib", None) and str(webview.guilib))
         webview.start(private_mode=False, storage_path=_storage_dir(), debug=bool(os.environ.get("B2_DEBUG")))
     except Exception as e:  # noqa: BLE001
         logbook.error("Programmfenster konnte nicht starten: %s" % e)

@@ -76,8 +76,11 @@ jobs:
           $env:B2_AUTOCLOSE = "6"
           $p = Start-Process dist\b2stacker.exe -PassThru
           $ok = $p.WaitForExit(60000)
-          $ev = Get-Content "$env:RUNNER_TEMP\as\work\logs\events-*.jsonl" | Select-String '"window_loaded"|"app_exit"|"error"'
+          Write-Host "beendet: $ok  Exit: $($p.ExitCode)"
+          $ev = Get-Content "$env:RUNNER_TEMP\as\work\logs\events-*.jsonl" | Select-Object -Last 12
           $ev | ForEach-Object { Write-Host $_ }
+          Write-Host "--- b2stacker.log ---"
+          Get-Content "$env:RUNNER_TEMP\as\work\logs\b2stacker.log" -Tail 40 | ForEach-Object { Write-Host $_ }
           if (-not ($ev -match "window_loaded")) { throw "Programmfenster wurde nicht geladen" }
           if (-not $ok) { Stop-Process -Id $p.Id -Force; throw "Programm hat sich nicht beendet" }
           Write-Host "Programmfenster OK (geöffnet, geladen, geschlossen)"
