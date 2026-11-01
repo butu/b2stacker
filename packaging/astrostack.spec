@@ -15,7 +15,9 @@ datas += collect_data_files("astropy", excludes=["**/tests/**", "**/*.c", "**/*.
 datas += collect_data_files("astropy_iers_data")
 hidden = collect_submodules("astropy.coordinates") + collect_submodules("astropy.io.fits") + ["erfa"]
 if sys.platform == "win32":
-    hidden += ["tkinter", "tkinter.filedialog"]
+    hidden += ["tkinter", "tkinter.filedialog", "clr"]
+    hidden += collect_submodules("webview")
+    datas += collect_data_files("webview")
 
 a = Analysis(
     [os.path.join(SPECPATH, "entry.py")],
@@ -28,8 +30,8 @@ a = Analysis(
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz, a.scripts, a.binaries, a.datas, [],
-    name="AstroStack",
-    console=True,
+    name="b2stacker",
+    console=False,                 # eigenes Programmfenster, kein schwarzes Konsolenfenster
     icon=os.path.join(SPECPATH, "astrostack.ico"),
     upx=False,
 )

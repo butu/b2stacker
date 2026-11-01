@@ -34,33 +34,58 @@ jobs:
           pyinstaller packaging/astrostack.spec --noconfirm
 
       - name: Selbsttest der exe
-        run: dist\AstroStack.exe _selftest
+        shell: pwsh
+        run: |
+          # Die exe hat kein Konsolenfenster – Ausgabe über Umleitung prüfen
+          $p = Start-Process dist\b2stacker.exe -ArgumentList "_selftest" -Wait -PassThru -NoNewWindow -RedirectStandardOutput selftest.txt
+          Get-Content selftest.txt
+          if ($p.ExitCode -ne 0) { throw "Selbsttest fehlgeschlagen" }
 
-      - name: Analyse mit der exe (Testdaten)
+      - name: Analyse mit der exe (Testdaten, Kommandozeile)
         shell: pwsh
         run: |
           $env:ASTROSTACK_SETTINGS = "$env:RUNNER_TEMP\as\settings.json"
           python packaging/make_testdata.py "$env:RUNNER_TEMP\as\NINA"
-          dist\AstroStack.exe settings --set "workdir=$env:RUNNER_TEMP\as\work"
-          dist\AstroStack.exe report "$env:RUNNER_TEMP\as\NINA"
+          function Run-Exe($a) {
+            $p = Start-Process dist\b2stacker.exe -ArgumentList $a -Wait -PassThru -NoNewWindow -RedirectStandardOutput out.txt
+            Get-Content out.txt
+            if ($p.ExitCode -ne 0) { throw "Fehler bei: $a" }
+          }
+          Run-Exe @("settings", "--set", "workdir=$env:RUNNER_TEMP\as\work")
+          Run-Exe @("report", "`"$env:RUNNER_TEMP\as\NINA`"")
           if (-not (Test-Path "$env:RUNNER_TEMP\as\work\projects\vdB 131\report.html")) { throw "kein Bericht" }
-          dist\AstroStack.exe --json plan "vdB 131"
+          Run-Exe @("--json", "plan", "`"vdB 131`"")
+          Run-Exe @("logs", "--last", "5")
 
-      - name: Oberfläche starten und abfragen
+      - name: Server ohne Fenster starten und abfragen
         shell: pwsh
         run: |
           $env:ASTROSTACK_SETTINGS = "$env:RUNNER_TEMP\as\settings.json"
-          $p = Start-Process dist\AstroStack.exe -ArgumentList "gui","--no-browser" -PassThru
+          $p = Start-Process dist\b2stacker.exe -ArgumentList "gui","--no-browser" -PassThru
           Start-Sleep -Seconds 8
           $s = Invoke-RestMethod http://127.0.0.1:8765/api/state
           if ($s.projects.Count -lt 1) { throw "keine Projekte in der Oberfläche" }
           Write-Host "Oberfläche OK, Version $($s.version), RAM frei $($s.ram_free_gb) GB"
           Stop-Process -Id $p.Id -Force
 
+      - name: Programmfenster öffnen (WebView2)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $env:ASTROSTACK_SETTINGS = "$env:RUNNER_TEMP\as\settings.json"
+          $env:B2_AUTOCLOSE = "6"
+          $p = Start-Process dist\b2stacker.exe -PassThru
+          $ok = $p.WaitForExit(60000)
+          $ev = Get-Content "$env:RUNNER_TEMP\as\work\logs\events-*.jsonl" | Select-String '"window_loaded"|"app_exit"|"error"'
+          $ev | ForEach-Object { Write-Host $_ }
+          if (-not ($ev -match "window_loaded")) { throw "Programmfenster wurde nicht geladen" }
+          if (-not $ok) { Stop-Process -Id $p.Id -Force; throw "Programm hat sich nicht beendet" }
+          Write-Host "Programmfenster OK (geöffnet, geladen, geschlossen)"
+
       - uses: actions/upload-artifact@v4
         with:
           name: AstroStack-exe
-          path: dist/AstroStack.exe
+          path: dist/b2stacker.exe
 
       - name: Version lesen
         id: ver
@@ -77,9 +102,9 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: AstroStack ${{ steps.ver.outputs.version }}
           make_latest: true
-          files: dist/AstroStack.exe
+          files: dist/b2stacker.exe
           body: |
-            **AstroStack.exe herunterladen und doppelklicken** – die Oberfläche öffnet sich im Browser.
+            **b2stacker.exe herunterladen und doppelklicken** – die Oberfläche öffnet sich im Browser.
             Keine Installation, kein Python nötig. Voraussetzung: PixInsight.
 
             Windows SmartScreen kann beim ersten Start warnen („Unbekannter Herausgeber“):

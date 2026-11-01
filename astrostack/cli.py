@@ -184,7 +184,8 @@ def main(argv=None):
     p = sub.add_parser("report", help="vermessen und Bericht + Plan erzeugen")
     p.add_argument("folders", nargs="+")
     p.add_argument("--target", help="nur dieses Ziel (sonst alle)")
-    p = sub.add_parser("gui", help="Oberfläche im Browser öffnen")
+    p = sub.add_parser("app", help="Programmfenster öffnen (Standard bei Doppelklick)")
+    p = sub.add_parser("gui", help="Oberfläche im Browser öffnen (--no-browser: nur Server, z. B. für Tests)")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--no-browser", action="store_true")
     p = sub.add_parser("plan", help="Stacking-Plan eines Projekts anzeigen/ändern")
@@ -212,12 +213,15 @@ def main(argv=None):
     p = sub.add_parser("settings", help="Einstellungen anzeigen/ändern")
     p.add_argument("--set", nargs="*", help="schluessel=wert")
     args = ap.parse_args(argv)
-    if not args.cmd:                       # Doppelklick / ohne Befehl → Oberfläche
-        args = ap.parse_args(["gui"] + (["--json"] if args.json else []))
+    if not args.cmd:                       # ohne Befehl → Programmfenster
+        args = ap.parse_args(["app"])
     s = Settings.load()
     if args.cmd not in ("settings",):
         from . import logbook
         logbook.setup(s.workdir)
+    if args.cmd == "app":
+        from .app import window
+        return window.run()
     {"scan": cmd_scan, "check-calib": cmd_check_calib, "report": cmd_report, "settings": cmd_settings, "gui": cmd_gui,
      "plan": cmd_plan, "override": cmd_override, "stack": cmd_stack, "status": cmd_status, "logs": cmd_logs}[args.cmd](args, s)
 

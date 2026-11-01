@@ -9,9 +9,10 @@ per Klick oder per KI.
 ## Starten (Windows)
 
 **Einfach:** Unter [Releases](https://github.com/butu/b2stacker/releases/latest) die Datei
-**`AstroStack.exe`** herunterladen und doppelklicken. Keine Installation, kein Python nötig.
-Die Oberfläche öffnet sich im Browser. Das schwarze Konsolenfenster offen lassen – Schließen beendet das Programm.
-Ein zweiter Doppelklick öffnet nur wieder den Browser.
+**`b2stacker.exe`** herunterladen und doppelklicken. Keine Installation, kein Python nötig.
+b2stacker öffnet sich als eigenes Programmfenster (WebView2, in Windows 10/11 enthalten) – kein Browser,
+keine Konsole. Fenster schließen beendet das Programm (bei laufendem Stacking mit Rückfrage).
+Ein zweiter Doppelklick holt das offene Fenster nach vorne.
 
 Windows SmartScreen kann beim ersten Start warnen („Unbekannter Herausgeber“):
 „Weitere Informationen“ → „Trotzdem ausführen“.
@@ -59,11 +60,13 @@ neu analysieren und erneut stacken.
 
 ## Kommandozeile (auch für KI-Bedienung)
 
-Alle Befehle antworten mit `--json` maschinenlesbar.
+Alle Befehle antworten mit `--json` maschinenlesbar. Die exe nimmt dieselben Befehle an
+(`b2stacker.exe --json plan "vdB 15"`) – Ausgaben gehen an die aufrufende Konsole bzw. Umleitung.
 
 | Befehl | Zweck |
 |---|---|
-| `astrostack` / `astrostack gui` | Oberfläche öffnen |
+| `b2stacker.exe` (ohne Argumente) | Programmfenster |
+| `astrostack gui [--no-browser]` | Oberfläche im Browser bzw. nur Server |
 | `astrostack scan <ordner…>` | Frames finden und gruppieren |
 | `astrostack check-calib <ordner…>` | Flats/Bias/Darks prüfen und zuordnen |
 | `astrostack report <ordner…> [--target <ziel>]` | vermessen, Bericht + Plan erzeugen |
@@ -82,7 +85,7 @@ py -m venv .venv
 pip install -e .[dev]
 pytest
 pip install pyinstaller
-pyinstaller packaging/astrostack.spec --noconfirm   # → dist/AstroStack.exe
+pyinstaller packaging/astrostack.spec --noconfirm   # → dist/b2stacker.exe
 ```
 
 Jeder Push auf `main` baut die exe auf GitHub (Windows), testet sie und veröffentlicht sie als Release `v<Version>` (Version in `astrostack/__init__.py`; gleiche Version → Datei wird ersetzt).

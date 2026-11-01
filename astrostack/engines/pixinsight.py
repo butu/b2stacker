@@ -231,7 +231,8 @@ class Runner:
         if not self.proc or self.proc.poll() is not None:
             return
         if sys.platform == "win32":
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(self.proc.pid)], capture_output=True)
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(self.proc.pid)], capture_output=True,
+                           creationflags=0x08000000)
         else:
             self.proc.kill()
 

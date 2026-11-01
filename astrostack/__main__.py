@@ -3,11 +3,48 @@
 Ohne Argumente (Doppelklick) startet die Oberfläche.
 """
 import multiprocessing
+import os
 import sys
+
+
+def _attach_std_streams():
+    """Die exe hat kein Konsolenfenster. Für die Kommandozeile (z. B. KI-Agenten) Ausgaben trotzdem liefern:
+    an eine Umleitung/Pipe des Aufrufers schreiben oder an dessen Konsole andocken."""
+    if sys.platform != "win32" or not getattr(sys, "frozen", False):
+        return
+    import ctypes
+    import io
+    import msvcrt
+    k32 = ctypes.windll.kernel32
+    attached = False
+    for name, std in (("stdout", -11), ("stderr", -12)):
+        if getattr(sys, name) is not None:
+            continue
+        h = k32.GetStdHandle(std)
+        stream = None
+        if h not in (0, -1, None) and k32.GetFileType(h) in (1, 3):      # Datei oder Pipe
+            try:
+                fd = msvcrt.open_osfhandle(h, 0)
+                stream = io.TextIOWrapper(os.fdopen(fd, "wb", buffering=0), encoding="utf-8", errors="replace",
+                                          line_buffering=True)
+            except OSError:
+                stream = None
+        if stream is None:
+            if not attached:
+                attached = bool(k32.AttachConsole(-1))                     # Konsole des Aufrufers
+            if attached:
+                try:
+                    stream = open("CONOUT$", "w", encoding="utf-8", errors="replace", buffering=1)
+                except OSError:
+                    stream = None
+        if stream is not None:
+            setattr(sys, name, stream)
 
 
 def run():
     multiprocessing.freeze_support()          # nötig für die Vermessung in Unterprozessen (exe)
+    if len(sys.argv) >= 2:
+        _attach_std_streams()
     for stream in (sys.stdout, sys.stderr):   # umgeleitete Ausgabe unter Windows (cp1252): nie an Sonderzeichen abstürzen
         try:
             stream.reconfigure(errors="replace")
@@ -19,8 +56,26 @@ def run():
         return
     if len(sys.argv) >= 2 and sys.argv[1] == "_selftest":
         sys.exit(selftest())
+    if len(sys.argv) == 1 or sys.argv[1:] == ["app"]:      # Doppelklick → eigenes Programmfenster
+        from .app import window
+        window.run()
+        return
     from .cli import main
     main()
+
+
+def _webview2_version():
+    import winreg
+    keys = [r"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+            r"SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"]
+    for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        for k in keys:
+            try:
+                with winreg.OpenKey(root, k) as h:
+                    return winreg.QueryValueEx(h, "pv")[0]
+            except OSError:
+                continue
+    raise RuntimeError("nicht gefunden – Ersatz: Edge-App-Fenster")
 
 
 def selftest() -> int:
@@ -52,6 +107,8 @@ def selftest() -> int:
     check("Mond (astropy)", moon)
     if sys.platform == "win32":
         check("tkinter", lambda: __import__("tkinter").TkVersion)
+        check("Programmfenster (pywebview)", lambda: __import__("webview").__name__)
+        check("WebView2-Laufzeit", _webview2_version)
     from .settings import Settings
     check("Einstellungen", lambda: Settings.path())
     print("SELBSTTEST " + ("OK" if ok else "FEHLGESCHLAGEN"))

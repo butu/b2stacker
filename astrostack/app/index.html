@@ -822,7 +822,12 @@ function openSettings(first){
   $('#setBody').innerHTML=(first?`<div class="banner info" style="margin:0"><div>Willkommen! Bitte kurz prüfen: Wo soll gearbeitet werden, und wo ist PixInsight installiert?</div></div>`:'')+
     SETF.map(([k,l,t,d,pick])=>t==='bool'?`<label class="opt"><span class="switch"><input type="checkbox" data-k="${k}" ${s[k]?'checked':''}><span></span></span><span><div class="t">${l}</div><div class="d">${d}</div></span></label>`:
     `<div class="field"><label>${l}</label><div class="frow"><input type="${t}" data-k="${k}" value="${esc(s[k])}">${pick?`<button class="btn" data-pickset="${k}">Durchsuchen …</button>`:''}</div>${d?`<div class="d">${d}</div>`:''}</div>`).join('')+
-    `<div class="muted small">Gespeichert in ${esc(S.settings_file)} · Version ${esc(S.version)}</div>`;
+    `<div class="row"><div class="muted small grow">Gespeichert in ${esc(S.settings_file)} · Version ${esc(S.version)}</div>
+      <button class="btn sm" id="quitBtn" title="Programm komplett beenden">⏻ b2stacker beenden</button></div>`;
+  $('#quitBtn').onclick=async()=>{const a=S.job&&['queued','running'].includes(S.job.state);
+    if(!confirm(a?'Es läuft gerade ein Auftrag – er wird abgebrochen. b2stacker wirklich beenden?':'b2stacker beenden?'))return;
+    try{await api('/api/quit',{})}catch(e){}
+    document.body.innerHTML='<div style="display:grid;place-items:center;height:100vh;color:var(--text-muted)">b2stacker wurde beendet. Dieses Fenster kann geschlossen werden.</div>';};
   document.querySelectorAll('[data-pickset]').forEach(b=>b.onclick=async()=>{const inp=document.querySelector(`[data-k="${b.dataset.pickset}"]`);try{const r=await api('/api/pick-folder',{initial:inp.value});if(r.path)inp.value=r.path;}catch(e){toast(e.message,true)}});
   setDlg.showModal();
 }

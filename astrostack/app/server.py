@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import traceback
 import urllib.parse
 import webbrowser
@@ -48,6 +49,7 @@ def state() -> dict:
     last = JOBS.jobs[-1] if JOBS.jobs else None
     return dict(
         version=__version__,
+        app_window=_safe(lambda: __import__("astrostack.app.window", fromlist=["STATE"]).STATE.get("window") is not None, False),
         settings=asdict(s),
         settings_file=Settings.path(),
         first_run=not os.path.exists(Settings.path()),
@@ -134,7 +136,11 @@ def _pick_folder_powershell(initial: str):
 
 
 def pick_folder(initial: str = "") -> str | None:
-    """Nativer Ordner-Dialog. In der exe ruft sich das Programm selbst auf, sonst python -m astrostack."""
+    """Nativer Ordner-Dialog: im Programmfenster direkt, sonst über einen Hilfsprozess."""
+    from . import window
+    r = window.pick_folder(initial)
+    if r is not False:
+        return r
     if getattr(sys, "frozen", False):
         cmd = [sys.executable, "_pick-folder", initial or ""]
     else:
@@ -246,6 +252,29 @@ def start_requality(name: str, stack_id: str) -> dict:
             job.write("%s: Rauschen %.2f ADU, %d Sterne" % (os.path.basename(o["file"]), k["noise"], k["stars"]))
         return {"ok": True}
     return JOBS.submit("quality", "Kennzahlen " + rec.get("run", ""), s.workdir, fn, project=name).as_dict()
+
+
+def quit_app() -> dict:
+    """Programm beenden (Knopf in den Einstellungen) – wichtig, wenn kein eigenes Fenster läuft."""
+    from . import window
+    j = JOBS.active()
+    if j:
+        j.cancel.set()
+        j.write("Abbruch: Programm wird beendet")
+    logbook.event("app_quit", job_cancelled=bool(j))
+
+    def bye():
+        time.sleep(2.5 if j else 0.4)
+        w = window.STATE.get("window")
+        if w is not None:
+            try:
+                w.destroy()
+                return
+            except Exception:  # noqa: BLE001
+                pass
+        os._exit(0)
+    threading.Thread(target=bye, daemon=True).start()
+    return {"ok": True}
 
 
 def open_path(path: str):
@@ -378,6 +407,11 @@ class Handler(BaseHTTPRequestHandler):
                 moved = project.move_projects(b["old"], settings().workdir, b.get("projects", []))
                 logbook.event("move_projects", old=b["old"], new=settings().workdir, moved=moved)
                 return self._json({"moved": moved})
+            if parts == ["api", "focus"]:
+                from . import window
+                return self._json({"ok": window.focus()})
+            if parts == ["api", "quit"]:
+                return self._json(quit_app())
             if parts == ["api", "open-pixinsight"]:
                 open_in_pixinsight(b["paths"])
                 return self._json({"ok": True})
