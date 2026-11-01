@@ -50,10 +50,10 @@ class FakePI:
         pass
 
 
-def _setup(tmp_path, monkeypatch):
+def _setup(tmp_path, monkeypatch, n=3):
     monkeypatch.setenv("ASTROSTACK_SETTINGS", str(tmp_path / "settings.json"))
     r = str(tmp_path / "data")
-    for i in range(3):
+    for i in range(n):
         h = dict(NINA_LIGHT, **{"DATE-OBS": "2026-10-12T20:%02d:00" % (10 * i)})
         make_fits(f"{r}/vdB 131/2026-10-12/HaO3/L_{i:04d}.fits", h, data=star_field(i))
     hf = dict(NINA_LIGHT, IMAGETYP="FLAT", EXPOSURE=1.0, EXPTIME=1.0)
@@ -152,3 +152,60 @@ def test_plan_edits_survive(tmp_path, monkeypatch):
     assert p["options"]["local_normalization"] is False and p["runs"][0]["enabled"] is False
     st = pi.run_plan(dict(p, workdir=pdir), s, log=lambda *a: None, runner_factory=FakePI, cancel=threading.Event())
     assert st.state == "failed" and "Kein Lauf" in st.error
+
+
+SA_BLOCK = """[2026-11-01 17:49:55] * Begin registration of light frames
+%s[2026-11-01 17:51:10] ===== StarAlignment: 4 succeeded, 0 failed, 0 skipped =====
+"""
+SA_FRAME = """[2026-11-01 17:51:01] * Loading target file: G:/w/debayered/Light_X/%s_c_d.xisf
+[2026-11-01 17:51:01] 527 putative star pair matches.
+[2026-11-01 17:51:01] %d star pair matches in 472 RANSAC iterations.
+[2026-11-01 17:51:01] Inliers       : %.3f
+[2026-11-01 17:51:01] Quality       : %.3f
+[2026-11-01 17:51:01] rotation      :     -0.36 deg
+[2026-11-01 17:51:01] scale         : %.3f
+[2026-11-01 17:51:01] scale_x       : 0.973
+[2026-11-01 17:51:01] Registration successful.
+"""
+
+
+class FakePIBadReg(FakePI):
+    """Erster Lauf: L_0002 falsch registriert (wie NGC 1999). Wiederholung: Cache, keine Registrierung im Protokoll."""
+
+    def start(self, script, items):
+        cmd = super().start(script, items)
+        out = dict(i.split("=", 1) for i in items if i.startswith("outputDirectory="))["outputDirectory"]
+        os.makedirs(os.path.join(out, "logs"), exist_ok=True)
+        k = len(os.listdir(os.path.join(out, "logs")))
+        frames = "".join(SA_FRAME % ("L_%04d" % i, 18 if i == 2 else 900, 0.034 if i == 2 else 0.66,
+                                    0.36 if i == 2 else 0.9, 0.953 if i == 2 else 1.0) for i in range(4))
+        open(os.path.join(out, "logs", "run%d.log" % k), "w").write(SA_BLOCK % frames if k == 0 else "keine Registrierung\n")
+        return cmd
+
+
+def test_bad_registration_is_excluded_and_restacked(tmp_path, monkeypatch):
+    s, plan, pdir = _setup(tmp_path, monkeypatch, n=4)
+    FakePI.calls = []
+    monkeypatch.setattr(pi.system, "pixinsight_processes", lambda: [])
+    lines = []
+    st = pi.run_plan(plan, s, log=lines.append, runner_factory=FakePIBadReg)
+    assert st.state == "done", st.error
+    wbpp = [c for c in FakePI.calls if c[0] != "split.js"]
+    assert len(wbpp) == 2                                    # einmal wiederholt
+    second = " ".join(wbpp[1][1])
+    assert "L_0002" not in second and "L_0001" in second
+    r = st.runs["HaO3"]
+    assert r["lights"] == 3 and r["excluded"][0].endswith("L_0002.fits")
+    assert any("falsch registriert" in n for n in r["notes"])
+    assert any("WARNUNG" in l and "L_0002" in l for l in lines)
+    hist = project.stacks(pdir)
+    assert hist[-1]["excluded"] == ["L_0002.fits"] and hist[-1]["notes"]
+
+
+def test_registration_parser_on_wbpp_log():
+    from astrostack import wbpplog
+    frames = "".join(SA_FRAME % ("F_%d" % i, 900, 0.6, 0.9, 1.0) for i in range(3)) + SA_FRAME % ("F_9", 35, 0.096, 0.416, 0.999)
+    regs = wbpplog.registrations(SA_BLOCK % frames)
+    assert len(regs) == 4 and regs[0]["matches"] == 900 and regs[0]["scale"] == 1.0
+    assert wbpplog.judge(regs) == []                         # niedrige, aber plausible Qualität ist kein Fehler
+    assert wbpplog.stem("G:/x/3.23_NGC 1999_600.00sec_-9.90c_0034_c_d_r.xisf") == "3.23_NGC 1999_600.00sec_-9.90c_0034"

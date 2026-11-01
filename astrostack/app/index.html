@@ -711,6 +711,7 @@ function renderOverview(b){
       <div class="tx"><div><b>${dt(s.date)}</b>${s.legacy?' <span class="badge neutral">ältere Version</span>':''}</div>
         <div class="muted">${fmt(s.hours,1)} h · ${s.lights??'?'} Lights · ${(s.nights||[]).length} Nächte${s.minutes?' · '+dur(s.minutes*60):''}</div>
         ${o.kpi?`<div class="muted">σ ${fmt(o.kpi.noise,2)} · ${o.kpi.fwhm_as!=null?fmt(o.kpi.fwhm_as,2)+'"':fmt(o.kpi.fwhm_px,2)+' px'} · ${o.kpi.stars} ★ · Form ${fmt(o.kpi.ecc,2)}</div>`:''}
+        ${(s.notes||[]).map(n=>`<div class="small" style="color:var(--warn,#d9a400)">⚠ ${esc(n)}</div>`).join('')}
         <div class="muted small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.file)}">${o.exists?'':'⚠ fehlt: '}${esc(o.file.split(/[\\/]/).pop())}</div></div>
       <div class="acts">${o.exists?`<button class="btn sm" onclick='openPi([${JSON.stringify(o.file)}])'>${ic('pi')} PixInsight</button>
         <button class="btn sm" onclick='openDir(${JSON.stringify(o.file.replace(/[\\/][^\\/]+$/,''))})'>${ic('folder')} Ordner</button>`:''}

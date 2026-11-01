@@ -92,3 +92,17 @@
 - **Master-Kalibrierdateien** (masterBias/-Dark/-Flat, FITS oder XISF) werden erkannt und bevorzugt. WBPP erkennt
   Masters nur am IMAGETYP („Master Bias“ usw.) – fehlt das, wird eine korrigierte Kopie übergeben, sonst würde WBPP
   den Master als einzelnes Rohbild behandeln.
+
+## Nachtrag 2026-11-01: Geistersterne durch falsche Registrierung (NGC 1999)
+
+- Symptom: im Stack oben links „dunkle Löcher“ mit Spikes und Farbsäumen, Sternzahl 46 772 (sonst ~1 000), Exzentrizität 0,67.
+- Ursache: StarAlignment hat **einen** normalen Frame (`…_0034`) falsch registriert – nur 18 von 527 Sternpaaren
+  (Inliers 3 %), Maßstab 0,953. WBPP meldet trotzdem „Registration successful“ und bricht nicht ab. Die
+  Verzerrungskorrektur hat das Bild dann verbogen; helle Sterne der Plejaden-Ecke landeten oben links. Die
+  Pixel-Ablehnung entfernte die Kerne, Halos/Spikes blieben → Löcher.
+- Lösung (0.5.1, `wbpplog.py`): nach jedem Lauf das WBPP-Protokoll lesen; Frames mit Maßstab ≠ 1 (±1 %),
+  Inliers < 5 % oder Quality < 0,40 werden ausgelassen und der Lauf **einmal** wiederholt (WBPP-Cache → nur
+  Normalisierung + Integration neu). Hinweis landet im Stack (`notes`, `excluded` in stacks.json) und im Logbuch
+  (`registration_check`). Frames mit niedriger, aber plausibler Qualität (0,42, Maßstab 0,999) bleiben drin.
+- Nebenbefunde: Local Normalization wurde übersprungen (2 Frames ohne Skalenschätzung → „Unable to determine
+  the LN reference frame“); Flats mit ROTATOR 0 vs. Lights 92,6°.

@@ -22,7 +22,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from .. import logbook, stackqa, steps, system
+from .. import logbook, stackqa, steps, system, wbpplog
 from ..fitsmeta import BIAS, DARK, FLAT
 
 IMAGE_EXT = (".fits", ".fit", ".fts", ".xisf")
@@ -456,10 +456,14 @@ def run_plan(plan: dict, settings, log=print, on_status=None, cancel: threading.
 
 def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, cancel, runner_factory) -> str:
     name = run["name"]
+    orig_run = run
     outdir = os.path.join(jobdir, safe_file(name))
     os.makedirs(outdir, exist_ok=True)
     n = len(run["lights"])
-    log("=== Lauf %s: %d Lights ===" % (name, n))
+    if run.get("_retry"):
+        log("=== Lauf %s wiederholt: %d Lights (Zwischenergebnisse werden wiederverwendet) ===" % (name, n))
+    else:
+        log("=== Lauf %s: %d Lights ===" % (name, n))
     missing = [p for p in run["lights"] if not os.path.exists(p)]
     if missing:
         raise StackError("%d Lights fehlen, z. B. %s" % (len(missing), missing[0]))
@@ -555,6 +559,11 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
         raise StackError("%s Kein Master entstanden – Details in %s" % (
             crash_text(code) if code else "WBPP lief durch, aber", os.path.join(outdir, "logs")))
     log("  Master: %s (%s)" % (os.path.basename(master), _elapsed(time.time() - t0)))
+    notes = list(orig_run.get("_notes") or [])
+    retry = _check_registration(orig_run, outdir, master, notes, log)
+    if retry is not None:
+        remove_link_tree(os.path.join(jobdir, "_grp", safe_file(name)))
+        return _one_run(plan, retry, settings, jobdir, masters, finaldir, st, log, save, cancel, runner_factory)
     _set_step(st, "finalize", 0, 0)
     save()
     previewdir = os.path.join(plan["workdir"], "stacks")
@@ -578,7 +587,8 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     st.runs[name] = dict(master=master, finals=finals, outputs=outputs, minutes=round((time.time() - t0) / 60, 1),
                          lights=n, hours=run.get("hours"), nights=run.get("nights"), filter=run.get("filter"),
                          mode=run.get("mode"), flats=len(run.get("flats", [])), bias=len(run.get("bias", [])),
-                         darks=len(run.get("darks", [])), reference=run.get("reference"))
+                         darks=len(run.get("darks", [])), reference=run.get("reference"), notes=notes,
+                         excluded=orig_run.get("_excluded") or [])
     if settings.cleanup_intermediate:
         for d in os.listdir(outdir):
             full = os.path.join(outdir, d)
@@ -589,6 +599,49 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     remove_link_tree(os.path.join(jobdir, "_grp", safe_file(name)))
     save()
     return master
+
+
+def _check_registration(run: dict, outdir: str, master: str, notes: list, log) -> dict | None:
+    """Registrierung im WBPP-Protokoll prüfen. Falsch registrierte Frames → Lauf ohne sie wiederholen (einmal).
+
+    Gibt den Lauf für die Wiederholung zurück oder None (alles gut bzw. keine Wiederholung möglich)."""
+    try:
+        chk = wbpplog.check_registration(outdir)
+    except Exception as e:  # noqa: BLE001 – Prüfung darf das Ergebnis nicht gefährden
+        log("  Hinweis: Registrierung nicht geprüft (%s)" % e)
+        return None
+    bad = chk["bad"]
+    logbook.event("registration_check", run=run["name"], frames=chk["frames"], retry=bool(run.get("_retry")),
+                  bad=[dict(file=os.path.basename(b["file"]), why=b["why"], scale=b.get("scale"),
+                            inliers=b.get("inliers"), quality=b.get("quality")) for b in bad])
+    if not bad:
+        if chk["frames"]:
+            log("  Registrierung geprüft: alle %d Frames plausibel" % chk["frames"])
+        return None
+    for b in bad:
+        log("  WARNUNG: %s falsch registriert (%s)" % (os.path.basename(b["file"]), ", ".join(b["why"])))
+    drop = wbpplog.map_to_lights(bad, run["lights"])
+    keep = [p for p in run["lights"] if p not in drop]
+    if run.get("_retry") or not drop or len(keep) < 3:
+        notes.append("%d Frame(s) möglicherweise falsch registriert – Stack auf Geistersterne prüfen: %s" % (
+            len(bad), ", ".join(os.path.basename(b["file"]) for b in bad)))
+        return None
+    log("  → Diese %d Frame(s) würden Geistersterne erzeugen. Stack wird ohne sie neu gerechnet "
+        "(Kalibrierung und Registrierung der übrigen Frames werden wiederverwendet)." % len(drop))
+    try:                                                # alter Master darf nicht als Ergebnis gefunden werden
+        os.replace(master, master + ".verworfen")
+    except OSError:
+        pass
+    old_n = len(run["lights"])
+    dropped = set(drop)
+    fg = []
+    for g in run.get("flat_groups") or []:
+        fg.append(dict(g, lights=[p for p in g.get("lights", []) if p not in dropped]))
+    notes = notes + ["%d Frame(s) ausgelassen, weil PixInsight sie falsch registriert hat: %s" % (
+        len(drop), ", ".join(os.path.basename(p) for p in drop))]
+    return dict(run, lights=keep, lightCount=len(keep), flat_groups=fg or run.get("flat_groups"),
+                hours=round((run.get("hours") or 0) * len(keep) / old_n, 2) if run.get("hours") else run.get("hours"),
+                _retry=True, _notes=notes, _excluded=list(run.get("_excluded") or []) + drop)
 
 
 def _set_step(st: Status, key: str, done: int, total: int):
@@ -629,7 +682,8 @@ def _record_stacks(plan: dict, st: Status, stamp: str, log):
                 run=name, filter=r.get("filter"), mode=r.get("mode"), lights=r.get("lights"), hours=r.get("hours"),
                 nights=r.get("nights"), minutes=r.get("minutes"), flats=r.get("flats"), bias=r.get("bias"),
                 darks=r.get("darks"), reference=r.get("reference"), options=plan.get("options", {}),
-                outputs=r.get("outputs", [])))
+                outputs=r.get("outputs", []), notes=r.get("notes") or [],
+                excluded=[os.path.basename(p) for p in r.get("excluded") or []]))
         except Exception as e:  # noqa: BLE001 – Historie darf das Ergebnis nicht gefährden
             log("  Hinweis: Historie nicht gespeichert (%s)" % e)
 
