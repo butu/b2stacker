@@ -86,3 +86,9 @@
   Schlüssel passen zu jedem Wert). Aufräumen entfernt nur die Verknüpfungen, nie die Ziele.
 - **Protokoll für Agenten**: `<Arbeitsverzeichnis>/logs/events-JJJJ-MM.jsonl` (+ `b2stacker.log`, README dort).
   `astrostack logs --kind error --trace` zeigt die letzten Fehler.
+- **Zielnamen** werden vereinheitlicht (Katalog-Präfixe M/NGC/IC/Sh2/vdB/LDN/LBN/Abell/…, Leerzeichen, Bindestriche,
+  führende Nullen). Ohne das entstanden für dasselbe Objekt mehrere Projekte. Vor dem Anlegen zeigt ein Vorschau-Scan
+  alle Ziele; Koordinaten < 0,5° auseinander → Hinweis „vermutlich dasselbe Feld“.
+- **Master-Kalibrierdateien** (masterBias/-Dark/-Flat, FITS oder XISF) werden erkannt und bevorzugt. WBPP erkennt
+  Masters nur am IMAGETYP („Master Bias“ usw.) – fehlt das, wird eine korrigierte Kopie übergeben, sonst würde WBPP
+  den Master als einzelnes Rohbild behandeln.

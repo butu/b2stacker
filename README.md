@@ -26,8 +26,11 @@ Beim ersten Start: in den Einstellungen das **Arbeitsverzeichnis** wählen
 
 Die Startseite zeigt alle Projekte als Kacheln mit Vorschau des neuesten Stacks (Suche und Sortierung links).
 
-1. **Neues Projekt** – einen oder mehrere Ordner wählen (NINA, ASIAIR, Ekos, SharpCap, APT …).
-   Lights, Flats, Bias und Darks werden anhand der FITS-Header gefunden, egal wie die Ordner heißen.
+1. **Neues Projekt** – einen oder mehrere Ordner wählen (NINA, ASIAIR, Ekos, SharpCap, APT …), optional ein Titel.
+   Lights, Flats, Bias und Darks (auch fertige Master) werden anhand der FITS-Header gefunden, egal wie die
+   Ordner heißen. Schreibweisen desselben Objekts („Sh2-82“, „Sh 2-82“, „SH2_82“) gelten als ein Ziel; werden
+   mehrere Ziele gefunden, fragt das Programm nach (zusammenlegen, getrennt, bestehendes Projekt, weglassen) –
+   Ziele mit fast gleichen Koordinaten werden als „vermutlich dasselbe Feld“ markiert.
    Ordner mit `_rejected`, `_verworfen`, `_alt` im Namen gelten als aussortiert.
 2. **Bericht** – jeder Frame wird vermessen (FWHM, Exzentrizität, Sterne, Hintergrund, Rauschen,
    Mond, Höhe), dazu Rig-Diagnose (Fokus, Nachführung, Dithering, Verkippung, Taupunkt) und

@@ -52,7 +52,11 @@ class Finding:
 
 def flat_frame_stats(path: str, bayer: str | None) -> dict:
     a = imageio.load(path)
-    ch = imageio.split_cfa(a, bayer)
+    if a.ndim == 3:                                 # bereits debayerter Master (3 Kanäle)
+        ch = {"R": a[0], "G": a[1], "B": a[2]} if a.shape[0] == 3 else {"L": a[0]}
+        a = a.mean(axis=0)
+    else:
+        ch = imageio.split_cfa(a, bayer)
     any_ch = next(iter(ch.values()))
     r = imageio.radius_map(any_ch.shape, 4)
     c, e = r < 0.15, r > 0.85
@@ -229,6 +233,11 @@ def match_calibration(inv, flat_checks: dict | None = None, th: Thresholds | Non
                 if age < -th.flat_max_age_days:
                     reasons.append("%d Tage vor der letzten Nacht aufgenommen" % -age)
             n = len(c.frames)
+            is_master = all(f.is_master for f in c.frames)
+            if is_master:
+                reasons.append("fertiger Master")
+                n = th.flat_good_frames                    # Master = bereits integriert
+                score += 5
             if n < th.flat_min_frames:
                 reasons.append("nur %d Frame%s" % (n, "" if n == 1 else "s")); score -= 400 + 20 * (th.flat_min_frames - n)
             elif n < th.flat_good_frames:
@@ -268,7 +277,9 @@ def match_calibration(inv, flat_checks: dict | None = None, th: Thresholds | Non
                     score -= abs(age) * 0.1
                 if all(f.excluded for f in c.frames):
                     reasons.append("Ordner als verworfen markiert"); score -= 2000
-                if len(c.frames) < 10:
+                if all(f.is_master for f in c.frames):
+                    reasons.append("fertiger Master"); score += 5
+                elif len(c.frames) < 10:
                     reasons.append("nur %d Frames" % len(c.frames)); score -= 5 * (10 - len(c.frames))
                 lst.append(dict(set=c.summary(), score=round(score, 1), reasons=reasons, usable=score > -400, _frames=c.frames))
             lst.sort(key=lambda x: -x["score"])
@@ -280,7 +291,7 @@ def match_calibration(inv, flat_checks: dict | None = None, th: Thresholds | Non
             res["findings"].append(Finding("info", "Keine passenden Darks",
                                            "Ohne Darks entfernt die Rejection Hotpixel nur bei Dithering.").to_dict())
         best = next((c for c in cands if c["usable"]), None)
-        if best and best["set"]["frames"] < th.flat_min_frames:
+        if best and best["set"]["frames"] < th.flat_min_frames and not best["set"].get("is_master"):
             res["findings"].append(Finding("warning", "Sehr wenige Flats (%d)" % best["set"]["frames"],
                                            "Ein Master-Flat aus so wenigen Frames bringt Rauschen ins Bild. "
                                            "Besser 20–30 Flats je Filter aufnehmen.").to_dict())

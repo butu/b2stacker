@@ -137,6 +137,9 @@ pre{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;p
 @media (max-width:860px){.diagviz{grid-template-columns:1fr}}
 .diagviz>div{min-width:0}
 .fieldmaps{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-top:6px}
+.embedded .wrap{padding:0 0 8px;max-width:none}
+.embedded header{display:none}
+.embedded body{background:transparent}
 .fieldmaps figure{margin:0;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:8px}
 .fieldmaps figcaption{font-size:12px;color:var(--text-secondary);margin-bottom:4px;display:flex;justify-content:space-between}
 .fieldmaps svg{width:100%;height:auto;display:block}
@@ -265,7 +268,11 @@ const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>'
 // theme toggle (per viewer, optional)
 (function(){
   let t=null; try{t=localStorage.getItem('astro-theme')}catch(e){}
+  const q=new URLSearchParams(location.search);
+  if(q.get('theme')) t=q.get('theme');                       // in der App: Theme des Programms
+  if(q.has('embed')) document.documentElement.classList.add('embedded');
   if(t) document.documentElement.dataset.theme=t;
+  window.setTheme=x=>{document.documentElement.dataset.theme=x;drawCharts();drawSky();drawDiag();};
   document.getElementById('themeBtn').onclick=()=>{
     const cur=document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');
     const nx=cur==='light'?'dark':'light'; document.documentElement.dataset.theme=nx;
@@ -511,6 +518,10 @@ function renderGallery(){
 renderGallery();
 const dlg=document.getElementById('dlg');
 function openFrame(i){
+  if(APP&&APP.showFrame){                       // in der App: große Ansicht im Programmfenster (mit Blättern)
+    APP.showFrame(D.frames,i,(j,v)=>{const f=D.frames[j];f.override=v;f.status=v==='out'?'rejected':v==='in'?(f.auto_status==='warn'?'warn':'ok'):f.auto_status;renderGallery();});
+    return;
+  }
   const f=D.frames[i];
   const im=document.getElementById('dImg');
   im.src=f.img; im.classList.remove('zoom');
@@ -527,6 +538,11 @@ function openFrame(i){
 
 // In der App (iframe): Frames per Klick aufnehmen/ausschließen
 const APP=(()=>{try{return window.parent!==window&&window.parent.astrostack?window.parent.astrostack:null}catch(e){return null}})();
+// in der App: Höhe an das Programm melden (eine Bildlaufleiste statt zwei)
+if(APP&&APP.resize&&document.documentElement.classList.contains('embedded')){
+  const send=()=>APP.resize(document.documentElement.scrollHeight);
+  new ResizeObserver(send).observe(document.body); window.addEventListener('load',send); send();
+}
 function appButtons(i){
   if(!APP)return '';
   const f=D.frames[i], off=['rejected','suggest'].includes(f.status);

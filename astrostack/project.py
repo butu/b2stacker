@@ -18,9 +18,65 @@ def project_dir(settings: Settings, target: str) -> str:
     return os.path.join(settings.workdir, "projects", safe_name(target))
 
 
-def scan(roots, settings: Settings, progress=None):
-    opt = discover.ScanOptions(custom_filters=settings.custom_filters)
+def scan(roots, settings: Settings, progress=None, target_map: dict | None = None):
+    opt = discover.ScanOptions(custom_filters=settings.custom_filters, target_map=dict(target_map or {}))
     return discover.scan(roots, opt, progress)
+
+
+def _sep_deg(ra1, de1, ra2, de2) -> float:
+    import math
+    r = math.radians
+    c = math.sin(r(de1)) * math.sin(r(de2)) + math.cos(r(de1)) * math.cos(r(de2)) * math.cos(r(ra1 - ra2))
+    return math.degrees(math.acos(max(-1.0, min(1.0, c))))
+
+
+def preview_targets(roots, settings: Settings, progress=None) -> dict:
+    """Vor dem Anlegen: welche Ziele stecken in den Ordnern? Mit Hinweisen auf vermutlich gleiche Ziele
+    (Koordinaten < 0,5°) und auf bestehende Projekte desselben Ziels."""
+    import statistics as st
+    roots = [os.path.abspath(r) for r in roots]
+    inv = scan(roots, settings, progress)
+    tg: dict[str, dict] = {}
+    for g in inv.lights:
+        k = discover.target_key(g.target)
+        t = tg.setdefault(k, dict(key=k, name=g.target, names={}, frames=0, excluded=0, hours=0.0, filters=[], nights=set(),
+                                  folders=set(), ra=[], dec=[]))
+        for n, c in g.names.items():
+            t["names"][n] = t["names"].get(n, 0) + c
+        used = [f for f in g.frames if not f.excluded]
+        t["frames"] += len(used)
+        t["excluded"] += len(g.frames) - len(used)
+        t["hours"] += sum(f.exposure or 0 for f in used) / 3600
+        if g.filter not in t["filters"]:
+            t["filters"].append(g.filter)
+        t["nights"] |= {f.night for f in used if f.night}
+        t["folders"] |= {os.path.dirname(os.path.dirname(f.path)) for f in g.frames[:50]}
+        t["ra"] += [f.ra for f in used if f.ra is not None]
+        t["dec"] += [f.dec for f in used if f.dec is not None]
+    existing = {}
+    for p in list_projects(settings):
+        existing[discover.target_key(p["target"])] = p
+    out = []
+    for k, t in tg.items():
+        ra = st.median(t["ra"]) if t["ra"] else None
+        de = st.median(t["dec"]) if t["dec"] else None
+        ex = existing.get(k)
+        out.append(dict(key=k, name=t["name"], names=t["names"], frames=t["frames"], excluded=t["excluded"],
+                        hours=round(t["hours"], 2), filters=t["filters"], nights=sorted(t["nights"]),
+                        folders=sorted(t["folders"])[:5], ra=ra, dec=de,
+                        existing=ex and dict(name=ex["name"], title=ex["title"], target=ex["target"])))
+    out.sort(key=lambda t: -t["hours"])
+    near = []
+    for i, a in enumerate(out):
+        for b in out[i + 1:]:
+            if None not in (a["ra"], a["dec"], b["ra"], b["dec"]):
+                d = _sep_deg(a["ra"], a["dec"], b["ra"], b["dec"])
+                if d < 0.5:
+                    near.append(dict(a=a["key"], b=b["key"], deg=round(d, 2)))
+    calib = {}
+    for c in inv.calib:
+        calib[c.type] = calib.get(c.type, 0) + len(c.frames)
+    return dict(roots=roots, targets=out, near=near, calib=calib, errors=len(inv.errors), unknown=len(inv.unknown))
 
 
 def targets(inv) -> list[str]:
@@ -31,7 +87,8 @@ def targets(inv) -> list[str]:
     return seen
 
 
-def run_report(roots, target: str | None, settings: Settings, log=print, progress=None, cancel=None) -> list[dict]:
+def run_report(roots, target: str | None, settings: Settings, log=print, progress=None, cancel=None,
+               assign: dict | None = None, title: str | None = None) -> list[dict]:
     """Kompletter Durchlauf für ein Ziel (oder alle Ziele, wenn target=None).
 
     progress(stage=…, done=…, total=…) wird laufend aufgerufen; cancel ist ein threading.Event.
@@ -44,8 +101,23 @@ def run_report(roots, target: str | None, settings: Settings, log=print, progres
     timings = {}
     log("Scanne %d Ordner …" % len(roots))
     progress(stage="Ordner durchsuchen", step="scan", done=0, total=0)
+    # assign: {Ziel-Schlüssel: Projektname} – vom Benutzer bestätigte Zuordnung (zusammenlegen / bestehendes Projekt)
+    #         Wert None = Ziel nicht anlegen
+    assign = dict(assign or {})
+    skip_keys = {k for k, v in assign.items() if not v}
+    tmap = {k: v for k, v in assign.items() if v}
+    if not tmap:                                       # ohne Rückfrage: bestehende Projekte desselben Ziels verwenden
+        for p in list_projects(settings):
+            tmap.setdefault(discover.target_key(p["target"]), p["target"])
     t0 = time.time()
-    inv = scan(roots, settings, lambda i, n: progress(stage="Ordner durchsuchen", step="scan", done=i, total=n))
+    inv = scan(roots, settings, lambda i, n: progress(stage="Ordner durchsuchen", step="scan", done=i, total=n), tmap)
+    if skip_keys:
+        inv.lights = [g for g in inv.lights if discover.target_key(g.target) not in skip_keys]
+    if title and not assign:                           # ein Titel für alles Gefundene (nur bei einem Ziel eindeutig)
+        tks = {discover.target_key(g.target) for g in inv.lights}
+        if len(tks) == 1:
+            tmap = {next(iter(tks)): title}
+            inv = scan(roots, settings, None, tmap)
     timings["scan"] = round(time.time() - t0, 1)
     log("  %d Light-Gruppen, %d Kalibriersätze, %d unbekannt, %d Fehler" % (len(inv.lights), len(inv.calib), len(inv.unknown), len(inv.errors)))
     if not inv.lights:
@@ -57,19 +129,21 @@ def run_report(roots, target: str | None, settings: Settings, log=print, progres
     # Gibt es ein Ziel schon als Projekt mit weiteren Quellordnern, werden diese mit einbezogen
     extra = []
     for t in ([target] if target else targets(inv)):
-        old = sources(os.path.join(settings.workdir, "projects", safe_name(t))).get("roots") or []
+        old = sources(os.path.join(settings.workdir, "projects", safe_name(tmap.get(discover.target_key(t), t)))).get("roots") or []
         extra += [r for r in old if os.path.abspath(r) not in roots and r not in extra and os.path.isdir(r)]
     if extra:
         log("Projekt existiert bereits – bisherige Ordner werden mit einbezogen: " + ", ".join(extra))
         roots = roots + [os.path.abspath(r) for r in extra]
-        inv = scan(roots, settings, lambda i, n: progress(stage="Ordner durchsuchen", step="scan", done=i, total=n))
+        inv = scan(roots, settings, lambda i, n: progress(stage="Ordner durchsuchen", step="scan", done=i, total=n), tmap)
+        if skip_keys:
+            inv.lights = [g for g in inv.lights if discover.target_key(g.target) not in skip_keys]
         calib = calibcheck.check_all(inv, progress=lambda i, n, f: progress(stage="Flats prüfen", step="flats", done=i, total=n))
     results = []
     for t in ([target] if target else targets(inv)):
         t0 = time.time()
         if cancel is not None and cancel.is_set():
             break
-        groups = [g for g in inv.lights if g.target.lower() == t.lower()]
+        groups = [g for g in inv.lights if discover.target_key(g.target) == discover.target_key(t)]
         if not groups:
             log("Ziel nicht gefunden: %s" % t)
             continue
@@ -94,7 +168,15 @@ def run_report(roots, target: str | None, settings: Settings, log=print, progres
         progress(stage="Bericht & Plan", step="report", target=groups[0].target, done=0, total=0)
         res = report_build.build(groups[0].target, groups, inv, calib, adir, settings.workdir, os.path.join(pdir, "report.html"))
         apply_edits(pdir)
-        meta(pdir)
+        is_new = not os.path.exists(os.path.join(pdir, "project.json"))
+        m0 = meta(pdir)
+        objs = sorted({n for g in groups for n in g.names})
+        if is_new and objs and m0.get("target") != objs[0]:
+            save_meta(pdir, name=m0["name"])
+            mm = meta(pdir)
+            mm["target"] = groups[0].target
+            mm["objects"] = objs
+            _write(os.path.join(pdir, "project.json"), mm)
         res["target"] = groups[0].target
         try:
             plan = load_plan(pdir)
@@ -152,7 +234,7 @@ def save_meta(pdir: str, **changes) -> dict:
             v = (v or "").strip()
             if not v:
                 raise ValueError("Der Name darf nicht leer sein.")
-        if k in ("name", "description", "checklist"):
+        if k in ("name", "description", "checklist", "thumb"):
             m[k] = v
     m["schema"] = SCHEMA
     _write(os.path.join(pdir, "project.json"), m)
@@ -196,6 +278,7 @@ def list_projects(settings: Settings) -> list[dict]:
                         updated=max(os.path.getmtime(plan_p), os.path.getmtime(os.path.join(pdir, "stacks.json"))
                                     if os.path.exists(os.path.join(pdir, "stacks.json")) else 0),
                         stacks=len(st), last_stack=last and last.get("date"),
+                        thumb_v="%s|%s" % (m.get("thumb") or "", last and last.get("date")),
                         has_report=os.path.exists(os.path.join(pdir, "report.html"))))
     out.sort(key=lambda p: -p["updated"])
     return out
@@ -352,7 +435,12 @@ def project_facts(pdir: str, plan: dict | None = None, st: list | None = None) -
 
 
 def thumbnail(pdir: str) -> str | None:
-    """Vorschaubild für die Projekt-Kachel: neuester Stack, sonst ein gutes Rohbild aus der Analyse."""
+    """Vorschaubild für die Projekt-Kachel: selbst gewähltes Bild, sonst neuester Stack, sonst ein gutes Rohbild."""
+    own = meta(pdir).get("thumb")
+    if own:
+        p = _abs(pdir, own)
+        if p and os.path.exists(p):
+            return p
     for r in reversed(stacks(pdir)):
         for o in r.get("outputs", []):
             if o.get("preview") and os.path.exists(o["preview"]):
@@ -377,6 +465,20 @@ def thumbnail(pdir: str) -> str | None:
         return out
     except Exception:  # noqa: BLE001
         return None
+
+
+def set_thumbnail(pdir: str, stack_preview: str | None = None, frame: str | None = None) -> dict:
+    """Projektbild festlegen: Vorschau eines Stacks, ein Rohbild (wird als Vorschau erzeugt) oder Automatik."""
+    if stack_preview:
+        p = os.path.normpath(_abs(pdir, stack_preview))
+        if not p.startswith(os.path.join(pdir, "stacks")) or not os.path.exists(p):
+            raise ValueError("Vorschau nicht gefunden")
+        return save_meta(pdir, thumb=_rel(pdir, p))
+    if frame:
+        from .previews import frame_preview
+        p = frame_preview(frame, os.path.join(pdir, "analysis", "previews"))
+        return save_meta(pdir, thumb=_rel(pdir, p))
+    return save_meta(pdir, thumb=None)
 
 
 def pdir_of(settings: Settings, name: str) -> str:
@@ -451,11 +553,13 @@ def _apply_calib(run: dict, kind: str, choice, cands: dict):
         run["flat_groups_auto"] = run.pop("flat_groups")     # eigene Wahl gilt für alle Nächte
     if choice == "none":
         run[kind], run[setkey] = [], None
+        run.setdefault("calib_master", {})[kind] = False
         run["calib_manual"][kind] = "keine"
     elif isinstance(choice, dict) and choice.get("folder"):
         paths = calib_folder_files(choice["folder"])
         run[kind], run[setkey] = paths, choice["folder"]
         run["calib_manual"][kind] = "eigener Ordner"
+        run.setdefault("calib_master", {})[kind] = len(paths) == 1 and os.path.basename(paths[0]).lower().startswith("master")
         if kind == "flats":
             run["flat_ok"], run["flat_sky"], run["flat_session"], run["flat_reasons"] = True, False, None, ["eigener Ordner"]
     elif isinstance(choice, str) and choice in cands:
@@ -463,6 +567,7 @@ def _apply_calib(run: dict, kind: str, choice, cands: dict):
         run[kind] = list(cands[choice])
         run[setkey] = c["folder"] if c else os.path.dirname(cands[choice][0]) if cands[choice] else None
         run["calib_manual"][kind] = "gewählt"
+        run.setdefault("calib_master", {})[kind] = bool(c and c.get("is_master"))
         if kind == "flats" and c:
             run["flat_ok"] = c.get("verdict") != "critical"
             run["flat_sky"], run["flat_session"], run["flat_reasons"] = c.get("sky", False), c.get("session"), c.get("reasons", [])

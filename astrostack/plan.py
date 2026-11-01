@@ -72,6 +72,8 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
             flat_session=flat and flat["set"].get("session"), flat_sky=bool(flat and flat["set"].get("sky")),
             flat_reasons=flat["reasons"] if flat else [],
             settings_key=list(g.settings),
+            calib_master={k: bool(c and c["set"].get("is_master")) for k, c in
+                          (("flats", flat), ("bias", bias), ("darks", dark), ("darkflats", dflat))},
             calib_choices={k: _choices((m or {}).get(k, []), k) for k in ("flats", "bias", "darks", "darkflats")},
             darkflat_set=dflat and dflat["set"]["folder"],
             **_flat_group_fields(flat_groups, g, frames, flat),
@@ -176,6 +178,8 @@ CHOICE_MAX = 15
 def _label(cand: dict, kind: str) -> str:
     st = cand["set"]
     parts = [st["folder"].replace("\\", "/").split("/")[-2] + "/" + st["folder"].replace("\\", "/").split("/")[-1]]
+    if st.get("is_master"):
+        parts.append("Master: " + os.path.basename(cand["_frames"][0].path) if cand.get("_frames") else "Master")
     if kind == "flats":
         t = (st.get("session") or "")[11:16]
         er = st.get("exposure_range")
@@ -196,6 +200,7 @@ def _choices(cands: list, kind: str) -> list:
         out.append(dict(id=st.get("id") or st["folder"], label=_label(c, kind), folder=st["folder"], frames=st["frames"],
                         usable=c["usable"], score=c["score"], reasons=c["reasons"],
                         verdict=(c.get("check") or {}).get("verdict"), sky=st.get("sky", False), session=st.get("session"),
+                        is_master=bool(st.get("is_master")),
                         paths=[f.path for f in c.get("_frames", [])]))
     return out
 

@@ -215,22 +215,54 @@ def pick_folder(initial: str = "") -> str | None:
     return os.path.normpath(p) if p else None
 
 
-def start_analysis(folders: list[str], target: str | None) -> dict:
+def _check_folders(folders):
     folders = [f.strip().strip('"') for f in folders if f and f.strip()]
     if not folders:
         raise ValueError("Bitte mindestens einen Ordner angeben.")
     for f in folders:
         if not os.path.isdir(f):
             raise ValueError("Ordner nicht gefunden: " + f)
+    return folders
+
+
+def start_preview(folders: list[str]) -> dict:
+    """Schritt 1 beim neuen Projekt: nur Header lesen und zeigen, welche Ziele gefunden wurden."""
+    folders = _check_folders(folders)
     s = settings()
-    # zuletzt verwendete Ordner merken
     s.sources = list(dict.fromkeys(folders + s.sources))[:8]
     s.save()
 
     def fn(job):
+        return project.preview_targets(folders, s, progress=lambda i, n: job.set_progress(
+            stage="Ordner durchsuchen", step="scan", done=i, total=n))
+    return JOBS.submit("scan", "Ordner durchsuchen", s.workdir, fn).as_dict()
+
+
+def _resolve_assign(assign: dict | None) -> dict | None:
+    """Projektnamen der Rückfrage → Ziel-Namen bestehender Projekte (auch wenn umbenannt)."""
+    if not assign:
+        return None
+    by_title = {}
+    for p in project.list_projects(settings()):
+        by_title[p["title"].strip().lower()] = p["target"]
+        by_title[p["target"].strip().lower()] = p["target"]
+    return {k: (by_title.get(v.strip().lower(), v.strip()) if v and v.strip() else None) for k, v in assign.items()}
+
+
+def start_analysis(folders: list[str], target: str | None, assign: dict | None = None, title: str | None = None) -> dict:
+    folders = _check_folders(folders)
+    s = settings()
+    s.sources = list(dict.fromkeys(folders + s.sources))[:8]
+    s.save()
+    assign = _resolve_assign(assign)
+    names = sorted({v for v in (assign or {}).values() if v}) or ([title] if title else [])
+
+    def fn(job):
         return project.run_report(folders, target or None, s, log=job.write,
-                                  progress=lambda **kw: job.set_progress(**kw), cancel=job.cancel)
-    job = JOBS.submit("analyze", "Analyse " + (target or ", ".join(os.path.basename(f) or f for f in folders)), s.workdir, fn)
+                                  progress=lambda **kw: job.set_progress(**kw), cancel=job.cancel,
+                                  assign=assign, title=(title or None))
+    job = JOBS.submit("analyze", "Analyse " + (", ".join(names) if names else target or ", ".join(
+        os.path.basename(f) or f for f in folders)), s.workdir, fn)
     return job.as_dict()
 
 
@@ -452,8 +484,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(check_pixinsight(b.get("path", "")))
             if parts == ["api", "pick-folder"]:
                 return self._json({"path": pick_folder(b.get("initial", ""))})
+            if parts == ["api", "scan-preview"]:
+                return self._json(start_preview(b.get("folders", [])))
             if parts == ["api", "analyze"]:
-                return self._json(start_analysis(b.get("folders", []), b.get("target")))
+                return self._json(start_analysis(b.get("folders", []), b.get("target"), b.get("assign"), b.get("title")))
             if parts[:2] == ["api", "job"] and len(parts) == 4 and parts[3] == "cancel":
                 j = JOBS.get(parts[2])
                 if j:
@@ -490,6 +524,14 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(start_stack(name))
                 if action == "meta":
                     project.save_meta(pdir, **{k: v for k, v in b.items() if k in ("name", "description", "checklist")})
+                    return self._json(project_detail(name))
+                if action == "thumb":
+                    if b.get("frame") and not _known_frame(pdir, b["frame"]):
+                        raise ValueError("unbekannte Datei")
+                    rel = None
+                    if b.get("stack_preview"):
+                        rel = os.path.relpath(b["stack_preview"], pdir) if os.path.isabs(b["stack_preview"]) else b["stack_preview"]
+                    project.set_thumbnail(pdir, stack_preview=rel, frame=b.get("frame"))
                     return self._json(project_detail(name))
                 if action == "sources":
                     project.set_sources(pdir, b.get("roots", []))

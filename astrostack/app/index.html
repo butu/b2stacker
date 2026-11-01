@@ -215,6 +215,29 @@ svg.i.tiny{width:12px;height:12px;opacity:.7}
 .stile .ph .tag{position:absolute;left:8px;top:8px;background:rgba(0,0,0,.65);color:#fff;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:600}
 .stile .tx{padding:10px 12px;font-size:13px;display:grid;gap:4px}
 .stile .acts{display:flex;gap:6px;padding:0 12px 12px;flex-wrap:wrap}
+/* Filter-Symbole: abgerundete Quadrate in den Farben der Wellenlängen */
+.fic{display:inline-block;width:15px;height:15px;border-radius:4px;vertical-align:-3px;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.18)}
+.fic.lg{width:20px;height:20px;border-radius:5px;vertical-align:-5px}
+.ftag{display:inline-flex;align-items:center;gap:6px;font-weight:600}
+/* Bericht eingebettet */
+iframe.report{width:100%;border:0;display:block;background:transparent;margin-top:8px;min-height:400px;height:auto}
+/* Lightbox */
+#frameDlg{width:min(1500px,96vw)}
+#frameDlg .fimg{position:relative;background:#000;display:grid;place-items:center;min-height:300px}
+#frameDlg .fimg img{max-width:100%;max-height:68vh;display:block;cursor:zoom-in}
+#frameDlg .fimg img.zoom{max-width:none;max-height:none;cursor:zoom-out}
+#frameDlg .fimg.zoomed{overflow:auto;max-height:72vh;display:block}
+#frameDlg .nav{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.55);color:#fff;border:none;width:42px;height:64px;font-size:26px;cursor:pointer;border-radius:8px}
+#frameDlg .nav:hover{background:rgba(0,0,0,.8)}
+#frameDlg .nav.l{left:8px}#frameDlg .nav.r{right:8px}
+#frameDlg .fmeta{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px 16px;font-size:13px;padding:12px 20px}
+#frameDlg .fmeta span{display:block;font-size:11.5px;color:var(--text-muted)}
+.lo{color:var(--text-muted);font-size:12px}
+/* Ziel-Rückfrage */
+.trow{display:grid;grid-template-columns:auto 1fr minmax(220px,300px);gap:14px;align-items:start;padding:12px 0;border-top:1px solid var(--line)}
+.trow:first-child{border-top:none}
+.trow.off{opacity:.5}
+.trow input[type=text]{width:100%}
 /* Spickzettel */
 .cl{display:grid;gap:2px;margin-top:8px}
 .cli{display:grid;grid-template-columns:28px 1fr;gap:10px;padding:8px 6px;border-radius:8px;align-items:start}
@@ -270,6 +293,9 @@ dialog img.full{width:100%;display:block;background:#000}
 <dialog id="calDlg"><div class="hd"><h2 style="margin:0" id="calTitle"></h2><button class="btn icon" onclick="calDlg.close()">✕</button></div>
   <div class="bd" id="calBody"></div>
   <div class="ft"><button class="btn" onclick="calDlg.close()">Abbrechen</button><button class="btn primary" id="calSave">Übernehmen</button></div></dialog>
+<dialog id="frameDlg"><div class="hd"><b id="fTitle"></b><div class="row" id="fActs"></div><button class="btn icon" onclick="frameDlg.close()">✕</button></div>
+  <div class="fimg" id="fImgBox"><img id="fImg" alt=""><button class="nav l" id="fPrev" aria-label="vorheriges Foto">‹</button><button class="nav r" id="fNext" aria-label="nächstes Foto">›</button></div>
+  <div class="fmeta" id="fMeta"></div></dialog>
 <dialog id="imgDlg" class="wide"><div class="hd"><b id="imgTitle"></b><button class="btn icon" onclick="imgDlg.close()">✕</button></div><img class="full" id="imgFull" alt=""></dialog>
 
 <script>
@@ -305,8 +331,29 @@ const ICONS={
   info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
   pi:'<circle cx="12" cy="12" r="9"/><path d="M8 9h8M10 9v7M14 9v5c0 1 .5 2 1.5 2"/>',
 };
+const FCOL={ha:'#d42a2a',oiii:'#12a6a0',sii:'#8b1538',r:'#e5484d',g:'#2fa45c',b:'#3a63dd',l:'#d9d9d6'};
+function fkind(name){
+  const n=String(name||'').toLowerCase().replace(/[\s_\-]+/g,'');
+  if(/^(s(ii|2)).*o(iii|3)|sho/.test(n))return 'so3';
+  if(/h(a|alpha).*o(iii|3)|^hao3|extreme|enhance|alpt|duo|quad|dualband|nbz|l-?ultimate/.test(n))return 'hao3';
+  if(/^(ha|halpha|hα|h)$/.test(n)||/^ha\d/.test(n))return 'ha';
+  if(/^(oiii|o3)/.test(n))return 'oiii';
+  if(/^(sii|s2)/.test(n))return 'sii';
+  if(/^(l|lum|luminance|clear)$/.test(n))return 'l';
+  if(/^(r|red)$/.test(n))return 'r';if(/^(g|green)$/.test(n))return 'g';if(/^(b|blue)$/.test(n))return 'b';
+  return 'rgb';
+}
+function fic(name,big){
+  const k=fkind(name),C=FCOL;
+  const bg={rgb:`linear-gradient(90deg,${C.r} 0 33.3%,${C.g} 33.3% 66.6%,${C.b} 66.6%)`,
+    hao3:`linear-gradient(135deg,${C.ha} 0 50%,${C.oiii} 50%)`,so3:`linear-gradient(135deg,${C.sii} 0 50%,${C.oiii} 50%)`}[k]||C[k];
+  const title={rgb:'Breitband (RGB)',hao3:'Dualband Ha + OIII',so3:'Dualband SII + OIII',ha:'H-Alpha (656 nm)',oiii:'OIII (501 nm)',sii:'SII (672 nm)',l:'Luminanz',r:'Rot',g:'Grün',b:'Blau'}[k];
+  return `<span class="fic${big?' lg':''}" style="background:${bg}" title="${esc(name)} – ${title}"></span>`;
+}
+const ftag=(name,big)=>`<span class="ftag">${fic(name,big)}${esc(name)}</span>`;
 const ic=(n,cls='')=>`<svg class="i ${cls}" viewBox="0 0 24 24">${ICONS[n]||ICONS.info}</svg>`;
 
+let newTitle='', preview=null;
 let S=null, STEPS=null, cur={view:'home',project:null,tab:'overview'}, P=null, dirty=false, folders=[''], lastJobState=null;
 const ramHist=[];
 
@@ -337,15 +384,19 @@ window.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;
 window.addEventListener('wheel',e=>{if(!e.ctrlKey)return;e.preventDefault();zStep(e.deltaY<0?1:-1)},{passive:false});
 setZoom(zoom);
 
-// Für den eingebetteten Bericht (Frames ein/aus, große Vorschau)
+// Für den eingebetteten Bericht (Frames ein/aus, große Vorschau, Höhe)
+const effTheme=()=>document.documentElement.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
 window.astrostack={
+  resize:h=>{const f=$('#reportFrame');if(f)f.style.height=(h+4)+'px'},
+  showFrame:(frames,i,onChange)=>showFrame(frames,i,onChange),
   override:(path,value)=>api('/api/project/'+encodeURIComponent(cur.project)+'/override',{path,value}).then(r=>{dirty=true;renderDirty();return r}).catch(e=>{toast(e.message,true);throw e}),
   previewUrl:path=>'/api/frame-preview/'+encodeURIComponent(cur.project)+'?path='+encodeURIComponent(path),
 };
 
 (function(){let t=null;try{t=localStorage.getItem('as-theme')}catch(e){} if(t)document.documentElement.dataset.theme=t;
   $('#themeBtn').onclick=()=>{const dark=document.documentElement.dataset.theme?document.documentElement.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
-    const n=dark?'light':'dark';document.documentElement.dataset.theme=n;try{localStorage.setItem('as-theme',n)}catch(e){};if(cur.view==='project'&&cur.tab==='overview')drawHistory();};})();
+    const n=dark?'light':'dark';document.documentElement.dataset.theme=n;try{localStorage.setItem('as-theme',n)}catch(e){};if(cur.view==='project'&&cur.tab==='overview')drawHistory();
+    const rf=$('#reportFrame');try{if(rf&&rf.contentWindow.setTheme)rf.contentWindow.setTheme(n)}catch(e){}};})();
 
 // ---------- Abfragen
 async function refresh(){
@@ -411,6 +462,7 @@ function render(){
   renderProjects();
   if(cur.view==='home')return renderHome();
   if(cur.view==='new')return renderNew();
+  if(cur.view==='targets')return renderTargets();
   if(cur.view==='job')return renderJob();
   if(cur.view==='project')return renderProject();
 }
@@ -422,13 +474,49 @@ function renderHome(){
     <div class="tiles">
       <button class="tile new" onclick="go('new')">${ic('folder')}<span>Neues Projekt</span><span class="muted small" style="font-weight:400">Ordner wählen, analysieren, stacken</span></button>
       ${L.map(p=>`<button class="tile" data-n="${esc(p.name)}">
-        <div class="ph" style="background-image:url('/api/project-thumb/${encodeURIComponent(p.name)}?t=${Math.round(p.updated)}')"></div>
+        <div class="ph" style="background-image:url('/api/project-thumb/${encodeURIComponent(p.name)}?v=${encodeURIComponent(p.thumb_v||'')}')"></div>
         <div class="tx"><b title="${esc(p.title)}">${esc(p.title)}</b>
           <div class="m"><span>${ic('clock','tiny')} ${p.last_stack?dshort(p.last_stack):p.last_night?dshort(p.last_night):'–'}</span>
             <span>${ic('layers','tiny')} ${p.stacks} Stack${p.stacks===1?'':'s'}</span>${p.hours?`<span>${fmt(p.hours,1)} h</span>`:''}</div>
-          ${(p.filters||[]).length?`<div class="m">${p.filters.map(f=>`<span class="badge neutral">${esc(f)}</span>`).join('')}</div>`:''}</div></button>`).join('')}
+          ${(p.filters||[]).length?`<div class="m">${p.filters.map(f=>`<span class="badge neutral">${ftag(f)}</span>`).join('')}</div>`:''}</div></button>`).join('')}
     </div>`;
   document.querySelectorAll('.tile[data-n]').forEach(t=>t.onclick=()=>openProject(t.dataset.n));
+}
+
+// ---------- Rückfrage: gefundene Ziele → Projekte
+async function startAnalysis(assign){
+  try{await api('/api/analyze',{folders:preview.roots,assign});newTitle='';cur.view='job';await refresh();}catch(e){toast(e.message,true)}
+}
+function renderTargets(){
+  const T=preview.targets, near=preview.near||[];
+  const nearOf=k=>near.filter(n=>n.a===k||n.b===k).map(n=>({other:T.find(t=>t.key===(n.a===k?n.b:n.a)),deg:n.deg}));
+  // Vorbelegung: bestehendes Projekt > benachbartes (größeres) Ziel > Titel (bei einem Ziel) > Objektname
+  if(!renderTargets.init){renderTargets.init=true;
+    T.forEach(t=>{t._on=true;t._proj=t.existing?t.existing.title:t.name;});
+    T.forEach(t=>{const nb=nearOf(t.key).map(x=>x.other).filter(o=>T.indexOf(o)<T.indexOf(t));if(nb.length&&!t.existing)t._proj=nb[0]._proj;});
+    if(newTitle&&T.length){const big=T[0];T.filter(t=>t._proj===big._proj).forEach(t=>t._proj=newTitle);}
+  }
+  const projs=()=>{const m={};T.filter(t=>t._on&&t._proj.trim()).forEach(t=>{(m[t._proj.trim()]=m[t._proj.trim()]||[]).push(t)});return m};
+  const P2=projs(), ex=new Set((S.projects||[]).map(p=>p.title.toLowerCase()));
+  $('#view').innerHTML=`<h1>${T.length} Objekte gefunden</h1>
+    <div class="sub" style="margin-top:4px">Lege fest, was daraus werden soll. <b>Gleicher Projektname = zusammengelegt.</b> Haken weg = nicht anlegen.</div>
+    <datalist id="projNames">${(S.projects||[]).map(p=>`<option value="${esc(p.title)}">`).join('')}</datalist>
+    <div class="card">${T.map((t,i)=>{const nb=nearOf(t.key),sp=Object.keys(t.names||{});
+      return `<div class="trow ${t._on?'':'off'}"><input type="checkbox" data-on="${i}" ${t._on?'checked':''} style="margin-top:4px;width:18px;height:18px">
+      <div><div class="row" style="gap:8px"><b style="font-size:15px">${esc(t.name)}</b>${t.filters.map(f=>ftag(f)).join(' ')}</div>
+        <div class="muted small">${t.frames} Lights · ${fmt(t.hours,1)} h · ${t.nights.length} Nächte${t.nights.length?' ('+dshort(t.nights[0])+(t.nights.length>1?' – '+dshort(t.nights[t.nights.length-1]):'')+')':''}${t.excluded?' · '+t.excluded+' aussortiert':''}</div>
+        ${sp.length>1?`<div class="muted small">Schreibweisen: ${sp.map(x=>esc(x)+' ('+t.names[x]+')').join(', ')} – als ein Objekt erkannt</div>`:''}
+        ${t.existing?`<div class="small" style="color:var(--good)">${ic('check','tiny')} Projekt „${esc(t.existing.title)}“ gibt es schon – neue Nächte kommen dazu</div>`:''}
+        ${nb.map(x=>`<div class="small" style="color:var(--warning)">⚠ nur ${fmt(x.deg,2)}° von „${esc(x.other.name)}“ entfernt – vermutlich dasselbe Feld</div>`).join('')}
+        <div class="lo">${(t.folders||[]).map(f=>esc(f)).join(' · ')}</div></div>
+      <div><label class="muted small">Projekt</label><input type="text" list="projNames" data-proj="${i}" value="${esc(t._proj)}" ${t._on?'':'disabled'}>
+        <div class="muted small" style="margin-top:3px">${!t._proj.trim()?'':ex.has(t._proj.trim().toLowerCase())?'→ bestehendes Projekt':(P2[t._proj.trim()]||[]).length>1?'→ neues Projekt, zusammengelegt':'→ neues Projekt'}</div></div></div>`}).join('')}</div>
+    <div class="go"><div class="msg">${Object.keys(P2).length?`Es werden <b>${Object.keys(P2).length}</b> Projekt(e) angelegt bzw. aktualisiert: ${Object.entries(P2).map(([n,l])=>`<b>${esc(n)}</b>${l.length>1?' ('+l.length+' Objekte)':''}`).join(', ')}`:'Nichts ausgewählt.'}</div>
+      <button class="btn" id="tBack">Zurück</button><button class="btn primary big" id="tGo" ${Object.keys(P2).length?'':'disabled'}>${ic('play')} Analysieren</button></div>`;
+  document.querySelectorAll('[data-on]').forEach(c=>c.onchange=()=>{T[+c.dataset.on]._on=c.checked;renderTargets()});
+  document.querySelectorAll('[data-proj]').forEach(c=>c.onchange=()=>{T[+c.dataset.proj]._proj=c.value;renderTargets()});
+  $('#tBack').onclick=()=>{renderTargets.init=false;go('new')};
+  $('#tGo').onclick=()=>{const a={};T.forEach(t=>a[t.key]=t._on&&t._proj.trim()?t._proj.trim():null);renderTargets.init=false;startAnalysis(a)};
 }
 
 // ---------- Neues Projekt
@@ -443,8 +531,9 @@ function renderNew(){
       <button class="btn" id="addF">＋ weiterer Ordner</button>
       ${rec.length?`<div class="recent"><span class="muted small">Zuletzt:</span>${rec.map(r=>`<button data-rec="${esc(r)}">${esc(r)}</button>`).join('')}</div>`:''}
     </div></div>
-    <div class="step"><div class="num">2</div><div><h2>${ic('star')} Welches Objekt? <span class="muted" style="font-weight:400">(optional)</span></h2>
-      <input type="text" id="tgt" placeholder="leer = alle gefundenen Objekte" style="width:min(360px,100%)"></div></div>
+    <div class="step"><div class="num">2</div><div><h2>${ic('edit')} Titel <span class="muted" style="font-weight:400">(optional)</span></h2>
+      <input type="text" id="tgt" value="${esc(newTitle)}" placeholder="z. B. Hexenkopfnebel – leer = Objektname aus den Dateien" style="width:min(420px,100%)">
+      <div class="muted small" style="margin-top:4px">Lights, Flats, Bias und Darks werden anhand der Kopfdaten zusammengesucht. Werden mehrere Objekte gefunden, fragt das Programm nach.</div></div></div>
     <div class="step"><div class="num">3</div><div><button class="btn primary big" id="anBtn">${ic('play')} Analysieren</button>
       <div class="muted small" style="margin-top:6px">Liest nur – an den Originaldateien wird nichts verändert. Dauert je nach Menge einige Minuten.</div></div></div>
   </div>`;
@@ -453,14 +542,15 @@ function renderNew(){
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{folders.splice(+b.dataset.del,1);renderNew();});
   document.querySelectorAll('[data-rec]').forEach(b=>b.onclick=()=>{const e=folders.findIndex(x=>!x.trim());if(e>=0)folders[e]=b.dataset.rec;else folders.push(b.dataset.rec);renderNew();});
   $('#addF').onclick=()=>{folders.push('');renderNew();};
-  $('#anBtn').onclick=async()=>{try{await api('/api/analyze',{folders:folders.filter(x=>x.trim()),target:$('#tgt').value.trim()||null});cur.view='job';await refresh();}catch(e){toast(e.message,true)}};
+  $('#tgt').oninput=e=>newTitle=e.target.value;
+  $('#anBtn').onclick=async()=>{newTitle=$('#tgt').value.trim();try{await api('/api/scan-preview',{folders:folders.filter(x=>x.trim())});cur.view='job';await refresh();}catch(e){toast(e.message,true)}};
 }
 
 // ---------- Auftrag (Ablauf, aktueller Schritt, Restzeit)
 function jobCard(j){
   const active=['queued','running'].includes(j.state);
   const p=j.progress||{};
-  const defs=j.kind==='stack'?STEPS.stack:j.kind==='analyze'?STEPS.analyze:[{key:'quality',title:'Qualität messen',icon:'gauge',what:'Kennzahlen werden berechnet.',why:''}];
+  const defs=j.kind==='stack'?STEPS.stack:j.kind==='analyze'?STEPS.analyze:j.kind==='scan'?STEPS.analyze.slice(0,1):[{key:'quality',title:'Qualität messen',icon:'gauge',what:'Kennzahlen werden berechnet.',why:''}];
   let keys=j.kind==='stack'?(p.run_steps&&p.run_steps.length?p.run_steps:defs.map(d=>d.key)):defs.map(d=>d.key);
   const curKey=p.step||(j.kind==='quality'?'quality':null);
   const ci=keys.indexOf(curKey);
@@ -491,7 +581,7 @@ function renderJob(){
   const active=['queued','running'].includes(j.state);
   const openDet=$('#jobCard details')?.open;
   if(cur.view==='job'){
-    $('#view').innerHTML=`<h1>${j.kind==='stack'?'Stacking':j.kind==='analyze'?'Analyse':'Kennzahlen'}</h1><div class="sub" style="margin-top:4px">${active?'Du kannst das Fenster offen lassen und nebenbei etwas anderes machen.':''}</div>`+jobCard(j)+
+    $('#view').innerHTML=`<h1>${j.kind==='stack'?'Stacking':j.kind==='analyze'?'Analyse':j.kind==='scan'?'Ordner durchsuchen':'Kennzahlen'}</h1><div class="sub" style="margin-top:4px">${active?'Du kannst das Fenster offen lassen und nebenbei etwas anderes machen.':''}</div>`+jobCard(j)+
       (!active&&j.kind==='analyze'&&Array.isArray(j.result)&&j.result.length?`<div class="card"><h2>Ergebnis</h2>${j.result.map(r=>`<button class="btn primary" onclick="openProject('${esc(r.project)}')">${esc(r.target)} öffnen →</button> `).join('')}</div>`:'');
   }else{
     const slot=$('#jobSlot'); if(!slot)return;
@@ -503,6 +593,14 @@ function renderJob(){
   const cb=$('#cancelBtn'); if(cb)cb.onclick=async()=>{if(!confirm('Wirklich abbrechen?'))return;await api('/api/job/'+j.id+'/cancel',{});refresh();};
 }
 function onJobFinished(j){
+  if(j.kind==='scan'){
+    if(j.state!=='done'){toast('Durchsuchen fehlgeschlagen',true);return;}
+    preview=j.result; const T=preview.targets||[];
+    if(!T.length){toast('Keine Light-Frames gefunden – sind die richtigen Ordner gewählt?',true);go('new');return;}
+    if(T.length===1&&!(preview.near||[]).length){        // eindeutig: gleich analysieren
+      const t=T[0];startAnalysis({[t.key]:t.existing?t.existing.title:(newTitle||t.name)});return;}
+    go('targets');return;
+  }
   if(j.state==='done'&&j.kind==='analyze'&&Array.isArray(j.result)&&j.result.length===1){dirty=false;openProject(j.result[0].project);toast('Analyse fertig');}
   else if(j.state==='done'&&j.kind==='analyze'&&cur.view==='job'){toast('Analyse fertig');}
   else if(j.state==='done'&&j.kind==='stack'){toast('Stacking fertig');if(cur.project){cur.tab='overview';openProject(cur.project);}}
@@ -565,7 +663,8 @@ async function saveMeta(ch){try{P=await api('/api/project/'+encodeURIComponent(c
 async function saveSources(r){try{P=await api('/api/project/'+encodeURIComponent(cur.project)+'/sources',{roots:r});renderProject();toast('Quellordner gespeichert – „Neu analysieren“ übernimmt sie');}catch(e){toast(e.message,true)}}
 function renderTab(){
   const b=$('#tabBody');
-  if(cur.tab==='report'){b.innerHTML=`<div class="muted small" style="margin-top:10px">${ic('info')} In der Galerie ein Foto anklicken → große Ansicht (Klick ins Bild = 100 %), „Ausschließen“ oder „Doch verwenden“.</div><iframe src="/p/${encodeURIComponent(cur.project)}/report.html"></iframe>`;return;}
+  if(cur.tab==='report'){b.innerHTML=`<div class="muted small" style="margin-top:10px">${ic('info')} In der Galerie ein Foto anklicken → große Ansicht (← → blättern, Klick ins Bild = 100 %), ausschließen oder als Projektbild setzen.</div>
+    <iframe class="report" id="reportFrame" scrolling="no" title="Bericht" src="/p/${encodeURIComponent(cur.project)}/report.html?embed=1&theme=${effTheme()}"></iframe>`;return;}
   if(cur.tab==='check')return renderChecklist(b);
   if(cur.tab==='overview')return renderOverview(b);
   renderPlan(b);
@@ -582,6 +681,7 @@ const KPIS=[
   ['gradient_pct','Verlauf','%',1,-1,'Helligkeitsunterschied des Hintergrunds über das Bild. Klein = wenig Lichtverschmutzung/Mond.'],
 ];
 function outKey(s,o){return o.name}
+const isThumb=prev=>{const t=P.meta.thumb;if(!t)return false;const a=prev.replace(/\\/g,'/'),b=t.replace(/\\/g,'/');return a.endsWith('/'+b)||a===b};
 function renderOverview(b){
   const H=P.stacks, F=P.facts||{};
   const fact=(icon,v,l,t)=>`<div class="fact" title="${esc(t||'')}"><div class="fi">${ic(icon)}</div><div><div class="fv">${v}</div><div class="fl">${l}</div></div></div>`;
@@ -596,7 +696,7 @@ function renderOverview(b){
       ${fact('layers',F.stacks??0,'Stacks',F.last_stack?'zuletzt '+dt(F.last_stack):'noch keiner')}
       ${fact('image',H.reduce((a,s)=>a+s.outputs.filter(o=>o.exists).length,0),'Ergebnis-Dateien','im Ordner final')}
     </div>
-    ${(F.filters||[]).length?`<div class="fbars">${F.filters.map((f,i)=>`<div class="fbar"><b>${esc(f.name)}</b>
+    ${(F.filters||[]).length?`<div class="fbars">${F.filters.map((f,i)=>`<div class="fbar">${ftag(f.name)}
       <div class="tr" title="${fmt(f.used_hours,1)} h verwendet von ${fmt(f.hours,1)} h"><div style="width:${100*f.hours/maxH}%;background:var(${pal[i%5]});opacity:.35"></div><div style="width:${100*f.used_hours/maxH}%;background:var(${pal[i%5]})"></div></div>
       <span class="muted small">${fmt(f.used_hours,1)} von ${fmt(f.hours,1)} h · ${f.used}/${f.lights}</span></div>`).join('')}
       <div class="muted small">Kräftig = wird gestackt, blass = aussortiert oder nicht gewählt.</div></div>`:''}
@@ -607,14 +707,16 @@ function renderOverview(b){
   html+=`<div class="card"><h2>${ic('layers')} Stacks <span class="muted" style="font-weight:400">· ${H.length} · zusammen ${fmt(F.stacked_hours,1)} h</span></h2>
     <div class="stiles">${[...H].reverse().flatMap(s=>s.outputs.map(o=>`<div class="stile">
       <div class="ph" style="${o.preview_url?`background-image:url('${o.preview_url}')`:''}" ${o.preview_url?`onclick='showImg(${JSON.stringify(o.preview_url)},${JSON.stringify(o.name+' · '+dt(s.date))})'`:''}>
-        <span class="tag">${esc(o.name)}</span>${o.preview_url?'':'<div class="empty small">keine Vorschau</div>'}</div>
+        <span class="tag">${ftag(o.name)}</span>${o.preview_url?'':'<div class="empty small">keine Vorschau</div>'}</div>
       <div class="tx"><div><b>${dt(s.date)}</b>${s.legacy?' <span class="badge neutral">ältere Version</span>':''}</div>
         <div class="muted">${fmt(s.hours,1)} h · ${s.lights??'?'} Lights · ${(s.nights||[]).length} Nächte${s.minutes?' · '+dur(s.minutes*60):''}</div>
         ${o.kpi?`<div class="muted">σ ${fmt(o.kpi.noise,2)} · ${o.kpi.fwhm_as!=null?fmt(o.kpi.fwhm_as,2)+'"':fmt(o.kpi.fwhm_px,2)+' px'} · ${o.kpi.stars} ★ · Form ${fmt(o.kpi.ecc,2)}</div>`:''}
         <div class="muted small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.file)}">${o.exists?'':'⚠ fehlt: '}${esc(o.file.split(/[\\/]/).pop())}</div></div>
       <div class="acts">${o.exists?`<button class="btn sm" onclick='openPi([${JSON.stringify(o.file)}])'>${ic('pi')} PixInsight</button>
         <button class="btn sm" onclick='openDir(${JSON.stringify(o.file.replace(/[\\/][^\\/]+$/,''))})'>${ic('folder')} Ordner</button>`:''}
-        ${o.exists&&!o.kpi?`<button class="btn sm" onclick="requality('${esc(s.id)}')">${ic('gauge')} messen</button>`:''}</div></div>`)).join('')}</div></div>`;
+        ${o.exists&&!o.kpi?`<button class="btn sm" onclick="requality('${esc(s.id)}')">${ic('gauge')} messen</button>`:''}
+        ${o.preview?(isThumb(o.preview)?`<span class="badge good">${ic('image','tiny')} Projektbild</span>`:`<button class="btn sm" title="Als Vorschaubild für das Projekt verwenden" onclick='setThumb(${JSON.stringify(o.preview)})'>${ic('image')} Projektbild</button>`):''}</div></div>`)).join('')}</div>
+    ${P.meta.thumb?`<div class="muted small" style="margin-top:8px">Projektbild selbst gewählt · <button class="lnk" onclick="setThumb(null)">wieder automatisch (neuester Stack)</button></div>`:''}</div>`;
   // Stand + Vergleich
   const byOut={};H.forEach(s=>s.outputs.forEach(o=>{(byOut[o.name]=byOut[o.name]||[]).push({s,o})}));
   const latest=Object.keys(byOut).map(n=>{const l=byOut[n];return {name:n,cur:l[l.length-1],prev:l.length>1?l[l.length-2]:null,count:l.length}});
@@ -625,7 +727,7 @@ function renderOverview(b){
   html+=`<div class="card"><h2>${ic('chart')} Qualität – neuester Stack je Ergebnis</h2>
     <div class="muted small">Pfeil = Veränderung zum vorherigen Stack: <span class="dlt up">▲ grün = besser</span>, <span class="dlt down">▼ rot = schlechter</span>.</div>
     <div style="overflow-x:auto"><table class="kt"><thead><tr><th>Ergebnis</th><th>Belichtung</th>${cols.map(([key,l,u,d,dir,h])=>`<th title="${esc(h)}">${esc(l)} ${ic('info','tiny')}</th>`).join('')}</tr></thead>
-    <tbody>${latest.map(L=>`<tr><td><b>${esc(L.name)}</b><div class="muted small">${dshort(L.cur.s.date)} · Stack ${L.count}</div></td>
+    <tbody>${latest.map(L=>`<tr><td>${ftag(L.name)}<div class="muted small">${dshort(L.cur.s.date)} · Stack ${L.count}</div></td>
       <td><b>${fmt(L.cur.s.hours,1)}</b> <span class="muted small">h</span><div class="muted small">${L.cur.s.lights??'?'} Lights</div></td>
       ${L.cur.o.kpi?cols.map(c=>cell(L,c)).join(''):`<td colspan="${cols.length}"><button class="btn primary sm" onclick="requality('${esc(L.cur.s.id)}')">${ic('gauge')} Kennzahlen jetzt messen</button></td>`}</tr>`).join('')}</tbody></table></div>
     <details style="margin-top:8px"><summary class="muted small" style="cursor:pointer">${ic('info')} Was bedeuten die Werte?</summary>
@@ -640,6 +742,29 @@ function renderOverview(b){
   drawHistory();
 }
 const openPi=paths=>api('/api/open-pixinsight',{paths}).then(()=>toast('Wird in PixInsight geöffnet …')).catch(e=>toast(e.message,true));
+let FR=null;
+function showFrame(frames,i,onChange){FR={frames,i,onChange};renderFrame();if(!frameDlg.open)frameDlg.showModal();}
+const STXT={ok:['OK','good'],warn:['Hinweis','warning'],suggest:['Aussortieren?','warning'],rejected:['Aussortiert','neutral']};
+function renderFrame(){
+  const f=FR.frames[FR.i], off=['rejected','suggest'].includes(f.status);
+  $('#fTitle').innerHTML=`${ftag(f.filter)} <span class="muted">${esc(f.night)} · #${esc(f.frame)} · ${FR.i+1} / ${FR.frames.length}</span> <span class="badge ${STXT[f.status][1]}">${STXT[f.status][0]}</span>`;
+  const im=$('#fImg');im.classList.remove('zoom');$('#fImgBox').classList.remove('zoomed');im.src=f.img;
+  const hi=new Image(),want=FR.i;hi.onload=()=>{if(FR&&FR.i===want)im.src=hi.src};hi.src=window.astrostack.previewUrl(f.path);
+  im.onclick=()=>{im.classList.toggle('zoom');$('#fImgBox').classList.toggle('zoomed')};
+  const isThumb=P&&P.meta.thumb_frame===f.path;
+  $('#fActs').innerHTML=`<button class="btn sm ${off?'primary':''}" id="fOv">${off?'Doch verwenden':'Ausschließen'}</button>${f.override?'<button class="btn sm" id="fAuto">Automatik</button>':''}
+    <button class="btn sm" id="fThumb">${ic('image')} Als Projektbild</button>`;
+  const setOv=async v=>{try{await window.astrostack.override(f.path,v);f.override=v;f.status=v==='out'?'rejected':v==='in'?(f.auto_status==='warn'?'warn':'ok'):f.auto_status;FR.onChange&&FR.onChange(FR.i,v);renderFrame();}catch(e){}};
+  $('#fOv').onclick=()=>setOv(off?'in':'out'); const fa=$('#fAuto'); if(fa)fa.onclick=()=>setOv(null);
+  $('#fThumb').onclick=async()=>{try{P=await api('/api/project/'+encodeURIComponent(cur.project)+'/thumb',{frame:f.path});toast('Projektbild gesetzt');refresh();}catch(e){toast(e.message,true)}};
+  const m=[['Datei',f.file],['FWHM',fmt(f.fwhm_as,2)+'"'],['Sternform',fmt(f.ecc,2)],['Sterne',f.nstars],['Hintergrund',fmt(f.bg,0)+' ADU'],['Rauschen',fmt(f.noise,1)+' ADU'],
+    ['Gewicht',fmt(f.weight,2)],['Höhe',fmt(f.alt,0)+'°'],['Mond',fmt(f.moon_illum,0)+' % · '+fmt(f.moon_alt,0)+'°'],['Sensor',fmt(f.temp,1)+' °C'],['Hinweise',(f.flags||[]).join(', ')||'–']];
+  $('#fMeta').innerHTML=m.map(([k,v])=>`<div><span>${k}</span>${esc(v)}</div>`).join('');
+  $('#fPrev').style.visibility=FR.i>0?'visible':'hidden';$('#fNext').style.visibility=FR.i<FR.frames.length-1?'visible':'hidden';
+}
+$('#fPrev').onclick=()=>{if(FR.i>0){FR.i--;renderFrame()}};$('#fNext').onclick=()=>{if(FR.i<FR.frames.length-1){FR.i++;renderFrame()}};
+window.addEventListener('keydown',e=>{if(!frameDlg.open)return;if(e.key==='ArrowLeft'){e.preventDefault();$('#fPrev').click()}else if(e.key==='ArrowRight'){e.preventDefault();$('#fNext').click()}});
+async function setThumb(prev){try{P=await api('/api/project/'+encodeURIComponent(cur.project)+'/thumb',prev?{stack_preview:prev}:{});toast(prev?'Projektbild gesetzt':'Projektbild: automatisch');renderTab();refresh();}catch(e){toast(e.message,true)}}
 function showImg(src,title){$('#imgFull').src=src;$('#imgTitle').textContent=title;imgDlg.showModal();}
 async function requality(id){try{await api('/api/project/'+encodeURIComponent(cur.project)+'/requality',{stack_id:id});await refresh();renderJob();}catch(e){toast(e.message,true)}}
 let chartLib=null, histChart=null;
@@ -672,7 +797,7 @@ function renderPlan(b){
   b.innerHTML=`
   <div class="runs">${runs.map((r,i)=>`<div class="run ${r.enabled===false?'off':''}">
       <label class="switch" title="Lauf ein/aus"><input type="checkbox" data-run="${i}" ${r.enabled!==false?'checked':''}><span></span></label>
-      <div><h3>${esc(r.name)} <span class="muted" style="font-weight:400;font-size:13px">${esc({debayer:'Farbbild',extract:'→ '+r.outputs.join(' + '),mono:'Mono'}[r.mode])}</span></h3>
+      <div><h3>${ftag(r.name,true)} <span class="muted" style="font-weight:400;font-size:13px">${esc({debayer:'Farbbild',extract:'→ '+r.outputs.join(' + '),mono:'Mono'}[r.mode])}</span></h3>
         <div class="why">${esc(r.why)}</div>
         <div class="kv"><span>${ic('star')} <b>${r.lightCount}</b> Lights · <b>${fmt(r.hours,1)} h</b></span><span><b>${r.nights.length}</b> Nächte</span>
           ${(r.light_dirs||[]).length?`<span>${(r.light_dirs||[]).map(d=>dirLink(d)).join(' ')}</span>`:''}</div>

@@ -129,36 +129,56 @@ def compress_paths(paths: list[str]) -> list[str]:
 
 
 def fix_calibration(paths: list[str], ftype: str, cache_dir: str) -> list[str]:
-    """Kalibrierframes, deren IMAGETYP nicht stimmt (z. B. NINA-Snapshot-Bias mit IMAGETYP=LIGHT),
-    als korrigierte Kopie bereitstellen – WBPP richtet sich nur nach dem Header."""
-    from astropy.io import fits
+    """Kalibrierframes so bereitstellen, dass WBPP sie richtig erkennt – WBPP richtet sich nur nach dem Header:
+    * falscher IMAGETYP (z. B. NINA-Snapshot-Bias mit IMAGETYP=LIGHT) → korrigierte Kopie
+    * fertige Masters ohne „Master“ im IMAGETYP (z. B. masterBias.fits mit IMAGETYP=BIAS) → „Master Bias“,
+      sonst würde WBPP sie als einzelnes Rohbild behandeln."""
     import hashlib
+    from astropy.io import fits
     want = {BIAS: "Bias Frame", DARK: "Dark Frame", FLAT: "Flat Frame"}[ftype]
+    want_master = {BIAS: "Master Bias", DARK: "Master Dark", FLAT: "Master Flat"}[ftype]
     # eigener Ordner je Satz (Hash über die Pfade), damit dir= nie fremde Dateien mitnimmt
     cache_dir = os.path.join(cache_dir, ftype + "_" + hashlib.sha1(
         "|".join(sorted(os.path.abspath(p) for p in paths)).encode()).hexdigest()[:12])
     out = []
     for p in paths:
-        if not p.lower().endswith((".fits", ".fit", ".fts")):
-            out.append(p)
-            continue
+        low = p.lower()
+        is_xisf = low.endswith(".xisf")
         try:
-            hdr = fits.getheader(p)
-        except Exception:
+            hdr = _header(p)
+        except Exception:  # noqa: BLE001
             out.append(p)
             continue
         cur = str(hdr.get("IMAGETYP", hdr.get("FRAME", ""))).lower()
-        if ftype.lower() in cur:
+        master = "master" in cur or os.path.basename(low).startswith("master")
+        target = want_master if master else want
+        if ftype.lower() in cur and (not master or "master" in cur):
             out.append(p)
             continue
         os.makedirs(cache_dir, exist_ok=True)
         dst = os.path.join(cache_dir, hashlib.sha1(os.path.abspath(p).encode()).hexdigest()[:8] + "_" + os.path.basename(p))
         if not os.path.exists(dst) or os.path.getmtime(dst) < os.path.getmtime(p):
-            with fits.open(p) as hd:
-                hd[0].header["IMAGETYP"] = want
-                hd.writeto(dst, overwrite=True)
+            if is_xisf:
+                from .. import stackqa, xisf
+                img = xisf.read_image(p, 0)
+                kw = stackqa.keywords_of(p)
+                kw["IMAGETYP"] = target
+                xisf.write_image(dst, img.astype("float32") if img.dtype.kind == "f" else img.astype("float32") / 65535.0,
+                                 kw, color=img.shape[0] == 3)
+            else:
+                with fits.open(p) as hd:
+                    hd[0].header["IMAGETYP"] = target
+                    hd.writeto(dst, overwrite=True)
         out.append(dst)
     return out
+
+
+def _header(p: str) -> dict:
+    if p.lower().endswith(".xisf"):
+        from .. import xisf
+        return xisf.read_header(p)
+    from astropy.io import fits
+    return dict(fits.getheader(p))
 
 
 def find_master(outdir: str) -> str | None:

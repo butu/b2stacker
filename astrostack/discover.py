@@ -23,10 +23,35 @@ class ScanOptions:
     exclude_dirs: tuple[str, ...] = DEFAULT_EXCLUDE_DIRS   # werden gelesen, aber als ausgeschlossen markiert
     custom_filters: dict[str, str] = field(default_factory=dict)
     workers: int = 8
+    target_map: dict[str, str] = field(default_factory=dict)   # Ziel-Schlüssel → Projekt (vom Benutzer bestätigt)
+
+
+# Katalog-Präfixe: verschiedene Schreibweisen → ein Schlüssel ("Sh2-82", "Sh 2-82", "SH2_82" → "sh2-82")
+_CATALOGS = [
+    (r"(?:m|messier)", "m"), (r"ngc", "ngc"), (r"ic", "ic"), (r"(?:sh\s*2|sharpless)", "sh2-"),
+    (r"(?:vdb|van\s*den\s*bergh)", "vdb"), (r"ldn", "ldn"), (r"lbn", "lbn"), (r"(?:abell|ab|pn\s*a66)", "abell"),
+    (r"(?:c|caldwell)", "c"), (r"(?:b|barnard)", "b"), (r"ced", "ced"), (r"rcw", "rcw"), (r"gum", "gum"),
+    (r"(?:cr|collinder)", "cr"), (r"(?:mel|melotte)", "mel"), (r"ugc", "ugc"), (r"pgc", "pgc"), (r"arp", "arp"),
+    (r"(?:hcg|hickson)", "hcg"), (r"lynds", "ldn"), (r"dwb", "dwb"), (r"(?:vdb-?ha|vdbh)", "vdbha"),
+]
+
+
+def target_key(name: str | None) -> str:
+    """Zielname vereinheitlichen: Groß/klein, Leerzeichen, Bindestriche, führende Nullen, Katalog-Schreibweisen.
+    Zusätze wie „Panel 2“ bleiben erhalten (Mosaik-Felder sind eigene Projekte)."""
+    n = (name or "").strip().lower()
+    n = re.sub(r"[_\-.,;:]+", " ", n)
+    n = re.sub(r"\s+", " ", n).strip()
+    for pat, pre in _CATALOGS:
+        m = re.match(r"^%s\s*0*(\d+)([a-z]?)\b(.*)$" % pat, n)
+        if m:
+            rest = re.sub(r"\s+", " ", m.group(3)).strip()
+            return pre + m.group(1) + m.group(2) + ((" " + rest) if rest else "")
+    return n.replace(" ", "")
 
 
 def _norm_target(name: str | None) -> str:
-    return re.sub(r"\s+", " ", (name or "").strip()).lower()
+    return target_key(name)
 
 
 def find_files(roots: list[str], opt: ScanOptions) -> list[tuple[str, bool]]:
@@ -57,6 +82,7 @@ class LightGroup:
     is_osc: bool
     settings: tuple
     frames: list = field(default_factory=list)
+    names: dict = field(default_factory=dict)          # gefundene Schreibweisen → Anzahl
 
     def nights(self) -> dict[str, list]:
         d = defaultdict(list)
@@ -152,17 +178,25 @@ def scan(roots: list[str], opt: ScanOptions | None = None, progress=None) -> Inv
             if snap:                       # Testaufnahmen aus dem Snapshot-Ordner nie stacken
                 continue
             target = m.object or _guess_target(m.path, roots)
-            key = (_norm_target(target), m.filter, m.settings_key())
+            tk = target_key(target)
+            target = opt.target_map.get(tk, target)            # bestätigte Zuordnung (z. B. zusammengelegt)
+            key = (target_key(target), m.filter, m.settings_key())
             g = lights.get(key)
             if g is None:
                 g = lights[key] = LightGroup(target, m.filter, m.filter_kind, m.is_osc, m.settings_key())
             g.frames.append(m)
+            g.names[m.object or target] = g.names.get(m.object or target, 0) + 1
+        elif m.type == fm.FLAT and m.is_master:            # fertiger Master: eigener Satz je Datei
+            c = CalibSet(fm.FLAT, m.filter, m.settings_key(), os.path.dirname(m.path),
+                         round(m.exposure, 3) if m.exposure is not None else None, [m], session="Master")
+            calib[("master", m.path)] = c
         elif m.type == fm.FLAT:
             flat_pool.setdefault((m.filter, m.settings_key(), os.path.dirname(m.path)), []).append(m)
         elif m.type in (fm.BIAS, fm.DARK, fm.DARKFLAT):
             exp = round(m.exposure, 3) if m.exposure is not None else None
             folder = os.path.dirname(m.path)
-            key = (m.type, None, m.settings_key(), folder, exp if m.type in (fm.DARK, fm.DARKFLAT) else None)
+            key = (m.type, None, m.settings_key(), folder, exp if m.type in (fm.DARK, fm.DARKFLAT) else None,
+                   m.path if m.is_master else None)
             c = calib.get(key)
             if c is None:
                 c = calib[key] = CalibSet(m.type, None, m.settings_key(), folder, exp)
@@ -175,6 +209,18 @@ def scan(roots: list[str], opt: ScanOptions | None = None, progress=None) -> Inv
             c = CalibSet(fm.FLAT, flt, settings, folder, exp, list(sess),
                          session=(sess[0].date_loc or sess[0].date_obs or "")[:19])
             calib[(fm.FLAT, flt, settings, folder, c.session, exp)] = c
+    # gleiche Ziele mit verschiedener Schreibweise: einheitlicher Anzeigename (häufigste Schreibweise)
+    by_key: dict[str, dict] = {}
+    for g in lights.values():
+        d = by_key.setdefault(target_key(g.target), {})
+        for n, c in g.names.items():
+            d[n] = d.get(n, 0) + c
+    for g in lights.values():
+        if g.target in opt.target_map.values():
+            continue
+        names = by_key.get(target_key(g.target)) or {}
+        if names:
+            g.target = max(names.items(), key=lambda kv: (kv[1], -len(kv[0])))[0]
     for g in lights.values():
         g.frames.sort(key=lambda f: f.date_obs or "")
     for c in calib.values():
