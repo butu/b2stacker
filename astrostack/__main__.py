@@ -8,6 +8,11 @@ import sys
 
 def run():
     multiprocessing.freeze_support()          # nötig für die Vermessung in Unterprozessen (exe)
+    for stream in (sys.stdout, sys.stderr):   # umgeleitete Ausgabe unter Windows (cp1252): nie an Sonderzeichen abstürzen
+        try:
+            stream.reconfigure(errors="replace")
+        except Exception:  # noqa: BLE001
+            pass
     if len(sys.argv) >= 2 and sys.argv[1] == "_pick-folder":
         from .app.server import _pick_folder_dialog
         _pick_folder_dialog(sys.argv[2] if len(sys.argv) > 2 else "")
