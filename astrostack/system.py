@@ -57,25 +57,41 @@ class KeepAwake:
         return False
 
 
+def _decode(b: bytes) -> str:
+    """Konsolen-Ausgabe von Windows-Programmen: OEM-Codepage (deutsch meist cp850), nie abstürzen."""
+    if not b:
+        return ""
+    for enc in ("utf-8", "oem" if sys.platform == "win32" else "latin-1", "cp850"):
+        try:
+            return b.decode(enc)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return b.decode("latin-1", errors="replace")
+
+
+def parse_tasklist(out: str) -> list[dict]:
+    res = []
+    for line in out.splitlines():
+        parts = [p.strip('"') for p in line.strip().split('","')]
+        if len(parts) >= 5 and parts[0].lower().startswith("pixinsight"):
+            mem = "".join(ch for ch in parts[4] if ch.isdigit())
+            try:
+                res.append(dict(pid=int(parts[1]), mem_mb=int(mem) / 1024 if mem else None))
+            except ValueError:
+                res.append(dict(pid=parts[1], mem_mb=None))
+    return res
+
+
 def pixinsight_processes() -> list[dict]:
     """Laufende PixInsight-Prozesse (Windows: tasklist). → [{pid, mem_mb}]"""
     if sys.platform != "win32":
         return []
     try:
         out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq PixInsight.exe", "/FO", "CSV", "/NH"],
-                             capture_output=True, text=True, timeout=15).stdout
-    except Exception:
+                             capture_output=True, timeout=15, creationflags=0x08000000).stdout
+        return parse_tasklist(_decode(out))
+    except Exception:  # noqa: BLE001 – Statusabfrage darf nie die Oberfläche blockieren
         return []
-    res = []
-    for line in out.splitlines():
-        parts = [p.strip('"') for p in line.split('","')]
-        if len(parts) >= 5 and parts[0].lower().startswith("pixinsight"):
-            mem = parts[4].replace(".", "").replace(",", "").replace(" K", "").replace("K", "").strip()
-            try:
-                res.append(dict(pid=int(parts[1]), mem_mb=int(mem) / 1024))
-            except ValueError:
-                res.append(dict(pid=parts[1], mem_mb=None))
-    return res
 
 
 def estimate_disk_gb(n_frames: int, width: int, height: int, osc: bool, mode: str) -> float:

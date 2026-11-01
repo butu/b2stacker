@@ -33,9 +33,17 @@ def settings() -> Settings:
 
 # ------------------------------------------------------------------ Aktionen
 
+def _safe(fn, default):
+    try:
+        return fn()
+    except Exception:  # noqa: BLE001 – eine kaputte Einzelabfrage darf die Oberfläche nicht blockieren
+        traceback.print_exc()
+        return default
+
+
 def state() -> dict:
     s = settings()
-    free_ram, total_ram = system.ram_gb()
+    free_ram, total_ram = _safe(system.ram_gb, (None, None))
     active = JOBS.active()
     last = JOBS.jobs[-1] if JOBS.jobs else None
     return dict(
@@ -45,11 +53,11 @@ def state() -> dict:
         first_run=not os.path.exists(Settings.path()),
         pixinsight_ok=os.path.exists(s.pixinsight),
         wbpp_ok=os.path.exists(s.wbpp_script),
-        pixinsight_running=system.pixinsight_processes(),
-        disk_free_gb=_r(system.free_disk_gb(s.workdir)),
+        pixinsight_running=_safe(system.pixinsight_processes, []),
+        disk_free_gb=_r(_safe(lambda: system.free_disk_gb(s.workdir), None)),
         ram_free_gb=_r(free_ram), ram_total_gb=_r(total_ram),
         job=(active or last).as_dict(60) if (active or last) else None,
-        projects=project.list_projects(s),
+        projects=_safe(lambda: project.list_projects(s), []),
     )
 
 
@@ -94,10 +102,11 @@ def _pick_folder_powershell(initial: str):
     ps = ("Add-Type -AssemblyName System.Windows.Forms;"
           "$d=New-Object System.Windows.Forms.FolderBrowserDialog;$d.Description='Ordner wählen';"
           "$d.SelectedPath=$env:AS_INITIAL;"
+          "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;"
           "if($d.ShowDialog((New-Object System.Windows.Forms.Form -Property @{TopMost=$true})) -eq 'OK'){[Console]::Out.Write($d.SelectedPath)}")
     env = dict(os.environ, AS_INITIAL=initial or "")
     return subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", ps], capture_output=True, text=True,
-                          timeout=900, env=env, creationflags=0x08000000)
+                          encoding="utf-8", errors="replace", timeout=900, env=env, creationflags=0x08000000)
 
 
 def pick_folder(initial: str = "") -> str | None:
@@ -107,7 +116,8 @@ def pick_folder(initial: str = "") -> str | None:
     else:
         cmd = [sys.executable, "-m", "astrostack", "_pick-folder", initial or ""]
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=900,
+        out = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900,
+                             env=dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1"),
                              creationflags=0x08000000 if sys.platform == "win32" else 0)
     except Exception as e:  # noqa: BLE001
         raise RuntimeError("Ordner-Dialog nicht verfügbar (%s) – Pfad bitte eintippen." % e)
