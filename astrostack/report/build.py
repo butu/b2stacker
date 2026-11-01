@@ -83,7 +83,10 @@ def calib_checks(matches: list[dict]) -> list[dict]:
 
 def build(target: str, groups, inv, calib: dict, analysis_dir: str, workdir: str, out_html: str) -> dict:
     rows = A.load_rows(os.path.join(analysis_dir, "metrics.csv"))
-    filters, ntab = A.assess(rows)
+    pdir = os.path.dirname(out_html)
+    ovp = os.path.join(pdir, "overrides.json")
+    overrides = json.load(open(ovp, encoding="utf-8")) if os.path.exists(ovp) else {}
+    filters, ntab = A.assess(rows, overrides=overrides)
     rec = A.recommendations(rows, ntab, filters)
     matches = [m for m in calib["matches"] if m["group"]["target"] == target]
     checks = calib_checks(matches)
@@ -117,12 +120,16 @@ def build(target: str, groups, inv, calib: dict, analysis_dir: str, workdir: str
     pub_plan["runs"] = [dict(r, lightDirs=r["nights"]) for r in plan["runs"]]
     pub_plan["job"] = {k: v for k, v in plan.items() if k not in ("settings",)}
     frames = [{k: r.get(k) for k in ["file", "path", "night", "filter", "frame", "t", "exp", "fwhm", "fwhm_as", "ecc", "nstars", "bg",
-                                     "noise", "alt", "moon_illum", "moon_alt", "temp", "status", "weight", "img"]}
+                                     "noise", "alt", "moon_illum", "moon_alt", "temp", "status", "auto_status", "override", "weight", "img"]}
               | {"flags": [f[1] for f in r["flags"]]} for r in rows]
     data = dict(meta=meta, filters=filters, kpi=kpi, nights=ntab, checks=checks, rec=rec, plan=pub_plan, sky=sky,
                 diag=diag, frames=frames)
     tpl = open(TEMPLATE, encoding="utf-8").read()
-    out = tpl.replace("/*__DATA__*/null", json.dumps(public(data), ensure_ascii=False, default=str)).replace(
+    # Chart.js eingebettet: Bericht funktioniert auch ohne Internet (Sternwarte)
+    chartjs = open(os.path.join(os.path.dirname(__file__), "vendor", "chart.umd.js"), encoding="utf-8").read()
+    tpl = tpl.replace('<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>',
+                      "<script>" + chartjs.replace("</script", "<\\/script") + "</script>")
+    out = tpl.replace("/*__DATA__*/null", json.dumps(public(data), ensure_ascii=False, default=str).replace("</", "<\\/")).replace(
         "__TITLE__", html.escape(target + " – Rohdaten"))
     os.makedirs(os.path.dirname(out_html), exist_ok=True)
     open(out_html, "w", encoding="utf-8").write(out)

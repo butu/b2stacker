@@ -3,42 +3,62 @@
 Rohdaten sichten, bewerten und mit **PixInsight** stacken – automatisch, nachvollziehbar,
 per Klick oder per KI.
 
-> Status: **Stufe 1 in Arbeit.** Siehe [docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md).
+> Status: **Stufe 1 benutzbar** – Analyse, Bericht, Plan, Oberfläche und Stacking mit WBPP.
+> Siehe [docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md).
 
-## Was es tun soll
+## Starten (Windows)
 
-1. **Ordner wählen** – einen oder mehrere (NINA, ASIAIR, Ekos, SharpCap, APT …).
+Voraussetzungen: Python 3.10+ und PixInsight.
+
+1. Repository herunterladen (oder `git clone https://github.com/butu/b2stacker.git`).
+2. **`AstroStack starten.cmd`** doppelklicken. Beim ersten Mal wird das Programm installiert,
+   danach öffnet sich die Oberfläche im Browser.
+3. In den Einstellungen das **Arbeitsverzeichnis** wählen (große, schnelle Platte – nicht OneDrive)
+   und den Pfad zu PixInsight prüfen.
+
+Das Fenster mit der schwarzen Konsole muss offen bleiben, solange man das Programm benutzt.
+
+## Ablauf
+
+1. **Neue Analyse** – einen oder mehrere Ordner wählen (NINA, ASIAIR, Ekos, SharpCap, APT …).
    Lights, Flats, Bias und Darks werden anhand der FITS-Header gefunden, egal wie die Ordner heißen.
-2. **Prüfen** – jeder Frame wird vermessen (FWHM/HFR, Exzentrizität, Sterne, Hintergrund,
-   Rauschen, Mond, Höhe), Rig-Diagnose (Fokus, Nachführung, Dithering, Tilt, Taupunkt …),
+   Ordner mit `_rejected`, `_verworfen`, `_alt` im Namen gelten als aussortiert.
+2. **Bericht** – jeder Frame wird vermessen (FWHM, Exzentrizität, Sterne, Hintergrund, Rauschen,
+   Mond, Höhe), dazu Rig-Diagnose (Fokus, Nachführung, Dithering, Verkippung, Taupunkt) und
    Kalibrier-Prüfung (Flat-Helligkeit, Farbabfall, Auslesemodus, fehlende Flats).
-3. **Plan** – Vorschlag für die Stacking-Einstellungen mit Begründung, Speicher- und RAM-Ampel.
-   Ausschlüsse und Einstellungen lassen sich anpassen.
-4. **Start** – PixInsight stackt; Fortschritt wird live angezeigt.
-5. **Ergebnis** – Masters (bei Dualband auch Ha/OIII bzw. SII/OIII getrennt), Vorschau,
-   Qualitätskontrolle (Farbring, Deckungsgleichheit), Öffnen in PixInsight.
+   In der Galerie lassen sich Frames per Klick aus- oder einschließen.
+3. **Stacking-Plan** – Vorschlag mit Begründung, Läufe ein/aus, Referenz, Optionen,
+   Speicher- und RAM-Anzeige.
+4. **Los – stacken** – PixInsight läuft unsichtbar im Hintergrund, Fortschritt live, PC bleibt wach.
+   Vorher wird geprüft: Platz, Arbeitsspeicher, ob PixInsight schon offen ist.
+5. **Ergebnisse** – in `<Arbeitsverzeichnis>/projects/<Ziel>/final/`. Dualband an Farbkamera
+   (HaO3, L-eXtreme, SII/OIII …) wird automatisch in Ha + OIII bzw. SII + OIII aufgeteilt.
+   Ältere Ergebnisse werden nach `final/_alt/` verschoben, nie überschrieben.
 
-Im Normalbetrieb braucht das Programm **keine KI**. Über die Kommandozeile (und später MCP)
-ist es aber vollständig per KI bedienbar.
+## Kommandozeile (auch für KI-Bedienung)
 
-## Schnellstart (Entwicklung)
+Alle Befehle antworten mit `--json` maschinenlesbar.
+
+| Befehl | Zweck |
+|---|---|
+| `astrostack` / `astrostack gui` | Oberfläche öffnen |
+| `astrostack scan <ordner…>` | Frames finden und gruppieren |
+| `astrostack check-calib <ordner…>` | Flats/Bias/Darks prüfen und zuordnen |
+| `astrostack report <ordner…> [--target <ziel>]` | vermessen, Bericht + Plan erzeugen |
+| `astrostack plan <projekt> [--set option=wert] [--disable Lauf] [--reference Lauf=master:RGB]` | Plan zeigen/ändern |
+| `astrostack override <projekt> in\|out\|auto <datei…>` | Frames manuell aufnehmen/ausschließen |
+| `astrostack stack <projekt> [--only Lauf]` | mit PixInsight stacken |
+| `astrostack status` | letzte Aufträge und Läufe |
+| `astrostack settings [--set schluessel=wert]` | Einstellungen |
+
+## Entwicklung
 
 ```powershell
 py -m venv .venv
 .venv\Scripts\activate
 pip install -e .[dev]
-astrostack scan "F:\OneDrive\NINA\vdB 131" "F:\OneDrive\NINA\FLAT"
+pytest
 ```
 
-## Kommandos (Stufe 1)
-
-| Befehl | Zweck |
-|---|---|
-| `astrostack scan <ordner…>` | Frames finden, Header vereinheitlichen, gruppieren, Übersicht ausgeben |
-| `astrostack check-calib <ordner…>` | Flats/Bias/Darks prüfen und Lights zuordnen |
-| `astrostack analyze <ordner…> --target <name>` | Frames vermessen, Rig-Diagnose |
-| `astrostack report --target <name>` | HTML-Bericht inkl. Stacking-Plan |
-| `astrostack run <plan.json>` | Stacken mit PixInsight |
-| `astrostack status` | Laufende/fertige Jobs |
-
-Alle Befehle können mit `--json` maschinenlesbar antworten (für die KI-Bedienung).
+Chart.js (MIT) liegt eingebettet unter `astrostack/report/vendor/`, damit der Bericht auch ohne
+Internet funktioniert.

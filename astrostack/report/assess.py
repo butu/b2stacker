@@ -52,8 +52,10 @@ def _med(vals):
     return st.median(vals) if vals else None
 
 
-def assess(rows: list[dict], th: FrameThresholds | None = None):
+def assess(rows: list[dict], th: FrameThresholds | None = None, overrides: dict | None = None):
+    """overrides: {pfad: "in"|"out"} – manuelle Entscheidungen aus der Oberfläche."""
     th = th or FrameThresholds()
+    overrides = overrides or {}
     filters = []
     for r in rows:
         if r["filter"] not in filters:
@@ -95,6 +97,15 @@ def assess(rows: list[dict], th: FrameThresholds | None = None):
             r["status"] = "warn"
         else:
             r["status"] = "ok"
+        r["auto_status"] = r["status"]
+        ov = overrides.get(r["path"])
+        if ov == "out":
+            r["status"] = "rejected"
+            r["flags"] = flags + [("reject", "manuell ausgeschlossen")]
+        elif ov == "in" and r["status"] in ("rejected", "suggest"):
+            r["status"] = "warn" if flags else "ok"
+            r["flags"] = flags + [("warn", "manuell aufgenommen")]
+        r["override"] = ov
         nb = noise_best[r["filter"]]
         r["weight"] = min(1.0, (nb / r["noise"]) ** 2) if (r["noise"] and nb) else 0
     ntab = []

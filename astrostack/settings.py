@@ -31,6 +31,7 @@ class Settings:
     analysis_workers: int = 2
     keep_awake: bool = True
     cleanup_intermediate: bool = True
+    open_results: bool = True                  # Ergebnisse am Ende in PixInsight öffnen
     min_free_ram_gb: float = 8.0
     language: str = "de"
 

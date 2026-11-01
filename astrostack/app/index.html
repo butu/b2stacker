@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>astrostack</title>
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#0e0f12;--surface-1:#16181d;--surface-2:#1d2026;--surface-3:#252932;--line:#2a2e36;
+  --text-primary:#f0efec;--text-secondary:#c3c2b7;--text-muted:#8d8c86;
+  --accent:#3987e5;--accent-ink:#fff;--good:#2fb344;--warning:#fab219;--critical:#e05252;
+  --radius:10px;
+}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]){
+  color-scheme:light;--bg:#f4f4f2;--surface-1:#fcfcfb;--surface-2:#f0f0ed;--surface-3:#e7e7e3;--line:#dcdcd7;
+  --text-primary:#0b0b0b;--text-secondary:#52514e;--text-muted:#7a7974;--accent:#2a78d6;--good:#1d9a34;--warning:#b67f00;--critical:#c73333;}}
+:root[data-theme="light"]{color-scheme:light;--bg:#f4f4f2;--surface-1:#fcfcfb;--surface-2:#f0f0ed;--surface-3:#e7e7e3;--line:#dcdcd7;
+  --text-primary:#0b0b0b;--text-secondary:#52514e;--text-muted:#7a7974;--accent:#2a78d6;--good:#1d9a34;--warning:#b67f00;--critical:#c73333;}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text-primary);font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column}
+button,input,select{font:inherit;color:inherit}
+header{display:flex;align-items:center;gap:16px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--surface-1);flex-wrap:wrap}
+.logo{font-weight:700;font-size:17px;letter-spacing:-.01em;display:flex;align-items:center;gap:8px}
+.logo svg{width:22px;height:22px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12.5px;color:var(--text-secondary);white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--text-muted)}
+.dot.good{background:var(--good)}.dot.warning{background:var(--warning)}.dot.critical{background:var(--critical)}
+.btn{border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:7px 14px;cursor:pointer;font-weight:500}
+.btn:hover{background:var(--surface-3)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.big{padding:12px 26px;font-size:16px;border-radius:10px}
+.btn.danger{color:var(--critical)}
+.btn:disabled{opacity:.45;cursor:not-allowed;filter:none}
+.btn.icon{padding:6px 9px}
+.main{flex:1;display:grid;grid-template-columns:260px 1fr;min-height:0}
+aside{border-right:1px solid var(--line);background:var(--surface-1);padding:14px 12px;overflow:auto}
+aside h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin:18px 6px 8px;font-weight:600}
+.proj{display:block;width:100%;text-align:left;background:none;border:1px solid transparent;border-radius:8px;padding:8px 10px;cursor:pointer;margin-bottom:2px}
+.proj:hover{background:var(--surface-2)}
+.proj.on{background:var(--surface-2);border-color:var(--line)}
+.proj b{display:block;font-weight:600}
+.proj span{font-size:12px;color:var(--text-muted)}
+section.view{overflow:auto;padding:22px 24px 60px;min-width:0}
+.wrap{max-width:1040px}
+h1{font-size:24px;margin:0 0 4px;letter-spacing:-.01em}
+h2{font-size:16px;margin:0 0 10px;font-weight:600}
+.sub{color:var(--text-secondary)}
+.muted{color:var(--text-muted)}
+.card{background:var(--surface-1);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;margin-top:16px}
+.steps{display:grid;gap:14px;margin-top:18px}
+.step{display:grid;grid-template-columns:32px 1fr;gap:12px}
+.num{width:28px;height:28px;border-radius:50%;background:var(--surface-3);display:grid;place-items:center;font-weight:700;font-size:13px}
+.folders{display:flex;flex-direction:column;gap:6px;margin:8px 0}
+.frow{display:flex;gap:6px}
+.frow input{flex:1;min-width:0}
+input[type=text],input[type=number],select{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:7px 10px;outline:none}
+input:focus,select:focus{border-color:var(--accent)}
+.recent{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.recent button{background:none;border:1px dashed var(--line);border-radius:999px;padding:2px 10px;font-size:12.5px;cursor:pointer;color:var(--text-secondary)}
+.recent button:hover{border-color:var(--accent);color:var(--text-primary)}
+.progress{height:10px;background:var(--surface-3);border-radius:999px;overflow:hidden;margin:10px 0 6px}
+.progress>div{height:100%;background:var(--accent);transition:width .4s}
+.progress.indet>div{width:30%!important;animation:indet 1.4s infinite ease-in-out}
+@keyframes indet{0%{margin-left:-30%}100%{margin-left:100%}}
+pre.log{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:10px;max-height:260px;overflow:auto;font:12px/1.45 ui-monospace,Consolas,monospace;white-space:pre-wrap;margin:10px 0 0;color:var(--text-secondary)}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-top:18px}
+.tabs button{background:none;border:none;border-bottom:2px solid transparent;padding:8px 14px;cursor:pointer;color:var(--text-secondary);font-weight:500}
+.tabs button.on{border-color:var(--accent);color:var(--text-primary)}
+.runs{display:grid;gap:12px;margin-top:14px}
+.run{background:var(--surface-1);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:start}
+.run.off{opacity:.55}
+.run h3{margin:0;font-size:16px}
+.run .why{color:var(--text-secondary);font-size:13px;margin-top:4px}
+.kv{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:13px;color:var(--text-secondary)}
+.kv b{color:var(--text-primary);font-weight:600}
+.badge{display:inline-block;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:600}
+.badge.good{background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good)}
+.badge.warning{background:color-mix(in srgb,var(--warning) 20%,transparent);color:var(--warning)}
+.badge.critical{background:color-mix(in srgb,var(--critical) 18%,transparent);color:var(--critical)}
+.switch{position:relative;width:40px;height:22px;flex:none}
+.switch input{opacity:0;width:0;height:0}
+.switch span{position:absolute;inset:0;background:var(--surface-3);border-radius:999px;cursor:pointer;transition:.2s;border:1px solid var(--line)}
+.switch span:before{content:"";position:absolute;width:16px;height:16px;left:2px;top:2px;border-radius:50%;background:var(--text-secondary);transition:.2s}
+.switch input:checked+span{background:var(--accent);border-color:var(--accent)}
+.switch input:checked+span:before{transform:translateX(18px);background:#fff}
+.opts{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px 22px;margin-top:6px}
+.opt{display:flex;gap:12px;align-items:flex-start;padding:8px 0}
+.opt .t{font-weight:500}
+.opt .d{font-size:12.5px;color:var(--text-muted)}
+.res{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.meter .bar{height:8px;background:var(--surface-3);border-radius:999px;overflow:hidden;margin:6px 0 4px}
+.meter .bar>div{height:100%}
+.meter .big{font-size:20px;font-weight:700}
+.go{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:18px;padding:16px 18px;border-radius:var(--radius);background:var(--surface-2);border:1px solid var(--line)}
+.go .msg{flex:1;min-width:200px;color:var(--text-secondary)}
+table.why{width:100%;border-collapse:collapse;font-size:13px}
+table.why td{padding:7px 8px;border-top:1px solid var(--line);vertical-align:top}
+table.why td:first-child{color:var(--text-muted);white-space:nowrap}
+table.why td:nth-child(2){font-weight:600;white-space:nowrap}
+iframe{width:100%;height:calc(100vh - 220px);border:1px solid var(--line);border-radius:var(--radius);background:var(--bg);margin-top:14px}
+.banner{display:flex;gap:12px;align-items:center;padding:10px 14px;border-radius:8px;background:color-mix(in srgb,var(--warning) 14%,var(--surface-1));border:1px solid color-mix(in srgb,var(--warning) 40%,var(--line));margin-top:14px}
+.banner.err{background:color-mix(in srgb,var(--critical) 14%,var(--surface-1));border-color:color-mix(in srgb,var(--critical) 40%,var(--line))}
+.banner .grow{flex:1}
+.finals{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.finals div{display:flex;gap:8px;align-items:center;font-family:ui-monospace,Consolas,monospace;font-size:13px}
+dialog{background:var(--surface-1);color:var(--text-primary);border:1px solid var(--line);border-radius:12px;padding:0;width:min(640px,94vw)}
+dialog::backdrop{background:rgba(0,0,0,.55)}
+dialog .hd{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+dialog .bd{padding:16px 20px;display:grid;gap:14px;max-height:70vh;overflow:auto}
+dialog .ft{padding:12px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px}
+.field label{display:block;font-weight:500;margin-bottom:4px}
+.field .d{font-size:12.5px;color:var(--text-muted);margin-top:3px}
+.field .frow input{width:100%}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--surface-3);border:1px solid var(--line);border-radius:8px;padding:9px 16px;box-shadow:0 6px 24px rgba(0,0,0,.3);z-index:9;max-width:90vw}
+.toast.err{border-color:var(--critical)}
+.empty{text-align:center;padding:40px 10px;color:var(--text-muted)}
+@media (max-width:760px){.main{grid-template-columns:1fr}aside{border-right:none;border-bottom:1px solid var(--line);max-height:180px}section.view{padding:16px}.run{grid-template-columns:auto 1fr}.run>.side{grid-column:1/-1}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l2.5 2.5M16.5 16.5 19 19M5 19l2.5-2.5M16.5 7.5 19 5"/></svg>astrostack</div>
+  <div class="chips" id="chips"></div>
+  <button class="btn icon" id="themeBtn" title="Hell/Dunkel" aria-label="Hell/Dunkel umschalten"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="display:block"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
+  <button class="btn" id="setBtn">⚙ Einstellungen</button>
+</header>
+<div class="main">
+  <aside>
+    <button class="btn primary" style="width:100%" id="newBtn">＋ Neue Analyse</button>
+    <h3>Projekte</h3>
+    <div id="projList"></div>
+  </aside>
+  <section class="view"><div class="wrap" id="view"></div></section>
+</div>
+
+<dialog id="setDlg">
+  <div class="hd"><h2 style="margin:0">Einstellungen</h2><button class="btn icon" onclick="setDlg.close()">✕</button></div>
+  <div class="bd" id="setBody"></div>
+  <div class="ft"><button class="btn" onclick="setDlg.close()">Abbrechen</button><button class="btn primary" id="setSave">Speichern</button></div>
+</dialog>
+
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=(v,d=1)=>v==null||isNaN(v)?'–':Number(v).toLocaleString('de-AT',{minimumFractionDigits:d,maximumFractionDigits:d});
+let S=null, cur={view:'new', project:null, tab:'plan'}, P=null, dirty=false, folders=[''], pollT=null, lastJobState=null;
+
+async function api(path,body){
+  const o=body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-Astrostack':'1'},body:JSON.stringify(body)};
+  const r=await fetch(path,o); const j=await r.json().catch(()=>({error:'Antwort unlesbar'}));
+  if(!r.ok||j.error) throw new Error(j.error||('HTTP '+r.status));
+  return j;
+}
+function toast(msg,err){const t=document.createElement('div');t.className='toast'+(err?' err':'');t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),err?7000:3000);}
+
+// Für den eingebetteten Bericht (Frames ein/aus)
+window.astrostack={override:(path,value)=>api('/api/project/'+encodeURIComponent(cur.project)+'/override',{path,value}).then(r=>{dirty=true;renderDirty();return r}).catch(e=>{toast(e.message,true);throw e})};
+
+// Theme
+(function(){let t=null;try{t=localStorage.getItem('as-theme')}catch(e){} if(t)document.documentElement.dataset.theme=t;
+  $('#themeBtn').onclick=()=>{const dark=document.documentElement.dataset.theme?document.documentElement.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    const n=dark?'light':'dark';document.documentElement.dataset.theme=n;try{localStorage.setItem('as-theme',n)}catch(e){}};})();
+
+async function refresh(){
+  try{S=await api('/api/state');}catch(e){$('#chips').innerHTML='<span class="chip"><span class="dot critical"></span>Programm nicht erreichbar</span>';schedule(5000);return;}
+  renderChips();renderProjects();
+  const j=S.job, active=j&&['queued','running'].includes(j.state);
+  if(j&&lastJobState&&['queued','running'].includes(lastJobState)&&!active) onJobFinished(j);
+  lastJobState=j?j.state:null;
+  if(cur.view==='job'||(active&&cur.view!=='settings')) {renderJob();}
+  if(S.first_run&&!refresh.didFirst){refresh.didFirst=true;openSettings(true);}
+  schedule(active?1500:8000);
+}
+function schedule(ms){clearTimeout(pollT);pollT=setTimeout(refresh,ms);}
+
+function renderChips(){
+  const c=[];
+  c.push(`<span class="chip" title="${esc(S.settings.pixinsight)}"><span class="dot ${S.pixinsight_ok&&S.wbpp_ok?'good':'critical'}"></span>PixInsight ${S.pixinsight_ok?(S.wbpp_ok?'bereit':'– WBPP fehlt'):'nicht gefunden'}</span>`);
+  if(S.pixinsight_running.length) c.push(`<span class="chip"><span class="dot warning"></span>PixInsight läuft (${S.pixinsight_running.length})</span>`);
+  c.push(`<span class="chip" title="${esc(S.settings.workdir)}"><span class="dot ${S.disk_free_gb==null?'':S.disk_free_gb<50?'warning':'good'}"></span>Platz ${fmt(S.disk_free_gb,0)} GB frei</span>`);
+  c.push(`<span class="chip"><span class="dot ${S.ram_free_gb==null?'':S.ram_free_gb<S.settings.min_free_ram_gb?'warning':'good'}"></span>RAM ${fmt(S.ram_free_gb,1)} / ${fmt(S.ram_total_gb,0)} GB frei</span>`);
+  const j=S.job; if(j&&['queued','running'].includes(j.state)) c.push(`<span class="chip" style="cursor:pointer" onclick="go('job')"><span class="dot good"></span>${esc(j.title)} …</span>`);
+  $('#chips').innerHTML=c.join('');
+}
+function renderProjects(){
+  const L=S.projects;
+  $('#projList').innerHTML=L.length?L.map(p=>`<button class="proj ${cur.project===p.name&&cur.view==='project'?'on':''}" data-n="${esc(p.name)}"><b>${esc(p.target)}</b><span>${p.frames??'?'} Frames · ${esc(p.runs.join(', '))}${p.finals.length?' · ✓ gestackt':''}</span></button>`).join(''):'<div class="muted" style="padding:4px 8px;font-size:13px">Noch keine. Starte mit „Neue Analyse“.</div>';
+  document.querySelectorAll('.proj').forEach(b=>b.onclick=()=>openProject(b.dataset.n));
+}
+function go(v){cur.view=v;render();}
+function render(){
+  renderProjects();
+  if(cur.view==='new')return renderNew();
+  if(cur.view==='job')return renderJob();
+  if(cur.view==='project')return renderProject();
+}
+
+// ---------- Neue Analyse
+function renderNew(){
+  const rec=(S.settings.sources||[]).filter(x=>!folders.includes(x));
+  $('#view').innerHTML=`
+  <h1>Neue Analyse</h1><div class="sub">Ordner wählen – das Programm findet Lights, Flats und Bias selbst, bewertet jedes Foto und schlägt Stacking-Einstellungen vor.</div>
+  <div class="card steps">
+    <div class="step"><div class="num">1</div><div><h2>Wo liegen die Aufnahmen?</h2>
+      <div class="muted" style="font-size:13px">Am besten den Hauptordner von NINA/ASIAIR – inklusive Flat- und Bias-Ordner. Mehrere Ordner möglich.</div>
+      <div class="folders" id="fl">${folders.map((f,i)=>`<div class="frow"><input type="text" value="${esc(f)}" data-i="${i}" placeholder="z. B. F:\\OneDrive\\NINA"><button class="btn" data-pick="${i}">Durchsuchen …</button>${folders.length>1?`<button class="btn icon" data-del="${i}" title="entfernen">✕</button>`:''}</div>`).join('')}</div>
+      <button class="btn" id="addF">＋ weiterer Ordner</button>
+      ${rec.length?`<div class="recent"><span class="muted" style="font-size:12.5px">Zuletzt:</span>${rec.map(r=>`<button data-rec="${esc(r)}">${esc(r)}</button>`).join('')}</div>`:''}
+    </div></div>
+    <div class="step"><div class="num">2</div><div><h2>Welches Objekt? <span class="muted" style="font-weight:400">(optional)</span></h2>
+      <input type="text" id="tgt" placeholder="leer = alle gefundenen Objekte" style="width:min(360px,100%)"></div></div>
+    <div class="step"><div class="num">3</div><div><button class="btn primary big" id="anBtn">Analysieren</button>
+      <div class="muted" style="font-size:13px;margin-top:6px">Liest nur – an den Originaldateien wird nichts verändert. Dauert je nach Menge einige Minuten.</div></div></div>
+  </div>`;
+  document.querySelectorAll('#fl input').forEach(i=>i.oninput=()=>folders[+i.dataset.i]=i.value);
+  document.querySelectorAll('[data-pick]').forEach(b=>b.onclick=async()=>{b.disabled=true;try{const r=await api('/api/pick-folder',{initial:folders[+b.dataset.pick]||folders.find(x=>x)||''});if(r.path){folders[+b.dataset.pick]=r.path;renderNew();}}catch(e){toast(e.message,true)}b.disabled=false;});
+  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{folders.splice(+b.dataset.del,1);renderNew();});
+  document.querySelectorAll('[data-rec]').forEach(b=>b.onclick=()=>{const e=folders.findIndex(x=>!x.trim());if(e>=0)folders[e]=b.dataset.rec;else folders.push(b.dataset.rec);renderNew();});
+  $('#addF').onclick=()=>{folders.push('');renderNew();};
+  $('#anBtn').onclick=async()=>{try{await api('/api/analyze',{folders:folders.filter(x=>x.trim()),target:$('#tgt').value.trim()||null});cur.view='job';refresh();}catch(e){toast(e.message,true)}};
+}
+
+// ---------- Auftrag
+function renderJob(){
+  if(cur.view!=='job'&&cur.view!=='project')return;
+  const j=S&&S.job; if(!j){if(cur.view==='job')go('new');return;}
+  const active=['queued','running'].includes(j.state);
+  const p=j.progress||{}, pct=p.total?Math.round(100*p.done/p.total):null;
+  const html=`<div class="card" id="jobCard"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">
+      <div><h2 style="margin:0">${esc(j.title)}</h2><div class="muted" style="font-size:13px">${{queued:'wartet',running:'läuft',done:'fertig',failed:'fehlgeschlagen',cancelled:'abgebrochen'}[j.state]}${active?(p.message?' · '+esc(p.stage.split(' · ')[0]+' · '+p.message):(p.stage?' · '+esc(p.stage):'')+(p.total?` · ${p.done}/${p.total}`:'')):(j.finished?' · '+new Date(j.finished).toLocaleString('de-AT',{dateStyle:'short',timeStyle:'short'}):'')}</div></div>
+      ${active?`<button class="btn danger" id="cancelBtn">Abbrechen</button>`:''}</div>
+    ${active?`<div class="progress ${pct==null?'indet':''}"><div style="width:${pct??0}%"></div></div>`:''}
+    ${j.state==='failed'?`<div class="banner err"><div class="grow"><b>Fehler:</b> ${esc(j.error)}</div></div>`:''}
+    <details ${active||j.state==='failed'?'open':''}><summary class="muted" style="cursor:pointer;margin-top:8px">Protokoll</summary><pre class="log" id="jobLog">${esc(j.log.join('\n'))}</pre></details></div>`;
+  if(cur.view==='job'){
+    $('#view').innerHTML=`<h1>${j.kind==='stack'?'Stacking':'Analyse'}</h1><div class="sub">${active?'Du kannst das Fenster offen lassen und nebenbei etwas anderes machen.':''}</div>`+html+
+      (!active&&j.kind==='analyze'&&j.result&&j.result.length?`<div class="card"><h2>Ergebnis</h2>${j.result.map(r=>`<button class="btn primary" onclick="openProject('${esc(r.project)}')">${esc(r.target)} öffnen →</button> `).join('')}</div>`:'');
+  } else {
+    const slot=$('#jobSlot'); if(slot)slot.innerHTML=(active||(j.kind==='stack'&&j.title.endsWith(P?.plan?.target||'\u0000')))?html:'';
+  }
+  const lg=$('#jobLog'); if(lg)lg.scrollTop=lg.scrollHeight;
+  const cb=$('#cancelBtn'); if(cb)cb.onclick=async()=>{if(!confirm('Wirklich abbrechen?'))return;await api('/api/job/'+j.id+'/cancel',{});refresh();};
+}
+function onJobFinished(j){
+  if(j.state==='done'&&j.kind==='analyze'&&j.result&&j.result.length===1){dirty=false;openProject(j.result[0].project);toast('Analyse fertig');}
+  else if(j.state==='done'&&j.kind==='stack'){toast('Stacking fertig');if(cur.project)openProject(cur.project);}
+  else if(j.state==='failed')toast(j.kind==='stack'?'Stacking fehlgeschlagen':'Analyse fehlgeschlagen',true);
+}
+
+// ---------- Projekt
+async function openProject(name){
+  cur={view:'project',project:name,tab:cur.project===name?cur.tab:'plan'};
+  try{P=await api('/api/project/'+encodeURIComponent(name));}catch(e){toast(e.message,true);return;}
+  render();
+}
+const OPTS=[
+  ['local_normalization','Local Normalization','Gleicht Helligkeitsverläufe zwischen Nächten an. Bei mehreren Nächten empfohlen.'],
+  ['distortion_correction','Verzerrungskorrektur','Richtet auch verzerrte Sterne am Bildrand sauber aus.'],
+  ['large_scale_rejection','Satelliten-/Flugzeugspuren entfernen','Large-Scale Rejection beim Integrieren.'],
+  ['autocrop','Ränder automatisch beschneiden','Aus lassen, wenn mehrere Filter später kombiniert werden.'],
+];
+function renderProject(){
+  const plan=P.plan, runs=plan.runs, op=plan.options||{};
+  const active=S.job&&['queued','running'].includes(S.job.state);
+  const enabled=runs.filter(r=>r.enabled!==false);
+  const needGb=Math.max(0,...enabled.map(r=>r.gb||0))+2, needRam=Math.max(0,...enabled.map(r=>r.ram_gb||0));
+  const freeGb=S.disk_free_gb, freeRam=S.ram_free_gb, totRam=S.ram_total_gb;
+  const blockers=[];
+  if(!S.pixinsight_ok)blockers.push('PixInsight wurde nicht gefunden – Pfad in den Einstellungen prüfen.');
+  else if(!S.wbpp_ok)blockers.push('WBPP-Skript nicht gefunden – PixInsight-Installation prüfen.');
+  if(S.pixinsight_running.length)blockers.push('PixInsight ist geöffnet – bitte schließen, sonst teilen sich zwei Instanzen den Arbeitsspeicher.');
+  if(freeGb!=null&&freeGb<needGb)blockers.push(`Zu wenig Platz: ${fmt(needGb,0)} GB nötig, ${fmt(freeGb,0)} GB frei.`);
+  if(!enabled.length)blockers.push('Kein Lauf ausgewählt.');
+  if(active)blockers.push('Es läuft gerade ein Auftrag.');
+  const warns=[];
+  if(freeRam!=null&&freeRam<Math.min(needRam,S.settings.min_free_ram_gb))warns.push(`Wenig freier Arbeitsspeicher (${fmt(freeRam,1)} GB). Andere Programme schließen.`);
+  enabled.forEach(r=>{if(!r.flats.length)warns.push(`${r.name}: keine passenden Flats.`);else if(!r.flat_ok)warns.push(`${r.name}: Flats haben ein Problem – siehe Bericht.`);});
+  const runOpts=r=>['auto',...runs.filter(x=>x.name!==r.name).map(x=>'master:'+x.name)];
+  $('#view').innerHTML=`
+  <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-end;flex-wrap:wrap">
+    <div><h1>${esc(plan.target)}</h1><div class="sub">${plan.total_frames} Frames im Plan${plan.suggest_n?` · ${plan.suggest_n} zum Aussortieren vorgeschlagen`:''} · analysiert ${new Date(plan.created).toLocaleString('de-AT',{dateStyle:'short',timeStyle:'short'})}</div></div>
+    <div style="display:flex;gap:8px"><button class="btn" id="reBtn" title="Ordner neu einlesen und Plan neu berechnen">↻ Neu analysieren</button><button class="btn" id="dirBtn">Ordner öffnen</button></div>
+  </div>
+  <div id="dirtySlot"></div>
+  <div id="jobSlot"></div>
+  ${P.finals&&P.finals.length?`<div class="card"><h2>Ergebnisse</h2><div class="finals">${P.finals.map(f=>`<div>✓ ${esc(f)}</div>`).join('')}</div>
+    <div style="display:flex;gap:8px;margin-top:10px"><button class="btn primary" id="openPi">In PixInsight öffnen</button><button class="btn" id="openFinal">Ordner „final“ öffnen</button></div></div>`:''}
+  <div class="tabs"><button data-t="plan" class="${cur.tab==='plan'?'on':''}">Stacking-Plan</button><button data-t="report" class="${cur.tab==='report'?'on':''}">Bericht &amp; Frames</button></div>
+  <div id="tabBody"></div>`;
+  $('#tabBody').innerHTML=cur.tab==='report'?`<div class="muted" style="font-size:13px;margin-top:10px">Tipp: In der Galerie ein Foto anklicken → „Ausschließen“ oder „Doch verwenden“.</div><iframe src="/p/${encodeURIComponent(cur.project)}/report.html"></iframe>`:`
+  <div class="runs">${runs.map((r,i)=>`<div class="run ${r.enabled===false?'off':''}">
+      <label class="switch" title="Lauf ein/aus"><input type="checkbox" data-run="${i}" ${r.enabled!==false?'checked':''}><span></span></label>
+      <div><h3>${esc(r.name)} <span class="muted" style="font-weight:400;font-size:13px">${esc({debayer:'Farbbild',extract:'→ '+r.outputs.join(' + '),mono:'Mono'}[r.mode])}</span></h3>
+        <div class="why">${esc(r.why)}</div>
+        <div class="kv"><span><b>${r.lightCount}</b> Lights</span><span><b>${r.nights.length}</b> Nächte</span>
+          <span>Flats ${r.flats.length?`<span class="badge ${r.flat_ok?'good':'warning'}">${r.flats.length} · ${esc((r.flat_set||'').split(/[\\/]/).slice(-2).join('/'))}</span>`:'<span class="badge critical">fehlen</span>'}</span>
+          <span>Bias ${r.bias.length?`<span class="badge good">${r.bias.length}</span>`:'<span class="badge warning">keine</span>'}</span>
+          ${r.darks.length?`<span>Darks <span class="badge good">${r.darks.length}</span></span>`:''}</div></div>
+      <div class="side" style="text-align:right;font-size:13px"><div class="muted">Referenz</div>
+        <select data-ref="${i}">${runOpts(r).map(o=>`<option value="${esc(o)}" ${o===(r.reference||'auto')?'selected':''}>${o==='auto'?'bester Frame':'Master von '+esc(o.slice(7))}</option>`).join('')}</select>
+        <div class="muted" style="margin-top:6px">~${fmt(r.gb,0)} GB · ~${fmt(r.ram_gb,0)} GB RAM</div></div>
+    </div>`).join('')}</div>
+  <div class="card"><h2>Optionen</h2><div class="opts">
+    ${OPTS.map(([k,t,d])=>`<label class="opt"><span class="switch"><input type="checkbox" data-opt="${k}" ${op[k]?'checked':''}><span></span></span><span><div class="t">${t}</div><div class="d">${d}</div></span></label>`).join('')}
+    <label class="opt"><span style="width:40px"></span><span><div class="t">Gewichtung</div>
+      <select data-opt-sel="weighting"><option value="psf_signal" ${op.weighting==='psf_signal'?'selected':''}>PSF Signal (empfohlen)</option><option value="psf_snr" ${op.weighting==='psf_snr'?'selected':''}>PSF SNR</option><option value="snr" ${op.weighting==='snr'?'selected':''}>SNR</option></select>
+      <div class="d">Schwache Frames (Mond, Dunst) zählen automatisch weniger.</div></span></label>
+  </div></div>
+  <div class="card"><h2>Speicher</h2><div class="res">
+    ${meter('Platz im Arbeitsverzeichnis',needGb,freeGb,'GB',S.settings.workdir)}
+    ${meter('Arbeitsspeicher (frei)',needRam,freeRam,'GB','gesamt '+fmt(totRam,0)+' GB')}
+  </div><div class="muted" style="font-size:12.5px;margin-top:8px">${esc(plan.peak_note||'')}</div></div>
+  <div class="go">
+    <div class="msg">${blockers.length?blockers.map(b=>'⛔ '+esc(b)).join('<br>'):warns.length?warns.map(w=>'⚠ '+esc(w)).join('<br>'):'Alles bereit. PixInsight läuft unsichtbar im Hintergrund, der PC bleibt wach.'}</div>
+    <button class="btn primary big" id="goBtn" ${blockers.length?'disabled':''}>Los – stacken</button>
+  </div>
+  <details class="card"><summary style="cursor:pointer"><b>Warum diese Einstellungen?</b></summary>
+    <table class="why">${(plan.settings||[]).map(s=>`<tr><td>${esc(s[0])}</td><td>${esc(s[1])}</td><td>${esc(s[2])}</td></tr>`).join('')}</table></details>`;
+  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{cur.tab=b.dataset.t;renderProject();});
+  document.querySelectorAll('[data-run]').forEach(c=>c.onchange=()=>savePlan({runs:{[runs[+c.dataset.run].name]:{enabled:c.checked}}}));
+  document.querySelectorAll('[data-ref]').forEach(c=>c.onchange=()=>savePlan({runs:{[runs[+c.dataset.ref].name]:{reference:c.value}}}));
+  document.querySelectorAll('[data-opt]').forEach(c=>c.onchange=()=>savePlan({options:{[c.dataset.opt]:c.checked}}));
+  document.querySelectorAll('[data-opt-sel]').forEach(c=>c.onchange=()=>savePlan({options:{[c.dataset.optSel]:c.value}}));
+  $('#reBtn').onclick=async()=>{try{await api('/api/project/'+encodeURIComponent(cur.project)+'/reanalyze',{});dirty=false;cur.view='job';refresh();}catch(e){toast(e.message,true)}};
+  $('#dirBtn').onclick=()=>api('/api/open',{path:P.pdir}).catch(e=>toast(e.message,true));
+  const op1=$('#openPi'); if(op1)op1.onclick=()=>api('/api/open-pixinsight',{paths:P.finals.map(f=>P.pdir+'/final/'+f)}).catch(e=>toast(e.message,true));
+  const op2=$('#openFinal'); if(op2)op2.onclick=()=>api('/api/open',{path:P.pdir+'/final'}).catch(e=>toast(e.message,true));
+  const gb=$('#goBtn'); if(gb)gb.onclick=async()=>{
+    if(dirty&&!confirm('Du hast Frames ein-/ausgeschlossen, der Plan ist aber noch nicht neu berechnet. Trotzdem mit dem alten Plan stacken?'))return;
+    gb.disabled=true;try{await api('/api/project/'+encodeURIComponent(cur.project)+'/stack',{});await refresh();renderProject();}catch(e){toast(e.message,true);gb.disabled=false}};
+  renderDirty();renderJob();
+}
+function meter(title,need,free,unit,sub){
+  const ok=free==null||free>=need, pct=free==null?0:Math.min(100,100*need/Math.max(free,0.01));
+  return `<div class="meter"><div class="muted" style="font-size:13px">${esc(title)}</div>
+    <div><span class="big">${fmt(need,0)} ${unit}</span> <span class="muted">nötig · ${fmt(free,0)} ${unit} frei</span></div>
+    <div class="bar"><div style="width:${pct}%;background:var(${ok?(pct>80?'--warning':'--good'):'--critical'})"></div></div>
+    <div class="muted" style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(sub)}">${esc(sub)}</div></div>`;
+}
+function renderDirty(){
+  const s=$('#dirtySlot'); if(!s)return;
+  s.innerHTML=dirty?`<div class="banner"><div class="grow">Frame-Auswahl geändert. Plan neu berechnen, damit die Änderung beim Stacken zählt (Messwerte bleiben erhalten, geht schnell).</div><button class="btn primary" id="dirtyBtn">Plan aktualisieren</button></div>`:'';
+  const b=$('#dirtyBtn'); if(b)b.onclick=()=>$('#reBtn').click();
+}
+async function savePlan(edits){
+  try{const plan=await api('/api/project/'+encodeURIComponent(cur.project)+'/plan',edits);P.plan=plan;renderProject();}catch(e){toast(e.message,true)}
+}
+
+// ---------- Einstellungen
+const SETF=[
+  ['workdir','Arbeitsverzeichnis','text','Hier landen Zwischendateien, Berichte und die fertigen Masters. Am besten eine schnelle, große Platte – nicht OneDrive.',true],
+  ['pixinsight','PixInsight-Programm','text','Pfad zu PixInsight.exe',false],
+  ['analysis_workers','Gleichzeitige Vermessungen','number','Mehr = schneller, braucht aber mehr Arbeitsspeicher (je ~1 GB).'],
+  ['min_free_ram_gb','Mindestens freier Arbeitsspeicher (GB)','number','Darunter startet das Stacking nicht – schützt vor Abstürzen.'],
+  ['keep_awake','PC während des Stackens wach halten','bool','Verhindert Energiesparmodus (sonst kann ein Lauf Stunden länger dauern).'],
+  ['cleanup_intermediate','Zwischendateien nach jedem Lauf löschen','bool','Spart sehr viel Platz. Masters und Protokolle bleiben.'],
+  ['open_results','Ergebnisse am Ende in PixInsight öffnen','bool',''],
+  ['timezone','Zeitzone','text','Für Nächte und Himmelsdiagramme, z. B. Europe/Vienna.'],
+];
+function openSettings(first){
+  const s=S.settings;
+  $('#setBody').innerHTML=(first?`<div class="banner" style="margin:0"><div>Willkommen! Bitte kurz prüfen: Wo soll gearbeitet werden, und wo ist PixInsight installiert?</div></div>`:'')+
+    SETF.map(([k,l,t,d,pick])=>t==='bool'?`<label class="opt"><span class="switch"><input type="checkbox" data-k="${k}" ${s[k]?'checked':''}><span></span></span><span><div class="t">${l}</div><div class="d">${d}</div></span></label>`:
+    `<div class="field"><label>${l}</label><div class="frow"><input type="${t}" data-k="${k}" value="${esc(s[k])}">${pick?`<button class="btn" data-pickset="${k}">Durchsuchen …</button>`:''}</div>${d?`<div class="d">${d}</div>`:''}</div>`).join('')+
+    `<div class="muted" style="font-size:12px">Gespeichert in ${esc(S.settings_file)}</div>`;
+  document.querySelectorAll('[data-pickset]').forEach(b=>b.onclick=async()=>{const inp=document.querySelector(`[data-k="${b.dataset.pickset}"]`);try{const r=await api('/api/pick-folder',{initial:inp.value});if(r.path)inp.value=r.path;}catch(e){toast(e.message,true)}});
+  setDlg.showModal();
+}
+$('#setSave').onclick=async()=>{
+  const d={};document.querySelectorAll('#setBody [data-k]').forEach(i=>{const f=SETF.find(x=>x[0]===i.dataset.k);d[i.dataset.k]=f[2]==='bool'?i.checked:f[2]==='number'?Number(i.value):i.value.trim();});
+  try{S=await api('/api/settings',d);setDlg.close();toast('Gespeichert');renderChips();render();}catch(e){toast(e.message,true)}
+};
+$('#setBtn').onclick=()=>openSettings(false);
+$('#newBtn').onclick=()=>{cur={view:'new',project:null,tab:'plan'};render();};
+
+refresh().then(()=>{if(S&&S.job&&['queued','running'].includes(S.job.state))cur.view='job';else if(S&&S.projects.length)return openProject(S.projects[0].name);render();});
+</script>
+</body>
+</html>

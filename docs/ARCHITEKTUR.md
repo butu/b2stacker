@@ -34,25 +34,35 @@
 | `discover.py` | Ordner rekursiv scannen, `FrameMeta` erzeugen, gruppieren: Lights nach Ziel/Filter/Nacht, Kalibriersätze nach Typ/Filter/Datum/Einstellungen. Ignoriert `_rejected`, `_alt` usw. |
 | `calibcheck.py` | Flats pro Frame prüfen (Kanal-Helligkeit, Knick ~48k ADU, Farbabfall Mitte→Rand, Streuung), Auslesemodus/Gain/Offset-Abgleich, beste Zuordnung Flat↔Light (Filter, Fokus, Rotator, Datum). |
 | `analyze.py` | Frame-Metriken (FWHM, Exzentrizität, Sterne, Hintergrund, Rauschen, Mond …). |
-| `rigcheck.py` | Sternform im Bildfeld (3×3), Richtungskohärenz, Fokus/Autofokus, Dithering, Taupunkt, Kühlung. |
 | `plan.py` | Stacking-Plan: Läufe, Motor, Einstellungen mit Begründung, Speicher-/RAM-Bedarf. |
-| `report/` | HTML-Bericht (selbstenthaltend, Chart.js). |
-| `engines/` | Motoren. Gemeinsame Schnittstelle: `prepare(plan) → run() → progress events → result`. |
+| `report/` | Bewertung (`assess`), Rig-Diagnose (`diag`: Sternform 3×3, Richtungskohärenz, Fokus, Dithering, Taupunkt), Himmelsbahnen (`sky`), HTML-Bericht (selbstenthaltend, Chart.js eingebettet). |
+| `project.py` | Ablauf je Ziel, Projektliste, Plan-Anpassungen (`plan_edits.json`), manuelle Frame-Entscheidungen (`overrides.json`). |
+| `app/` | Oberfläche: HTTP-Server nur mit Standardbibliothek (127.0.0.1) + eine HTML-Seite. |
+| `pjsr/split.js` | Farb-Master in Kanäle aufteilen (z. B. Ha = R, OIII = (G+B)/2). |
+| `engines/pixinsight.py` | WBPP-Lauf: Argumente, Dateilisten (`dir=`/`file=`), Kalibrier-Header-Korrektur, Platz/RAM/Instanz-Prüfung, Wachhalten, Fortschritt aus Zwischenordnern, Absturz-Erkennung, Aufteilen, Aufräumen. |
 | `xisf.py` | XISF lesen/schreiben (unkomprimiert, Float32). |
-| `jobs.py` | Warteschlange, Status, Logs, Wiederaufnahme, Aufräumen. |
+| `jobs.py` | Hintergrund-Aufträge (immer nur einer), Status + Log, gespiegelt nach `<workdir>/jobs/`. |
 | `system.py` | RAM/Disk prüfen, Energiesparmodus verhindern (Windows), hängende PixInsight-Prozesse erkennen. |
 | `cli.py` | Kommandozeile (`--json` für KI). |
 
 ## Motoren
 
-### PixInsight WBPP (`engines/pixinsight_wbpp.py`)
-- Aufruf: `PixInsight.exe -n --automation-mode -r="WBPP.js,automationMode=true,<param>=<wert>,…,dir=…" --force-exit`
+### PixInsight WBPP (`engines/pixinsight.py`)
+- Aufruf: `PixInsight.exe -n --automation-mode -r="WBPP.js,automationMode=true,<param>=<wert>,…,dir=…,file=…" --force-exit`
 - Parameter: siehe WBPP `BPP-engine.js` (`importParameters`). Gespeicherte GUI-Einstellungen werden im Automation-Modus **nicht** geladen.
-- Für Breitband und Mono-Filter.
-- **Bekannter Fehler (WBPP 2.7.8):** `debayerOutputMethod=separated` ist im Automation-Modus defekt → nicht verwenden.
+- `dir=` sucht **rekursiv** → wird nur genutzt, wenn genau alle Bilder im Ordner gewählt sind, sonst `file=` je Datei.
+  Werte dürfen kein Komma und kein `=` enthalten. Bei sehr langen Befehlszeilen werden Lights in einen Arbeitsordner verlinkt.
+- WBPP erkennt den Frame-Typ nur am Header: Kalibrierframes mit falschem `IMAGETYP` (NINA-Snapshot-Bias) werden als
+  korrigierte Kopie in `cache/calib_fixed/<typ>_<hash>/` übergeben.
+- Drizzle ist im Automationsmodus nicht global setzbar (pro Gruppe) → bei Bedarf von Hand in WBPP.
+- **Bekannter Fehler (WBPP 2.7.8):** `debayerOutputMethod=separated` ist im Automation-Modus defekt (registriert die CFA-Frames).
+  Daher Dualband an Farbkamera: als Farbbild stacken (`debayerOutputMethod=0`), danach `pjsr/split.js`
+  (Ha/SII = R, OIII = (G+B)/2).
+- Referenz: erster Breitband-Lauf wählt den besten Frame, weitere Läufe richten auf dessen Master aus → alle Masters deckungsgleich.
 
-### PixInsight-Pipeline (`engines/pixinsight_pipeline.py` + `pjsr/pipeline.js`) – geplant
-- Für Dualband an Farbkamera in maximaler Qualität: ImageCalibration → Kanal-Extraktion direkt aus CFA (ohne Interpolation) → StarAlignment je Kanal → LocalNormalization → ImageIntegration (PSF Signal Weight).
+### PixInsight-Pipeline – später
+- Für Dualband an Farbkamera ohne Interpolation: ImageCalibration → Kanal-Extraktion direkt aus CFA → StarAlignment je Kanal →
+  LocalNormalization → ImageIntegration (PSF Signal Weight). Erst sinnvoll, wenn nachgewiesen besser als WBPP + Aufteilen.
 
 ### Siril – optional, später
 
@@ -60,16 +70,21 @@
 
 ```
 <workdir>/
-  settings.json          Einstellungen
-  calib/                 aufbereitete Kalibrierdaten (z. B. Bias mit korrigiertem IMAGETYP)
+  cache/calib_fixed/     Kalibrierframes mit korrigiertem IMAGETYP
   projects/<ziel>/
     inventory.json       Ergebnis des Scans
-    analysis/            Metriken, Thumbnails, Bericht
-    plan.json            Stacking-Plan (bearbeitbar)
-    runs/<run-id>/       Arbeitsdaten eines Laufs (werden nach Erfolg aufgeräumt)
-    final/               Masters, Ha/OIII, Vorschauen
-  jobs/                  Warteschlange, Status, Logs
+    calibration.json     Kalibrier-Prüfung und Zuordnung
+    sources.json         gewählte Quellordner (für „Neu analysieren“)
+    analysis/            Metriken (metrics.csv), Thumbnails
+    report.html          Bericht
+    plan.json            Stacking-Plan
+    plan_edits.json      Anpassungen des Benutzers (überleben eine Neu-Analyse)
+    overrides.json       manuell aus-/eingeschlossene Frames
+    runs/<zeit>/         je Lauf: plan.json, status.json, astrostack.log, <Lauf>/master, <Lauf>/logs
+    final/               Ergebnisse; ältere Versionen in final/_alt/
+  jobs/                  Status aller Aufträge (für CLI/KI)
 ```
+Einstellungen: `%APPDATA%\AstroStack\settings.json` (bzw. `~/.config/astrostack/`).
 
 ## Robustheit (Lehren aus vdB 131)
 - Immer nur **eine** PixInsight-Instanz gleichzeitig; hängende Instanzen erkennen und melden.

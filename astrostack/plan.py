@@ -27,7 +27,8 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
     peak_disk = peak_ram = 0.0
     order = sorted(groups, key=lambda g: flt.is_narrowband(g.filter_kind))
     for g in order:
-        frames = [f for f in g.frames if status.get(f.path, "ok") not in ("rejected", "suggest") and not f.excluded]
+        frames = [f for f in g.frames
+                  if ((status[f.path] not in ("rejected", "suggest")) if f.path in status else not f.excluded)]
         if not frames:
             continue
         proc = flt.processing_for(g.filter_kind, g.is_osc)
@@ -39,9 +40,11 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
         dark = next((c for c in (m or {}).get("darks", []) if c["usable"]), None)
         alt_med = _med([f.alt for f in frames])
         w, h = g.settings[5] or 6000, g.settings[6] or 4000
-        chans = 3 if (g.is_osc and proc.mode == "debayer") else len(proc.outputs) if proc.mode == "extract" else 1
-        disk = system.estimate_disk_gb(len(frames), w, h, g.is_osc, proc.mode)
-        ram = system.estimate_ram_gb(len(frames), w // (2 if proc.mode == "extract" else 1), h // (2 if proc.mode == "extract" else 1), chans)
+        # Dualband/Schmalband an OSC wird (wegen des WBPP-Fehlers bei "separated") als Farbbild gestackt
+        stack_mode = "debayer" if (g.is_osc and proc.mode in ("debayer", "extract")) else proc.mode
+        chans = 3 if stack_mode == "debayer" else 1
+        disk = system.estimate_disk_gb(len(frames), w, h, g.is_osc, stack_mode)
+        ram = system.estimate_ram_gb(len(frames), w, h, chans)
         peak_disk, peak_ram = max(peak_disk, disk), max(peak_ram, ram)
         total_frames += len(frames)
         if proc.mode == "debayer":
@@ -49,7 +52,8 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
             if alt_med is not None and alt_med < low_alt:
                 why += " Objekt stand tief (Median %.0f°): Farbsäume in der Bearbeitung (BlurX „Correct only“) korrigieren." % alt_med
         elif proc.mode == "extract":
-            why = proc.note + " – ohne Interpolation, jeder Kanal einzeln ausgerichtet."
+            why = proc.note + ". WBPP stackt das Farbbild, danach wird aufgeteilt (%s)." % ", ".join(
+                "%s = %s" % (k, {"R": "Rot", "GB": "(Grün+Blau)/2", "G": "Grün", "B": "Blau"}.get(v, v)) for k, v in proc.channel_map.items())
         else:
             why = proc.note
         ref = "auto"
@@ -60,7 +64,7 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
         name = (g.filter or "L").replace("/", "_")
         runs.append(dict(
             name=name, filter=g.filter, filter_kind=g.filter_kind, mode=proc.mode, outputs=list(proc.outputs),
-            channel_map=proc.channel_map, engine=("pixinsight-pipeline" if proc.mode == "extract" else "pixinsight-wbpp"),
+            channel_map=proc.channel_map, engine="pixinsight-wbpp", enabled=True,
             reference=ref, lightCount=len(frames), nights=sorted({f.night for f in frames if f.night}),
             lights=[f.path for f in frames],
             flats=[x.path for x in _frames_of(flat)] if flat else [],
@@ -86,7 +90,7 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
         ("Gewichtung", "PSF Signal Weight", ("%d von %d Nächten mit Mond: schwache Frames zählen automatisch weniger." % (moon_n, nn)) if moon_n else "Gewichtet nach Signal und Schärfe."),
         ("Local Normalization", "an" if nn > 1 else "aus", ("%d Nächte mit unterschiedlichem Hintergrund." % nn) if nn > 1 else "Nur eine Nacht."),
         ("Rejection", "automatisch + Large-Scale (hoch)", "Entfernt Satelliten- und Flugzeugspuren."),
-        ("Drizzle", "aus" if (samp is None or samp > 3) else "2×",
+        ("Drizzle", "aus" if (samp is None or samp > 3) else "2× empfohlen (in WBPP von Hand)",
          ("FWHM %.1f\" = %.1f px: überabgetastet." % (fw, samp)) if (samp and samp > 3) else (("FWHM %.1f\" = %.1f px: Drizzle 2× lohnt." % (fw, samp)) if samp else "Keine FWHM-Daten.")),
         ("Autocrop", "aus", "Masters bleiben gleich groß und deckungsgleich; Zuschneiden in der Bearbeitung."),
         ("Zwischendateien", "nach jedem Lauf löschen", "Spart Platz; Masters und Logs bleiben."),

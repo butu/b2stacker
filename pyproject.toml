@@ -17,7 +17,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ui = ["fastapi>=0.110", "uvicorn>=0.27"]
 dev = ["pytest>=7"]
 
 [project.scripts]
@@ -27,7 +26,7 @@ astrostack = "astrostack.cli:main"
 include = ["astrostack*"]
 
 [tool.setuptools.package-data]
-astrostack = ["report/*.html", "pjsr/*.js"]
+astrostack = ["report/*.html", "report/vendor/*", "pjsr/*.js", "app/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
