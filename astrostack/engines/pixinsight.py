@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime
 import glob
+import hashlib
 import json
 import os
 import shlex
@@ -561,6 +562,20 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
             crash_text(code) if code else "WBPP lief durch, aber", os.path.join(outdir, "logs")))
     log("  Master: %s (%s)" % (os.path.basename(master), _elapsed(time.time() - t0)))
     notes = list(orig_run.get("_notes") or [])
+    if run.get("_cc_pixinsight"):
+        cc = cc_check(outdir)
+        logbook.event("cosmetic", run=name, engine="pixinsight", **{k: v for k, v in cc.items() if k != "log"})
+        if cc["ok"]:
+            log("  Hotpixel-Korrektur (PixInsight CosmeticCorrection) ausgeführt")
+        else:
+            log("  WARNUNG: PixInsight hat die Hotpixel-Korrektur nicht ausgeführt (%s) – Stack wird mit "
+                "b2stacker-eigener Hotpixel-Entfernung neu gerechnet." % (
+                    "Parameter nicht übernommen" if cc["applied"] else "Pipeline-Script nicht aktiv"))
+            _discard(master)
+            remove_link_tree(os.path.join(jobdir, "_grp", safe_file(name)))
+            return _one_run(plan, dict(orig_run, _force_cosmetic=True,
+                                       _notes=notes + ["PixInsight-Hotpixel-Korrektur nicht verfügbar – b2stacker-Ersatz verwendet."]),
+                            settings, jobdir, masters, finaldir, st, log, save, cancel, runner_factory)
     retry = _check_registration(orig_run, outdir, master, notes, log)
     if retry is not None:
         remove_link_tree(os.path.join(jobdir, "_grp", safe_file(name)))
@@ -603,18 +618,63 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     return master
 
 
+CC_ICON = "b2stacker_CC"
+CC_HOT_SIGMA = 3.0
+CC_COLD_SIGMA = 3.0
+
+
+def cc_builder_script(workdir: str, hot: float = CC_HOT_SIGMA, cold: float = CC_COLD_SIGMA) -> str:
+    """WBPP-Pipeline-Builder-Script (PixInsight CosmeticCorrection, Auto Detect) in den Cache schreiben → Pfad."""
+    src = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pjsr", "cc_builder.js")
+    code = open(src, encoding="utf-8").read().replace("__HOT__", "%.2f" % hot).replace("__COLD__", "%.2f" % cold)
+    d = os.path.join(workdir, "cache", "pjsr")
+    os.makedirs(d, exist_ok=True)
+    path = os.path.join(d, "cc_builder_%s.js" % hashlib.sha1(code.encode("utf-8")).hexdigest()[:8])
+    if not os.path.exists(path):
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(code)
+    return path
+
+
+def cc_check(outdir: str) -> dict:
+    """Hat WBPP unsere CosmeticCorrection wirklich ausgeführt? (Protokoll des letzten Laufs)"""
+    log = wbpplog.newest_log(os.path.join(outdir, "logs"))
+    text = ""
+    if log:
+        try:
+            text = open(log, encoding="utf-8", errors="replace").read()
+        except OSError:
+            pass
+    applied = ("applying %s process icon" % CC_ICON) in text
+    params_ok = "hotAutoCheck = true" in text and "useAutoDetect = true" in text
+    done = "End cosmetic correction of light frames" in text
+    return {"log": log, "applied": applied, "params_ok": params_ok, "done": done, "ok": applied and params_ok and done}
+
+
 def _cosmetic(plan, run, settings, jobdir, calib, st, log, save, cancel) -> dict:
-    """Ohne Darks: Hotpixel selbst entfernen (bereinigte Kopien der Lights) → Lauf mit den neuen Pfaden."""
+    """Ohne Darks: Hotpixel entfernen.
+
+    Normalfall: PixInsight selbst (CosmeticCorrection, Auto Detect) – per WBPP-Kommandozeile
+    usePipelineBuilderScript/pipelineBuilderScriptFile eingeschleust, läuft als WBPP-Schritt nach dem Kalibrieren.
+    Notfall (_force_cosmetic, z. B. wenn PixInsight die Bilder trotzdem am Sensor ausgerichtet hat): eigene
+    Bereinigung der Rohbilder in Python vor WBPP."""
     if not run.get("_force_cosmetic") and (calib.get("darks") or plan.get("options", {}).get("hot_pixels", True) is False):
         return run
+    if not run.get("_force_cosmetic"):
+        script = cc_builder_script(settings.workdir)
+        st.run_steps = steps.stack_steps(run["mode"], run.get("is_osc", True), cosmetic="after")
+        log("  Keine Darks → PixInsight entfernt Hotpixel (CosmeticCorrection, Auto Detect) nach dem Kalibrieren")
+        wb = dict(run.get("wbpp") or {}, usePipelineBuilderScript="true", pipelineBuilderScriptFile=pi_path(script))
+        wb.setdefault("hotPixelFilterRadius", "2")      # zusätzliche Sicherheit bei der Sternerkennung
+        return dict(run, wbpp=wb, _cc_pixinsight=True)
     fits_l = [p for p in run["lights"] if p.lower().endswith((".fits", ".fit", ".fts"))]
     if not fits_l:
         return run
-    st.run_steps = steps.stack_steps(run["mode"], run.get("is_osc", True), cosmetic=True)
+    st.run_steps = steps.stack_steps(run["mode"], run.get("is_osc", True), cosmetic="before")
     _finish_step(st, settings.workdir, len(run["lights"]))
     _set_step(st, "cosmetic", 0, len(fits_l))
     save()
-    log("  Keine Darks → Hotpixel werden vor dem Stacken entfernt (%d Lights) …" % len(fits_l))
+    log("  Hotpixel werden vor dem Stacken von b2stacker entfernt (%d Lights) …" % len(fits_l))
     cache = os.path.join(jobdir, "_cosmetic", safe_file(run["name"]))
     last = [0.0]
 
@@ -670,6 +730,8 @@ def _check_registration(run: dict, outdir: str, master: str, notes: list, log) -
         if not run.get("_lock_retry"):
             log("  → Neuer Versuch: Hotpixel werden entfernt und die Sternerkennung filtert stärker.")
             wb = dict(run.get("wbpp") or {}, hotPixelFilterRadius="3", noiseReductionFilterRadius="2")
+            wb.pop("usePipelineBuilderScript", None)
+            wb.pop("pipelineBuilderScriptFile", None)
             return dict(run, _lock_retry=True, _force_cosmetic=True, wbpp=wb,
                         _notes=notes + ["Erster Versuch an Hotpixeln ausgerichtet – mit Hotpixel-Entfernung neu gerechnet."])
         raise StackError("PixInsight hat die Bilder auch im zweiten Versuch an Sensor-Mustern statt an den Sternen "

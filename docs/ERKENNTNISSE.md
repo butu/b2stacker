@@ -128,3 +128,17 @@
 - WBPP-Automation: beliebige Engine-Parameter per `name=wert` (Parameters.set → importParameters), u. a.
   hotPixelFilterRadius, noiseReductionFilterRadius, minStructureSize, sensitivity, rigidTransformations, maxStars.
   CosmeticCorrection geht in WBPP nur über ein Prozess-Icon – in der Automation nicht nutzbar.
+
+## Nachtrag 2026-11-02: Hotpixel mit PixInsight selbst – per Kommandozeile
+
+- WBPP kennt zwei Kosmetik-Wege: (a) `IC.cosmeticCorrectionHigh` in ImageCalibration – braucht einen Master-Dark;
+  (b) CosmeticCorrection-Schritt nach dem Kalibrieren – nur über ein Prozess-Icon (`ccData.CCTemplate`,
+  `ProcessInstance.fromIcon`). In der Automation (`-n`) gibt es keine Icons.
+- Lösung ohne Icon: WBPP lädt per Kommandozeile `usePipelineBuilderScript=true` und
+  `pipelineBuilderScriptFile=<pfad>` (Engine-Parameter, `importParameters`). Das Script (`pjsr/cc_builder.js`) wird
+  von WBPP im Engine-Kontext ausgeführt: liefert für `fromIcon("b2stacker_CC")` eine CosmeticCorrection mit
+  Auto Detect (hot/cold 3 σ), setzt `setCcTemplate("b2stacker_CC")` auf alle Light-Gruppen und baut dann die normale
+  Light-Pipeline (`buildPipelineForLight`). Damit läuft WBPPs eigener CC-Schritt (Ordner `cosmetized/`, Cache, Log).
+- Kontrolle nach dem Lauf (`cc_check`): Log muss „applying b2stacker_CC process icon“, `useAutoDetect = true`,
+  `hotAutoCheck = true` und „End cosmetic correction“ enthalten. Sonst einmal neu mit der Python-Bereinigung
+  (`hotpix.py`, Notlösung).

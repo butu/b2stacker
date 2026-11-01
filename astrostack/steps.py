@@ -30,7 +30,7 @@ STACK = [
          what="Bias wird abgezogen und durch das Master-Flat geteilt.",
          why="Entfernt Ausleserauschen-Muster, Vignettierung und Staubschatten."),
     dict(key="cosmetic", title="Hotpixel", icon="sparkle",
-         what="Keine Darks vorhanden: einzelne heiße und kalte Pixel werden vor dem Kalibrieren ersetzt.",
+         what="Keine Darks vorhanden: PixInsight (CosmeticCorrection, Auto Detect) ersetzt einzelne heiße und kalte Pixel.",
          why="Sonst richtet PixInsight die Bilder an den Hotpixeln statt an den Sternen aus (Geistersterne), "
              "und ohne Dithering bleiben sie als farbige Punkte im Stack."),
     dict(key="debayer", title="Debayern", icon="grid",
@@ -54,8 +54,11 @@ STACK = [
 BY_KEY = {s["key"]: s for s in ANALYZE + STACK}
 
 
-def stack_steps(mode: str, osc: bool = True, cosmetic: bool = False) -> list[str]:
-    keys = ["check"] + (["cosmetic"] if cosmetic else []) + ["calibrate"]   # cosmetic: eigene Hotpixel-Entfernung
+def stack_steps(mode: str, osc: bool = True, cosmetic: str | bool = False) -> list[str]:
+    """cosmetic: "after" = PixInsight CosmeticCorrection nach dem Kalibrieren, "before"/True = eigene Bereinigung vorher."""
+    keys = ["check"] + (["cosmetic"] if cosmetic in (True, "before") else []) + ["calibrate"]
+    if cosmetic == "after":
+        keys.append("cosmetic")
     if osc and mode in ("debayer", "extract"):
         keys.append("debayer")
     keys += ["register", "integrate", "finalize", "quality"]

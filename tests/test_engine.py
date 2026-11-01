@@ -13,8 +13,21 @@ from .conftest import NINA_LIGHT, make_fits
 from .test_e2e import star_field
 
 
+CC_OK = """[x] IC.cosmeticCorrectionHigh = false;
+[x] CC.useAutoDetect = true;
+[x] CC.hotAutoCheck = true;
+[x] Cosmetic Correction: applying b2stacker_CC process icon.
+[x] * End cosmetic correction of light frames
+"""
+
+
+def cc_text(items):
+    return CC_OK if "usePipelineBuilderScript=true" in items else ""
+
+
 class FakePI:
     calls = []
+    cc_works = True
 
     def __init__(self, fail=False):
         self.fail = fail
@@ -41,6 +54,11 @@ class FakePI:
             xisf.write_image(os.path.join(out, "master", "masterLight_BIN-1_FILTER-HaO3_RGB.xisf"),
                              synth_master(shape=(300, 450)), {"OBJECT": "vdB 131"})
         self.code = 0xC000041D if self.fail else 0
+        if type(self) is FakePI and not script.endswith("split.js") and not self.fail:
+            out = dict(i.split("=", 1) for i in items if i.startswith("outputDirectory="))["outputDirectory"]
+            os.makedirs(os.path.join(out, "logs"), exist_ok=True)
+            k = len(os.listdir(os.path.join(out, "logs")))
+            open(os.path.join(out, "logs", "w%d.log" % k), "w").write(cc_text(items) if FakePI.cc_works else "")
         return cmd
 
     def poll(self):
@@ -89,10 +107,13 @@ def test_stack_extract_haoiii(tmp_path, monkeypatch):
     assert names == ["vdB131_Ha_%s_0.5h.xisf" % day, "vdB131_OIII_%s_0.5h.xisf" % day], names
     wbpp_items = FakePI.calls[0][1]
     assert "automationMode=true" in wbpp_items and "debayerOutputMethod=0" in wbpp_items
-    # keine Darks → Hotpixel-bereinigte Kopien (ganzer Ordner → dir=), strengere Sternerkennung
-    assert any(i.startswith("dir=") and "/_cosmetic/" in i for i in wbpp_items)
-    assert "hotPixelFilterRadius=2" in wbpp_items
-    assert not any("vdB 131/2026-10-12" in i for i in wbpp_items)
+    # keine Darks → PixInsight-CosmeticCorrection per Pipeline-Builder-Script, Original-Lights, strengere Sternerkennung
+    assert "usePipelineBuilderScript=true" in wbpp_items and "hotPixelFilterRadius=2" in wbpp_items
+    script = [i[len("pipelineBuilderScriptFile="):] for i in wbpp_items if i.startswith("pipelineBuilderScriptFile=")][0]
+    code = open(script, encoding="utf-8").read()
+    assert "b2stacker_CC" in code and "__HOT__" not in code and "useAutoDetect = true" in code
+    assert any(i.startswith("dir=") and i.endswith("/HaO3") and "vdB 131" in i for i in wbpp_items)
+    assert len([c for c in FakePI.calls if c[0] != "split.js"]) == 1
     # Snapshot-Bias (IMAGETYP=LIGHT) wurde als korrigierte Kopie übergeben
     bias = [i for i in wbpp_items if "calib_fixed" in i]
     assert len(bias) == 1 and bias[0].startswith("dir=")
@@ -183,7 +204,8 @@ class FakePIBadReg(FakePI):
         k = len(os.listdir(os.path.join(out, "logs")))
         frames = "".join(SA_FRAME % ("L_%04d" % i, 18 if i == 2 else 900, 0.034 if i == 2 else 0.66,
                                     0.36 if i == 2 else 0.9, 0.953 if i == 2 else 1.0) for i in range(4))
-        open(os.path.join(out, "logs", "run%d.log" % k), "w").write(SA_BLOCK % frames if k == 0 else "keine Registrierung\n")
+        open(os.path.join(out, "logs", "run%d.log" % k), "w").write(
+            cc_text(items) + (SA_BLOCK % frames if k == 0 else "keine Registrierung\n"))
         return cmd
 
 
@@ -227,7 +249,7 @@ class FakePILocked(FakePI):
         frames = "".join(SA_FRAME % ("L_%04d" % i, 900, 0.6, 0.9, 1.0) for i in range(4))
         if k:   # zweiter Versuch: echte Verschiebung/Drehung
             frames = frames.replace("rotation      :     -0.36 deg", "rotation      :   +179.80 deg")
-        open(os.path.join(out, "logs", "run%d.log" % k), "w").write(SA_BLOCK % (ref + frames))
+        open(os.path.join(out, "logs", "run%d.log" % k), "w").write(cc_text(items) + SA_BLOCK % (ref + frames))
         return cmd
 
 
@@ -256,7 +278,7 @@ def test_sensor_lock_twice_fails_clearly(tmp_path, monkeypatch):
             ref = "[2026-11-01 17:49:55] Reference image: G:/w/debayered/L_0000_c_d.xisf\n"
             frames = "".join(SA_FRAME % ("L_%04d" % i, 900, 0.6, 0.9, 1.0) for i in range(4))
             open(os.path.join(out, "logs", "r%d.log" % len(os.listdir(os.path.join(out, "logs")))), "w").write(
-                SA_BLOCK % (ref + frames))
+                cc_text(items) + SA_BLOCK % (ref + frames))
             return cmd
     monkeypatch.setattr(pi.system, "pixinsight_processes", lambda: [])
     st = pi.run_plan(plan, s, log=lambda *a: None, runner_factory=AlwaysLocked)
@@ -286,3 +308,18 @@ def test_hotpixels_removed_stars_kept():
     for y, x in hot:
         hot_px[y, x] = True
     assert (mask & star_px & ~hot_px).sum() <= 3          # Sterne bleiben unangetastet
+
+
+def test_cc_not_applied_falls_back_to_own_cleaning(tmp_path, monkeypatch):
+    s, plan, pdir = _setup(tmp_path, monkeypatch)
+    FakePI.calls = []
+    monkeypatch.setattr(FakePI, "cc_works", False)
+    monkeypatch.setattr(pi.system, "pixinsight_processes", lambda: [])
+    st = pi.run_plan(plan, s, log=lambda *a: None, runner_factory=FakePI)
+    assert st.state == "done", st.error
+    wbpp = [c for c in FakePI.calls if c[0] != "split.js"]
+    assert len(wbpp) == 2
+    second = wbpp[1][1]
+    assert not any(i.startswith("usePipelineBuilderScript") for i in second)
+    assert any(i.startswith("dir=") and "/_cosmetic/" in i for i in second)
+    assert any("PixInsight-Hotpixel" in n for n in st.runs["HaO3"]["notes"])
