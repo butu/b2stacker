@@ -87,13 +87,17 @@ def rig_diagnostics(rows, scale, analysis_dir):
     allT = np.nanmedian(allT / allT[:, 4:5], 0)
     corner = float(np.nanmean(allT[[0, 2, 6, 8]]))
     lr = abs(np.nanmean(allT[[0, 3, 6]]) - np.nanmean(allT[[2, 5, 8]])); tb = abs(np.nanmean(allT[[0, 1, 2]]) - np.nanmean(allT[[6, 7, 8]]))
-    lvl = 'good' if corner < 1.12 else 'warning' if corner < 1.3 else 'critical'
-    add(lvl, 'Optik', 'Bildfeld: Ecken %+.0f %% gegenüber Mitte' % ((corner - 1) * 100),
-        'Bis ~+12 %% ist für einen Newton mit Komakorrektor und APS-C-Sensor sehr gut. %s' % (
-            '' if lvl == 'good' else 'Deutlich größere Sterne am Rand: Abstand Komakorrektor–Sensor (Backfocus) prüfen.'))
-    lvl = 'good' if max(lr, tb) < 0.06 else 'warning'
-    add(lvl, 'Optik', 'Verkippung (Tilt): %s' % ('keine erkennbar' if lvl == 'good' else 'Hinweis'),
-        'Sternschärfe links/rechts unterscheidet sich um %.0f %%, oben/unten um %.0f %%.%s' % (lr * 100, tb * 100, '' if lvl == 'good' else ' Eine Seite ist unschärfer: Sensorverkippung oder Kollimation prüfen.'))
+    if np.isfinite(corner):
+        lvl = 'good' if corner < 1.12 else 'warning' if corner < 1.3 else 'critical'
+        add(lvl, 'Optik', 'Bildfeld: Ecken %+.0f %% gegenüber Mitte' % ((corner - 1) * 100),
+            'Bis ~+12 %% ist für einen Newton mit Komakorrektor und APS-C-Sensor sehr gut. %s' % (
+                '' if lvl == 'good' else 'Deutlich größere Sterne am Rand: Abstand Komakorrektor–Sensor (Backfocus) prüfen.'))
+    else:
+        add('info', 'Optik', 'Bildfeld: nicht messbar', 'Zu wenige Sterne in den Bildecken, um Mitte und Rand zu vergleichen.')
+    if np.isfinite(lr) and np.isfinite(tb):
+        lvl = 'good' if max(lr, tb) < 0.06 else 'warning'
+        add(lvl, 'Optik', 'Verkippung (Tilt): %s' % ('keine erkennbar' if lvl == 'good' else 'Hinweis'),
+            'Sternschärfe links/rechts unterscheidet sich um %.0f %%, oben/unten um %.0f %%.%s' % (lr * 100, tb * 100, '' if lvl == 'good' else ' Eine Seite ist unschärfer: Sensorverkippung oder Kollimation prüfen.'))
     for f, m in maps.items():
         ce = [m['ecc'][k] for k in (0, 2, 6, 8)]
         spread = max(ce) - min(ce)
@@ -102,7 +106,9 @@ def rig_diagnostics(rows, scale, analysis_dir):
             add('warning', 'Optik', '%s: Sterne %s stärker elongiert' % (f, worst),
                 'Exzentrizität in den Ecken %s. Eine einzelne auffällige Ecke deutet auf leichte Verkippung, Kollimation oder Komakorrektor-Position.' % ', '.join('%.2f' % v for v in ce))
     rad = float(np.nanmedian([_f(r['radial']) for r in use]))
-    if abs(rad) > 0.35:
+    if not np.isfinite(rad):
+        pass
+    elif abs(rad) > 0.35:
         add('warning', 'Optik', 'Elongation %s zum Bildrand' % ('radial' if rad > 0 else 'tangential'),
             'Radial-Score %.2f. %s' % (rad, 'Radial gestreckte Sterne am Rand: typisches Koma, Backfocus des Komakorrektors prüfen.' if rad > 0 else 'Tangential gestreckt: Astigmatismus oder Bildfeldwölbung, Kollimation prüfen.'))
     else:
