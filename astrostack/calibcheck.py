@@ -215,7 +215,7 @@ def match_calibration(inv, flat_checks: dict | None = None, th: Thresholds | Non
             chk = flat_checks.get(c.folder + "|" + str(c.exposure))
             if chk:
                 score -= {"critical": 300, "warning": 30}.get(chk["verdict"], 0)
-            cands.append(dict(set=c.summary(), score=round(score, 1), reasons=reasons,
+            cands.append(dict(set=c.summary(), score=round(score, 1), reasons=reasons, _frames=c.frames,
                               check=chk and dict(verdict=chk["verdict"], findings=chk["findings"]), usable=not mism))
         cands.sort(key=lambda x: -x["score"])
         res["flats"] = cands
@@ -241,7 +241,7 @@ def match_calibration(inv, flat_checks: dict | None = None, th: Thresholds | Non
                 age = _days((c.frames[0].date_loc or c.frames[0].date_obs), last_night)
                 if age is not None:
                     score -= abs(age) * 0.1
-                lst.append(dict(set=c.summary(), score=round(score, 1), reasons=reasons, usable=score > -400))
+                lst.append(dict(set=c.summary(), score=round(score, 1), reasons=reasons, usable=score > -400, _frames=c.frames))
             lst.sort(key=lambda x: -x["score"])
             res[key] = lst
         if not any(b["usable"] for b in res["bias"]) and not any(b["usable"] for b in res["darkflats"]):
@@ -275,3 +275,12 @@ def check_all(inv, th: Thresholds | None = None, progress=None) -> dict:
     matches = match_calibration(inv, checks, th)
     return dict(flat_checks={k: {kk: vv for kk, vv in v.items() if kk != "frames"} | {"frames": v.get("frames", [])}
                              for k, v in checks.items()}, matches=matches)
+
+
+def public(obj):
+    """Entfernt interne Schlüssel (``_frames``) für die JSON-Ausgabe."""
+    if isinstance(obj, dict):
+        return {k: public(v) for k, v in obj.items() if not str(k).startswith("_")}
+    if isinstance(obj, list):
+        return [public(v) for v in obj]
+    return obj

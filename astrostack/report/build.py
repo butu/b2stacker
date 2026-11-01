@@ -1,0 +1,131 @@
+"""HTML-Bericht für ein Ziel bauen: Übersicht, Kalibrierung, Rig-Diagnose, Stacking-Plan, Charts, Galerie."""
+from __future__ import annotations
+
+import base64
+import datetime
+import html
+import io
+import json
+import os
+import statistics as st
+
+import numpy as np
+from PIL import Image
+
+from .. import fitsmeta as fm
+from ..analyze import thumb_name
+from ..calibcheck import public
+from ..plan import build_plan
+from . import assess as A
+from .diag import rig_diagnostics
+from .sky import sky_tracks
+
+TEMPLATE = os.path.join(os.path.dirname(__file__), "template.html")
+
+
+def stretch(t: np.ndarray) -> np.ndarray:
+    med = np.median(t)
+    mad = 1.4826 * np.median(np.abs(t - med)) + 1e-3
+    lo = med - 2.8 * mad
+    span = max(t.max() - lo, 1e-6)
+    x = np.clip((t - lo) / span, 0, 1)
+    m = np.clip((med - lo) / span, 1e-6, 1)
+    tg = 0.25
+    b = m * (tg - 1) / ((2 * tg - 1) * m - tg)
+    return np.clip(((b - 1) * x) / ((2 * b - 1) * x - b), 0, 1)
+
+
+def thumb_b64(analysis_dir: str, path: str, width: int = 440) -> str:
+    p = os.path.join(analysis_dir, "thumbs", thumb_name(path))
+    if not os.path.exists(p):
+        return ""
+    im = Image.fromarray((stretch(np.load(p)) * 255).astype(np.uint8))
+    im = im.resize((width, max(1, int(width * im.height / im.width))), Image.LANCZOS)
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=72)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def calib_checks(matches: list[dict]) -> list[dict]:
+    out = []
+    for m in matches:
+        g = m["group"]
+        label = g["filter"] or "ohne Filter"
+        best = next((c for c in m["flats"] if c["usable"]), None)
+        if best:
+            chk = best.get("check") or {}
+            verdict = chk.get("verdict", "good")
+            lvl = {"critical": "critical", "warning": "warning"}.get(verdict, "good")
+            if best["reasons"] and lvl == "good" and any("weicht" in r or "Tage VOR" in r for r in best["reasons"]):
+                lvl = "warning"
+            s = best["set"]
+            text = "%d Frames, %s s, %s. " % (s["frames"], s["exposure"], (s["date"] or ["?"])[0][:10])
+            if best["reasons"]:
+                text += "Hinweise: " + "; ".join(best["reasons"]) + ". "
+            text += " ".join(f["title"] + (": " + f["text"] if f["level"] != "good" else "") for f in chk.get("findings", []))
+            out.append(dict(level=lvl, title="Flats %s: %s" % (label, os.path.basename(os.path.dirname(s["folder"])) + "/" + os.path.basename(s["folder"])), text=text.strip()))
+        for key, name in (("bias", "Bias"), ("darkflats", "Dark-Flats"), ("darks", "Darks")):
+            c = next((x for x in m[key] if x["usable"]), None)
+            if c:
+                s = c["set"]
+                out.append(dict(level="good", title="%s (%s): %s" % (name, label, os.path.basename(s["folder"])),
+                                text="%d Frames, Gain %s / Offset %s / %s passt." % (s["frames"], s["gain"], s["offset"], s["readout"] or "–")))
+        for f in m["findings"]:
+            out.append(dict(level=f["level"], title=f["title"], text=f["text"]))
+    seen, res = set(), []
+    for c in out:
+        k = (c["title"], c["text"])
+        if k not in seen:
+            seen.add(k)
+            res.append(c)
+    return res
+
+
+def build(target: str, groups, inv, calib: dict, analysis_dir: str, workdir: str, out_html: str) -> dict:
+    rows = A.load_rows(os.path.join(analysis_dir, "metrics.csv"))
+    filters, ntab = A.assess(rows)
+    rec = A.recommendations(rows, ntab, filters)
+    matches = [m for m in calib["matches"] if m["group"]["target"] == target]
+    checks = calib_checks(matches)
+    plan = build_plan(target, groups, rows, ntab, matches, workdir)
+    scale = st.median([r["pixscale"] for r in rows if r["pixscale"]]) if any(r["pixscale"] for r in rows) else None
+    try:
+        diag = rig_diagnostics(rows, scale, analysis_dir)
+    except Exception as e:  # Diagnose darf den Bericht nicht verhindern
+        diag = None
+        rec.append("Rig-Diagnose fehlgeschlagen: %s" % e)
+    meta0 = fm.read_meta(groups[0].frames[0].path)
+    try:
+        sky = sky_tracks(rows, meta0)
+    except Exception:
+        sky = None
+    for r in rows:
+        r["img"] = thumb_b64(analysis_dir, r["path"])
+    kpi = []
+    for f in filters:
+        nf = [n for n in ntab if n["filter"] == f]
+        kpi.append(dict(filter=f, used_h=sum(n["used_h"] for n in nf), total_h=sum(n["hours"] for n in nf),
+                        eff_h=sum(n["eff_h"] for n in nf), n_used=sum(n["n_used"] for n in nf), n=sum(n["n"] for n in nf), nights=len(nf)))
+    nights_sorted = sorted(n for n in {r["night"] for r in rows} if n)
+    meta = dict(target=target, generated=datetime.datetime.now().strftime("%d.%m.%Y %H:%M"),
+                camera=" · ".join(str(x) for x in (meta0.camera, meta0.telescope,
+                                                   meta0.focal_length and "%.0f mm" % meta0.focal_length,
+                                                   meta0.gain is not None and "Gain %g" % meta0.gain) if x),
+                scale=round(scale, 3) if scale else None,
+                first=nights_sorted[0] if nights_sorted else "", last=nights_sorted[-1] if nights_sorted else "")
+    pub_plan = dict(plan)
+    pub_plan["runs"] = [dict(r, lightDirs=r["nights"]) for r in plan["runs"]]
+    pub_plan["job"] = {k: v for k, v in plan.items() if k not in ("settings",)}
+    frames = [{k: r.get(k) for k in ["file", "path", "night", "filter", "frame", "t", "exp", "fwhm", "fwhm_as", "ecc", "nstars", "bg",
+                                     "noise", "alt", "moon_illum", "moon_alt", "temp", "status", "weight", "img"]}
+              | {"flags": [f[1] for f in r["flags"]]} for r in rows]
+    data = dict(meta=meta, filters=filters, kpi=kpi, nights=ntab, checks=checks, rec=rec, plan=pub_plan, sky=sky,
+                diag=diag, frames=frames)
+    tpl = open(TEMPLATE, encoding="utf-8").read()
+    out = tpl.replace("/*__DATA__*/null", json.dumps(public(data), ensure_ascii=False, default=str)).replace(
+        "__TITLE__", html.escape(target + " – Rohdaten"))
+    os.makedirs(os.path.dirname(out_html), exist_ok=True)
+    open(out_html, "w", encoding="utf-8").write(out)
+    with open(os.path.join(os.path.dirname(out_html), "plan.json"), "w", encoding="utf-8") as fh:
+        json.dump(public(plan), fh, indent=2, ensure_ascii=False)
+    return dict(html=out_html, plan=os.path.join(os.path.dirname(out_html), "plan.json"), frames=len(rows))

@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  color-scheme: dark;
+  --bg:#0e0f12; --surface-1:#16181d; --surface-2:#1d2026; --line:#2a2e36; --grid:#262a31;
+  --text-primary:#f0efec; --text-secondary:#c3c2b7; --text-muted:#8d8c86;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
+  --neutral:#6b6a66;
+  --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b; --info:#3987e5;
+  --radius:10px;
+}
+@media (prefers-color-scheme: light){
+  :root:where(:not([data-theme="dark"])){
+    color-scheme: light;
+    --bg:#f4f4f2; --surface-1:#fcfcfb; --surface-2:#f0f0ed; --line:#dcdcd7; --grid:#e8e8e4;
+    --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#7a7974;
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --neutral:#a3a29c;
+  }
+}
+:root[data-theme="light"]{
+  color-scheme: light;
+  --bg:#f4f4f2; --surface-1:#fcfcfb; --surface-2:#f0f0ed; --line:#dcdcd7; --grid:#e8e8e4;
+  --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#7a7974;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --neutral:#a3a29c;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text-primary);font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1280px;margin:0 auto;padding:28px 16px 64px}
+header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:24px}
+h1{font-size:28px;margin:0;letter-spacing:-.01em}
+h2{font-size:16px;margin:0 0 12px;font-weight:600}
+.sub{color:var(--text-secondary);font-size:13px}
+.muted{color:var(--text-muted)}
+.theme{background:var(--surface-2);border:1px solid var(--line);color:var(--text-secondary);border-radius:8px;padding:6px 10px;cursor:pointer;font:inherit}
+.grid{display:grid;gap:16px}
+.kpis{grid-template-columns:repeat(auto-fit,minmax(200px,1fr));margin-bottom:16px}
+.card{background:var(--surface-1);border:1px solid var(--line);border-radius:var(--radius);padding:16px}
+.kpi .label{display:flex;align-items:center;gap:8px;color:var(--text-secondary);font-size:13px}
+.kpi .value{font-size:32px;font-weight:650;letter-spacing:-.02em;margin-top:4px;font-variant-numeric:tabular-nums}
+.kpi .value small{font-size:15px;font-weight:500;color:var(--text-secondary)}
+.kpi .foot{color:var(--text-muted);font-size:12px;margin-top:2px}
+.dot{width:10px;height:10px;border-radius:3px;display:inline-block;flex:none}
+.two{grid-template-columns:1fr 1fr}
+@media (max-width:860px){.two{grid-template-columns:1fr}}
+.chartbox{position:relative;height:260px}
+.chartbox.sm{height:150px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text-secondary);margin:-4px 0 8px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+ul.rec{margin:0;padding-left:18px}
+ul.rec li{margin:4px 0;color:var(--text-secondary)}
+.checks{display:flex;flex-direction:column;gap:8px}
+.check{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:8px;background:var(--surface-2)}
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid currentColor;white-space:nowrap;flex:none}
+.badge::before{font-size:11px}
+.b-good{color:var(--good)} .b-good::before{content:"✓"}
+.b-warning{color:var(--warning)} .b-warning::before{content:"!"}
+.b-critical{color:var(--critical)} .b-critical::before{content:"✕"}
+.b-info{color:var(--info)} .b-info::before{content:"i"}
+.b-serious{color:var(--serious)} .b-serious::before{content:"–"}
+.b-muted{color:var(--text-muted)} .b-muted::before{content:"○"}
+.check b{display:block;font-weight:600;font-size:13px}
+.check span.t{color:var(--text-secondary);font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th{color:var(--text-muted);font-weight:500;font-size:12px;cursor:pointer;user-select:none;position:sticky;top:0;background:var(--surface-1)}
+td:first-child,th:first-child,td.l,th.l{text-align:left}
+tr:hover td{background:var(--surface-2)}
+.scroll{overflow:auto;max-height:520px}
+.grade{display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;border-radius:6px;font-weight:700;font-size:12px;color:#fff}
+.gA{background:var(--good)} .gB{background:#9a7b0c} .gC{background:var(--critical)}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{background:var(--surface-2);border:0;color:var(--text-secondary);padding:6px 12px;cursor:pointer;font:inherit;font-size:13px}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button.on{background:var(--text-primary);color:var(--bg)}
+.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+.tile{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;overflow:hidden;cursor:pointer;position:relative}
+.tile img{width:100%;display:block;aspect-ratio:3/2;object-fit:cover;background:#000}
+.tile .cap{display:flex;justify-content:space-between;gap:6px;padding:6px 8px;font-size:11px;color:var(--text-secondary)}
+.tile .st{position:absolute;top:6px;left:6px;background:rgba(0,0,0,.65);backdrop-filter:blur(4px)}
+.tile.rejected img,.tile.suggest img{opacity:.55}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--surface-1);color:var(--text-primary);padding:0;max-width:min(920px,94vw);width:100%}
+dialog::backdrop{background:rgba(0,0,0,.7)}
+dialog img{width:100%;display:block;background:#000}
+dialog .meta{padding:14px 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px 16px;font-size:13px}
+dialog .meta div span{display:block;color:var(--text-muted);font-size:11px}
+dialog .close{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.6);color:#fff;border:0;border-radius:8px;padding:4px 10px;cursor:pointer;font-size:16px}
+#tip{position:fixed;pointer-events:none}
+footer{margin-top:32px;color:var(--text-muted);font-size:12px}
+details summary{cursor:pointer;color:var(--text-secondary);font-size:13px}
+.section{margin-top:16px}
+.plan{grid-template-columns:3fr 2fr}
+@media (max-width:860px){.plan{grid-template-columns:1fr}}
+.plan>div,.two>div,.grid>.card{min-width:0}
+#tSettings td:nth-child(2){min-width:0}
+@media (max-width:600px){#tSettings td:nth-child(2){min-width:110px}}
+#tSettings td{white-space:normal;vertical-align:top}
+#tSettings td:nth-child(2){font-weight:600;text-align:left;min-width:150px}
+#tSettings td:nth-child(3){text-align:left;color:var(--text-secondary)}
+.meter{height:14px;border-radius:7px;background:var(--surface-2);border:1px solid var(--line);overflow:hidden}
+.meter .fill{height:100%;border-radius:7px 0 0 7px;background:var(--s1)}
+.meterlbl{display:flex;justify-content:space-between;font-size:12px;color:var(--text-secondary);margin-top:4px;font-variant-numeric:tabular-nums}
+pre{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:12px;font-size:11.5px;overflow:auto;max-height:340px;color:var(--text-secondary);margin:8px 0 0}
+.copy{position:absolute;top:8px;right:8px;font-size:12px;padding:4px 8px}
+.sky{grid-template-columns:minmax(280px,380px) 1fr;align-items:start}
+@media (max-width:860px){.sky{grid-template-columns:1fr}}
+.sky>div{min-width:0}
+.domebox{position:sticky;top:12px}
+#dome{width:100%;height:auto;display:block}
+#dome .ring{fill:none;stroke:var(--grid)}
+#dome .horizon{fill:var(--surface-2);stroke:var(--line)}
+#dome text{fill:var(--text-muted);font-size:12px}
+#dome text.card{fill:var(--text-secondary);font-weight:600;font-size:13px}
+#dome g.n{transition:opacity .15s}
+#dome.focus g.n{opacity:.12} #dome.focus g.n.on{opacity:1}
+.nightgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.nmini{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.nmini .h{display:flex;justify-content:space-between;gap:6px;font-size:12px;color:var(--text-secondary);margin-bottom:2px}
+.nmini .h b{color:var(--text-primary);font-weight:600}
+.nmini .cb{position:relative;height:120px}
+.diaglist{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(340px,100%),1fr));gap:8px;margin-top:4px}
+.diaglist>.check{min-width:0}
+@media (max-width:600px){.diaglist{grid-template-columns:1fr}}
+.diaglist .check .area{display:block;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em}
+.diagviz{grid-template-columns:minmax(260px,1fr) 2fr}
+@media (max-width:860px){.diagviz{grid-template-columns:1fr}}
+.diagviz>div{min-width:0}
+.fieldmaps{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-top:6px}
+.fieldmaps figure{margin:0;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:8px}
+.fieldmaps figcaption{font-size:12px;color:var(--text-secondary);margin-bottom:4px;display:flex;justify-content:space-between}
+.fieldmaps svg{width:100%;height:auto;display:block}
+.fieldmaps svg text{font-size:10px;fill:var(--text-muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="sub" id="eyebrow">Rohdaten-Report</div>
+      <h1 id="title"></h1>
+      <div class="sub" id="meta"></div>
+    </div>
+    <button class="theme" id="themeBtn" type="button">Hell/Dunkel</button>
+  </header>
+
+  <div class="grid kpis" id="kpis"></div>
+
+  <div class="card section" id="diagCard" style="margin:0 0 16px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <h2>Rig-Diagnose</h2><div id="diagSum" class="legend" style="margin:0"></div>
+    </div>
+    <div class="diaglist" id="diagList"></div>
+    <div class="grid diagviz section">
+      <div><div class="sub">Sternform im Bildfeld <span class="muted">(Ellipse = Form ×3 überzeichnet, % = Größe zur Mitte)</span></div><div id="fieldMaps" class="fieldmaps"></div></div>
+      <div><div class="sub">HFR (NINA) pro Frame · senkrechte Linie = Autofokus</div><div class="chartbox" style="height:190px"><canvas id="cHfr"></canvas></div>
+           <div class="sub" style="margin-top:12px">Versatz zum vorherigen Frame (Dithering, px)</div><div class="chartbox" style="height:150px"><canvas id="cDither"></canvas></div></div>
+    </div>
+    <div class="section"><div class="sub" style="margin-bottom:6px">Vor und nach dem Meridian Flip</div><div class="scroll" style="max-height:none"><table id="tPier" style="max-width:560px"></table></div></div>
+  </div>
+
+  <div class="grid two">
+    <div class="card"><h2>Empfehlungen</h2><ul class="rec" id="rec"></ul></div>
+    <div class="card"><h2>Kalibrierung</h2><div class="checks" id="checks"></div></div>
+  </div>
+
+  <div class="card section" id="planCard">
+    <h2>Stacking-Plan <span class="muted" style="font-weight:400">· PixInsight WBPP</span></h2>
+    <div class="grid plan">
+      <div>
+        <div class="scroll" style="max-height:none"><table id="tSettings"></table></div>
+      </div>
+      <div class="planside">
+        <div class="sub" style="margin-bottom:6px">Speicher auf G:</div>
+        <div class="meter"><div class="fill" id="mFill"></div></div>
+        <div class="meterlbl"><span id="mNeed"></span><span id="mFree"></span></div>
+        <div id="mStatus" style="margin:8px 0 16px"></div>
+        <div class="sub" style="margin-bottom:6px">Läufe</div>
+        <div id="runs" class="checks"></div>
+        <details class="section"><summary>Auftrag (JSON) anzeigen</summary>
+          <div style="position:relative"><button class="theme copy" type="button" id="copyJob">Kopieren</button><pre id="jobJson"></pre></div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid two section">
+    <div class="card">
+      <h2>Belichtung pro Nacht</h2>
+      <div class="legend" id="lg1"></div>
+      <div class="chartbox"><canvas id="cNights"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Effektiver Beitrag pro Nacht <span class="muted" style="font-weight:400">(Stunden gewichtet nach Rauschen)</span></h2>
+      <div class="legend" id="lg2"></div>
+      <div class="chartbox"><canvas id="cEff"></canvas></div>
+    </div>
+  </div>
+
+  <div class="card section">
+    <h2>Qualität pro Frame</h2>
+    <div class="legend" id="lg3"></div>
+    <div class="grid two">
+      <div><div class="sub">FWHM (Bogensekunden)</div><div class="chartbox sm"><canvas id="cFwhm"></canvas></div></div>
+      <div><div class="sub">Rauschen (ADU)</div><div class="chartbox sm"><canvas id="cNoise"></canvas></div></div>
+      <div><div class="sub">Sterne erkannt</div><div class="chartbox sm"><canvas id="cStars"></canvas></div></div>
+      <div><div class="sub">Mond beleuchtet (%) · über dem Horizont</div><div class="chartbox sm"><canvas id="cMoon"></canvas></div></div>
+    </div>
+  </div>
+
+  <div class="card section" id="skyCard">
+    <h2>Himmel &amp; Mond</h2>
+    <div class="legend" id="lg4"></div>
+    <div class="grid sky">
+      <div class="domebox">
+        <svg id="dome" viewBox="0 0 400 400" role="img" aria-label="Himmelskarte: Position von Objekt und Mond"></svg>
+        <div class="muted" style="font-size:12px;text-align:center">Blick nach oben · Zenit in der Mitte · Ringe bei 30° und 60° Höhe</div>
+      </div>
+      <div class="nightgrid" id="nightGrid"></div>
+    </div>
+  </div>
+
+  <div class="card section">
+    <h2>Nächte</h2>
+    <div class="scroll"><table id="tNights"></table></div>
+  </div>
+
+  <div class="card section">
+    <h2>Frames</h2>
+    <div class="toolbar">
+      <div class="seg" id="fFilter"></div>
+      <div class="seg" id="fStatus"></div>
+      <span class="muted" id="fCount"></span>
+    </div>
+    <div class="gallery" id="gallery"></div>
+    <details class="section"><summary>Alle Messwerte als Tabelle</summary>
+      <div class="scroll section"><table id="tFrames"></table></div>
+    </details>
+  </div>
+
+  <footer id="foot"></footer>
+</div>
+
+<dialog id="dlg"><button class="close" type="button" onclick="dlg.close()">✕</button><img id="dImg" alt=""><div class="meta" id="dMeta"></div></dialog>
+
+<script>
+const D = /*__DATA__*/null;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const SLOTS = ['--s1','--s2','--s3','--s4','--s5'];
+const fcolor = f => css(SLOTS[Math.max(0,D.filters.indexOf(f)) % SLOTS.length]);
+const STATUS = {ok:['OK','b-good'], warn:['Hinweis','b-warning'], suggest:['Aussortieren?','b-serious'], rejected:['Aussortiert','b-muted']};
+const fmt = (v,d=1) => v==null||v===''||isNaN(v) ? '–' : Number(v).toLocaleString('de-AT',{minimumFractionDigits:d,maximumFractionDigits:d});
+const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// theme toggle (per viewer, optional)
+(function(){
+  let t=null; try{t=localStorage.getItem('astro-theme')}catch(e){}
+  if(t) document.documentElement.dataset.theme=t;
+  document.getElementById('themeBtn').onclick=()=>{
+    const cur=document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');
+    const nx=cur==='light'?'dark':'light'; document.documentElement.dataset.theme=nx;
+    try{localStorage.setItem('astro-theme',nx)}catch(e){}
+    drawCharts(); drawSky(); drawDiag();
+  };
+})();
+
+// header
+document.getElementById('title').textContent = D.meta.target;
+document.getElementById('meta').textContent = [D.meta.camera, D.meta.scale? D.meta.scale+'"/px':'' , D.meta.first+' bis '+D.meta.last].filter(Boolean).join(' · ');
+document.getElementById('foot').textContent = 'Erzeugt am '+D.meta.generated+' · FWHM aus Sternmomenten (relativ vergleichbar) · Effektive Zeit = Belichtung × (Rauschen der besten Nacht / Rauschen)²';
+
+// KPIs
+const kp=document.getElementById('kpis');
+D.kpi.forEach(k=>{
+  kp.insertAdjacentHTML('beforeend',`<div class="card kpi"><div class="label"><span class="dot" style="background:${fcolor(k.filter)}"></span>${esc(k.filter)} · verwendbar</div>
+  <div class="value">${fmt(k.used_h)} <small>h</small></div>
+  <div class="foot">${k.n_used} von ${k.n} Frames · ${k.nights} Nächte · effektiv ${fmt(k.eff_h)} h</div></div>`);
+});
+const fr=D.frames.filter(f=>f.status!=='rejected'&&f.fwhm_as);
+const fw=fr.map(f=>f.fwhm_as).sort((a,b)=>a-b);
+const tot=D.kpi.reduce((a,k)=>a+k.total_h,0);
+kp.insertAdjacentHTML('beforeend',`<div class="card kpi"><div class="label">Gesamt aufgenommen</div><div class="value">${fmt(tot)} <small>h</small></div><div class="foot">${D.frames.length} Frames · ${new Set(D.frames.map(f=>f.night)).size} Nächte</div></div>`);
+if(fw.length) kp.insertAdjacentHTML('beforeend',`<div class="card kpi"><div class="label">FWHM Median</div><div class="value">${fmt(fw[Math.floor(fw.length/2)],1)} <small>"</small></div><div class="foot">beste ${fmt(fw[0],1)}" · schlechteste ${fmt(fw[fw.length-1],1)}"</div></div>`);
+
+// recommendations + checks
+document.getElementById('rec').innerHTML = D.rec.map(r=>`<li>${esc(r)}</li>`).join('');
+const LV={good:'OK',warning:'Achtung',critical:'Fehlt',info:'Info'};
+document.getElementById('checks').innerHTML = D.checks.map(c=>`<div class="check"><span class="badge b-${c.level}">${LV[c.level]||c.level}</span><div><b>${esc(c.title)}</b><span class="t">${esc(c.text)}</span></div></div>`).join('');
+
+// stacking plan
+(function(){
+  const P=D.plan; if(!P){document.getElementById('planCard').remove();return;}
+  document.getElementById('tSettings').innerHTML='<thead><tr><th class="l">Einstellung</th><th class="l">Wert</th><th class="l">Warum</th></tr></thead><tbody>'+
+    P.settings.map(([a,b,c])=>`<tr><td class="l">${esc(a)}</td><td>${esc(b)}</td><td>${esc(c)}</td></tr>`).join('')+'</tbody>';
+  const free=P.free_gb, need=P.need_gb;
+  const pct=free?Math.min(100,need/free*100):100;
+  const fill=document.getElementById('mFill'); fill.style.width=pct+'%';
+  const lvl=free==null?'warning':need>free?'critical':need>0.8*free?'warning':'good';
+  fill.style.background=`var(--${lvl==='good'?'s1':lvl})`;
+  document.getElementById('mNeed').textContent=`benötigt ca. ${fmt(need,0)} GB`;
+  document.getElementById('mFree').textContent=free==null?'frei: unbekannt':`frei ${fmt(free,0)} GB`;
+  const txt={good:'Platz reicht',warning:'Wird knapp',critical:'Zu wenig Platz'}[lvl];
+  document.getElementById('mStatus').innerHTML=`<span class="badge b-${lvl}">${txt}</span> <span class="muted" style="font-size:12px">${esc(P.peak_note)}</span>`;
+  if(P.need_ram_gb){const fr=P.free_ram_gb, rl=fr==null?'warning':P.need_ram_gb>fr?'critical':P.need_ram_gb>0.8*fr?'warning':'good';
+    document.getElementById('mStatus').insertAdjacentHTML('beforeend',`<div style="margin-top:6px"><span class="badge b-${rl}">RAM ${rl==='good'?'ok':rl==='warning'?'knapp':'zu wenig'}</span> <span class="muted" style="font-size:12px">ca. ${fmt(P.need_ram_gb,0)} GB benötigt, ${fr==null?'frei: unbekannt':fmt(fr,0)+' GB frei'}${P.total_ram_gb?' von '+fmt(P.total_ram_gb,0)+' GB':''}</span></div>`);}
+  const MODE={combined:'Farbbild','combined+haoiii':'Farbbild',separated:'Kanäle getrennt'};
+  document.getElementById('runs').innerHTML=P.runs.map(r=>`<div class="check"><span class="dot" style="background:${fcolor(r.name)};margin-top:5px"></span><div>
+    <b>${esc(r.name)} · ${r.mode==='extract'?'Kanäle '+r.outputs.join(' + '):(r.mode==='mono'?'Mono':'Farbbild')}</b>
+    <span class="t">${r.lightCount} Frames aus ${r.nights.length} Nächten · ~${fmt(r.gb,0)} GB Platz · ~${fmt(r.ram_gb,0)} GB RAM · Referenz: ${r.reference==='auto'?'automatisch':esc(r.reference.replace('master:',''))+'-Master'} · ${r.engine==='pixinsight-pipeline'?'PixInsight-Pipeline':'PixInsight WBPP'}</span><br>
+    <span class="badge ${r.flat_ok?'b-good':'b-warning'}" style="margin-top:4px">${r.flat_ok?'Flats passen':'Flats prüfen'}</span></div></div>`).join('')+
+    (P.suggest_n?`<div class="check"><span class="badge b-serious">Vorher</span><div><span class="t">${P.suggest_n} vorgeschlagene Frames werden vor dem Lauf nach _rejected verschoben (oder in der Galerie behalten).</span></div></div>`:'');
+  const js=JSON.stringify(P.job,null,2); document.getElementById('jobJson').textContent=js;
+  document.getElementById('copyJob').onclick=async e=>{try{await navigator.clipboard.writeText(js);e.target.textContent='Kopiert'}catch(x){e.target.textContent='Nicht möglich'}};
+})();
+
+// legends
+const legendHTML = extra => D.filters.map(f=>`<span><span class="dot" style="background:${fcolor(f)}"></span>${esc(f)}</span>`).join('')+(extra||'');
+document.getElementById('lg1').innerHTML = legendHTML(`<span><span class="dot" style="background:var(--neutral)"></span>aussortiert / vorgeschlagen</span>`);
+document.getElementById('lg2').innerHTML = legendHTML();
+document.getElementById('lg3').innerHTML = legendHTML(`<span><span class="dot" style="border:2px solid var(--text-muted);background:transparent"></span>aussortiert / vorgeschlagen</span>`);
+
+// charts
+let charts=[];
+function baseOpts(yTitle){
+  return {responsive:true,maintainAspectRatio:false,animation:false,
+    interaction:{mode:'nearest',intersect:false},
+    plugins:{legend:{display:false},tooltip:{backgroundColor:css('--surface-2'),titleColor:css('--text-primary'),bodyColor:css('--text-secondary'),borderColor:css('--line'),borderWidth:1,padding:10}},
+    scales:{x:{grid:{display:false},ticks:{color:css('--text-muted'),font:{size:11}},border:{color:css('--line')}},
+            y:{grid:{color:css('--grid')},ticks:{color:css('--text-muted'),font:{size:11}},border:{display:false},title:{display:!!yTitle,text:yTitle,color:css('--text-muted')}}}};
+}
+function drawCharts(){
+  charts.forEach(c=>c.destroy()); charts=[];
+  const labels=D.nights.map(n=>n.night.slice(5).replace('-','.')+' '+n.filter);
+  // nights stacked
+  const ds = D.filters.map(f=>({label:f+' verwendet',data:D.nights.map(n=>n.filter===f?+n.used_h.toFixed(2):0),backgroundColor:fcolor(f),borderRadius:4,borderSkipped:'start',stack:'s'}));
+  ds.push({label:'aussortiert/vorgeschlagen',data:D.nights.map(n=>+(n.hours-n.used_h).toFixed(2)),backgroundColor:css('--neutral'),borderRadius:4,stack:'s'});
+  const o1=baseOpts('Stunden'); o1.scales.x.stacked=true; o1.scales.y.stacked=true; o1.datasets={bar:{maxBarThickness:28,borderWidth:{top:2},borderColor:css('--surface-1')}};
+  o1.plugins.tooltip.callbacks={label:c=>c.raw?` ${c.dataset.label}: ${fmt(c.raw,2)} h`:null};
+  charts.push(new Chart(document.getElementById('cNights'),{type:'bar',data:{labels,datasets:ds},options:o1}));
+  // effective
+  const o2=baseOpts('effektive Stunden');
+  o2.plugins.tooltip.callbacks={label:c=>{const n=D.nights[c.dataIndex];return ` ${fmt(n.eff_h,2)} h effektiv aus ${fmt(n.used_h,2)} h (Qualität ${Math.round(n.quality*100)} %)`}};
+  charts.push(new Chart(document.getElementById('cEff'),{type:'bar',data:{labels,datasets:[{data:D.nights.map(n=>+n.eff_h.toFixed(2)),backgroundColor:D.nights.map(n=>fcolor(n.filter)),borderRadius:4,maxBarThickness:28}]},options:o2}));
+  // per-frame small multiples
+  const F=D.frames, idx=F.map((f,i)=>i);
+  const xl=F.map(f=>f.night.slice(5).replace('-','.'));
+  const pt=(key)=>D.filters.map(fl=>({label:fl,data:F.map((f,i)=>f.filter===fl?{x:i,y:f[key]}:null).filter(Boolean),
+      pointRadius:F.filter(f=>f.filter===fl).map(f=>4),pointBackgroundColor:F.filter(f=>f.filter===fl).map(f=>['rejected','suggest'].includes(f.status)?'transparent':fcolor(fl)),
+      pointBorderColor:fcolor(fl),pointBorderWidth:F.filter(f=>f.filter===fl).map(f=>['rejected','suggest'].includes(f.status)?1.5:0),showLine:false}));
+  const so=(yt)=>{const o=baseOpts(yt);o.scales.x={type:'linear',min:-1,max:F.length,grid:{display:false},border:{color:css('--line')},
+      ticks:{color:css('--text-muted'),font:{size:10},autoSkip:false,callback:(v)=>{const i=Math.round(v);if(i<0||i>=F.length)return'';return (i===0||F[i].night!==F[i-1].night)?xl[i]:''},stepSize:1,maxRotation:0}};
+      o.interaction={mode:'nearest',intersect:true};
+      o.plugins.tooltip.callbacks={title:c=>{const f=F[c[0].raw.x];return f.night+' · '+f.filter+' #'+f.frame},
+        label:c=>{const f=F[c.raw.x];return [` FWHM ${fmt(f.fwhm_as,2)}"  Rauschen ${fmt(f.noise,1)}  Sterne ${f.nstars}`,` Mond ${fmt(f.moon_illum,0)} % (${fmt(f.moon_alt,0)}°)  Status: ${STATUS[f.status][0]}`].concat(f.flags.map(x=>' · '+x))}};
+      return o};
+  charts.push(new Chart(document.getElementById('cFwhm'),{type:'scatter',data:{datasets:pt('fwhm_as')},options:so()}));
+  charts.push(new Chart(document.getElementById('cNoise'),{type:'scatter',data:{datasets:pt('noise')},options:so()}));
+  charts.push(new Chart(document.getElementById('cStars'),{type:'scatter',data:{datasets:pt('nstars')},options:so()}));
+  const mo=so(); mo.scales.y.min=0; mo.scales.y.max=100;
+  charts.push(new Chart(document.getElementById('cMoon'),{type:'bar',data:{datasets:[{data:F.map((f,i)=>({x:i,y:f.moon_illum})),backgroundColor:F.map(f=>(f.moon_alt>0)?css('--s4'):css('--neutral')),barThickness:'flex',categoryPercentage:1,barPercentage:.9}]},options:mo}));
+}
+drawCharts();
+
+// rig diagnostics
+let diagCharts=[];
+function drawDiag(){
+  const G=D.diag, card=document.getElementById('diagCard');
+  if(!G){card.remove();return;}
+  diagCharts.forEach(c=>c.destroy()); diagCharts=[];
+  const LVL={good:'OK',warning:'Hinweis',critical:'Problem',info:'Info'};
+  const cnt=k=>G.checks.filter(c=>c.level===k).length;
+  document.getElementById('diagSum').innerHTML=['critical','warning','good','info'].filter(k=>cnt(k)).map(k=>`<span class="badge b-${k}">${cnt(k)} ${LVL[k]}</span>`).join(' ');
+  document.getElementById('diagList').innerHTML=G.checks.map(c=>`<div class="check"><span class="badge b-${c.level}">${LVL[c.level]}</span><div><span class="area">${esc(c.area)}</span><b>${esc(c.title)}</b><span class="t">${esc(c.text)}</span></div></div>`).join('');
+  // field maps
+  const fm=document.getElementById('fieldMaps');
+  fm.innerHTML=Object.entries(G.maps).map(([f,m])=>{
+    const W=300,H=200,cw=W/3,ch=H/3; let s=`<rect x="0" y="0" width="${W}" height="${H}" fill="var(--surface-1)" rx="4"/>`;
+    for(let k=0;k<9;k++){const i=Math.floor(k/3),j=k%3,cx=j*cw+cw/2,cy=i*ch+ch/2;
+      s+=`<rect x="${j*cw+.5}" y="${i*ch+.5}" width="${cw-1}" height="${ch-1}" fill="none" stroke="var(--grid)"/>`;
+      const e=m.ecc[k],fw=m.fwhm[k],a=m.ang[k];
+      if(e==null||isNaN(e)){continue}
+      const ee=Math.min(.97,e*3>0?Math.sqrt(Math.min(1,(e*e)*3)):0); // exaggerate
+      const A=13*Math.max(.6,Math.min(1.6,fw)), B=A*Math.sqrt(1-Math.min(.9,ee*ee));
+      const med=[...m.ecc].filter(v=>v!=null).sort((a,b)=>a-b)[4]||e;
+      const lv=e>med+0.1?'warning':'good';
+      s+=`<ellipse cx="${cx}" cy="${cy-6}" rx="${A.toFixed(1)}" ry="${B.toFixed(1)}" transform="rotate(${(a||0).toFixed(0)} ${cx} ${cy-6})" fill="${fcolor(f)}" fill-opacity=".85" stroke="var(--${lv})" stroke-width="${lv==='good'?0:2}"><title>${f} · Exzentrizität ${e.toFixed(2)} · Größe ${(fw*100).toFixed(0)} % der Mitte · Winkel ${a}°</title></ellipse>`;
+      s+=`<text x="${cx}" y="${i*ch+ch-6}" text-anchor="middle">${(fw*100).toFixed(0)} % · e ${e.toFixed(2)}</text>`;}
+    return `<figure><figcaption><span><span class="dot" style="background:${fcolor(f)}"></span> ${esc(f)}</span><span>${m.n} Frames</span></figcaption><svg viewBox="0 0 300 200">${s}</svg></figure>`}).join('');
+  // HFR chart with AF markers
+  const P=[];G.focus.forEach(n=>n.pts.forEach(p=>P.push(Object.assign({night:n.night},p))));
+  const af=[];P.forEach((p,i)=>{if(i>0&&p.night===P[i-1].night&&p.focpos!==P[i-1].focpos)af.push(i-.5)});
+  const afPlugin={id:'af',beforeDatasetsDraw(ch){const {ctx,chartArea:a,scales:{x}}=ch;ctx.save();ctx.strokeStyle=css('--text-muted');ctx.globalAlpha=.35;ctx.setLineDash([3,3]);
+    af.forEach(v=>{const px=x.getPixelForValue(v);ctx.beginPath();ctx.moveTo(px,a.top);ctx.lineTo(px,a.bottom);ctx.stroke()});ctx.restore();}};
+  const seqX=(arr)=>({type:'linear',min:-1,max:arr.length,grid:{display:false},border:{color:css('--line')},
+    ticks:{color:css('--text-muted'),font:{size:10},autoSkip:false,stepSize:1,maxRotation:0,callback:v=>{const i=Math.round(v);if(i<0||i>=arr.length)return'';return(i===0||arr[i].night!==arr[i-1].night)?arr[i].night.slice(5).replace('-','.'):''}}});
+  const o=baseOpts('HFR px');o.scales.x=seqX(P);o.interaction={mode:'nearest',intersect:true};
+  o.plugins.tooltip.callbacks={title:c=>{const p=P[c[0].raw.x];return p.night+' · #'+p.frame},label:c=>{const p=P[c.raw.x];return [` HFR ${fmt(p.hfr,2)} px · Fokus ${p.focpos} · ${fmt(p.temp,1)} °C`,` ${STATUS[p.status][0]}`]}};
+  const ds=D.filters.map(fl=>{const q=P.map((p,i)=>({p,i})).filter(o=>o.p.filter===fl);return {data:q.map(o=>({x:o.i,y:o.p.hfr})),pointRadius:3.5,showLine:false,
+    pointBackgroundColor:q.map(o=>['rejected','suggest'].includes(o.p.status)?'transparent':fcolor(fl)),pointBorderColor:fcolor(fl),pointBorderWidth:q.map(o=>['rejected','suggest'].includes(o.p.status)?1.5:0)}});
+  diagCharts.push(new Chart(document.getElementById('cHfr'),{type:'scatter',data:{datasets:ds},options:o,plugins:[afPlugin]}));
+  // dithering
+  const Q=[];G.dither.forEach(n=>n.shifts.forEach(s=>Q.push({night:n.night,s})));
+  const od=baseOpts('px');od.scales.x=seqX(Q);od.scales.y.min=0;od.scales.y.max=16;
+  od.plugins.tooltip.callbacks={title:c=>Q[c[0].dataIndex].night,label:c=>` Versatz ${fmt(Q[c.dataIndex].s,1)} px${Q[c.dataIndex].s>16?' (Neuausrichtung/Flip)':''}`};
+  const thr={id:'thr',afterDatasetsDraw(ch){const {ctx,chartArea:a,scales:{y}}=ch;const py=y.getPixelForValue(2);ctx.save();ctx.strokeStyle=css('--text-muted');ctx.setLineDash([4,3]);ctx.beginPath();ctx.moveTo(a.left,py);ctx.lineTo(a.right,py);ctx.stroke();ctx.fillStyle=css('--text-muted');ctx.font='10px system-ui';ctx.fillText('2 px',a.right-26,py-3);ctx.restore();}};
+  diagCharts.push(new Chart(document.getElementById('cDither'),{type:'bar',data:{datasets:[{data:Q.map((q,i)=>({x:i,y:Math.min(q.s,16)})),backgroundColor:Q.map(q=>q.s>16?css('--text-muted'):q.s>2?css('--s1'):css('--neutral')),barPercentage:1,categoryPercentage:1}]},options:od,plugins:[thr]}));
+  // pier table
+  const pt=document.getElementById('tPier'), PI=G.piers||{}, DE={East:'Ostseite',West:'Westseite'};
+  if(Object.keys(PI).length) pt.innerHTML='<thead><tr><th class="l">Seite</th><th>Frames</th><th>Richtungs-Kohärenz</th><th>Exzentrizität</th><th>HFR</th></tr></thead><tbody>'+
+    Object.entries(PI).map(([k,v])=>`<tr><td>${DE[k]||k}</td><td>${v.n}</td><td>${fmt(v.coh,2)}</td><td>${fmt(v.ecc,2)}</td><td>${fmt(v.hfr,2)} px</td></tr>`).join('')+'</tbody>';
+  else pt.parentElement.remove();
+}
+drawDiag();
+
+// sky: dome + per-night altitude charts
+let skyCharts=[];
+function drawSky(){
+  const S=D.sky; const card=document.getElementById('skyCard');
+  if(!S||!S.length){card.remove();return;}
+  skyCharts.forEach(c=>c.destroy()); skyCharts=[];
+  const moonC=css('--s4');
+  document.getElementById('lg4').innerHTML=legendHTML(`<span><span class="dot" style="background:var(--text-secondary)"></span>Objekt-Höhe</span><span><span class="dot" style="background:${moonC}"></span>Mond (gestrichelt)</span><span><span class="dot" style="background:var(--text-muted);opacity:.35"></span>Dämmerung (heller = heller Himmel)</span>`);
+  // dome
+  const c=200,R=180, P=(alt,az)=>{const r=R*(90-Math.max(alt,0))/90, a=az*Math.PI/180;return [c-r*Math.sin(a), c-r*Math.cos(a)]};
+  let svg=`<circle class="horizon" cx="${c}" cy="${c}" r="${R}"/>`+[30,60].map(a=>`<circle class="ring" cx="${c}" cy="${c}" r="${R*(90-a)/90}"/><text x="${c+3}" y="${c-R*(90-a)/90-3}">${a}°</text>`).join('')+
+    `<line class="ring" x1="${c-R}" y1="${c}" x2="${c+R}" y2="${c}"/><line class="ring" x1="${c}" y1="${c-R}" x2="${c}" y2="${c+R}"/>`+
+    [['N',0],['O',90],['S',180],['W',270]].map(([t,az])=>{const [x,y]=P(-6,az);return `<text class="card" x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle">${t}</text>`}).join('');
+  S.forEach((n,i)=>{
+    const fc=fcolor(n.filters[0]);
+    const dk=n.x.map((_,k)=>n.sun[k]<-12);
+    const pts=(alts,azs)=>{let segs=[],cur=[];alts.forEach((a,k)=>{if(dk[k]&&a>0){cur.push(P(a,azs[k]).map(v=>v.toFixed(1)).join(','))}else if(cur.length){segs.push(cur);cur=[]}});if(cur.length)segs.push(cur);return segs};
+    let g=`<g class="n" data-i="${i}"><title>${n.night} · ${n.filters.join(', ')} · Mond ${n.illum} %</title>`;
+    pts(n.obj,n.objaz).forEach(s=>g+=`<polyline points="${s.join(' ')}" fill="none" stroke="${css('--text-muted')}" stroke-width="1" opacity=".5"/>`);
+    if(n.illum>3) pts(n.moon,n.moonaz).forEach(s=>g+=`<polyline points="${s.join(' ')}" fill="none" stroke="${moonC}" stroke-width="2" stroke-dasharray="4 3" opacity="${(0.25+0.75*n.illum/100).toFixed(2)}"/>`);
+    n.frames.forEach(f=>{const [x,y]=P(f.alt,f.az);const off=['rejected','suggest'].includes(f.status);
+      g+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.5" fill="${off?'none':fcolor(f.filter)}" stroke="${off?fcolor(f.filter):css('--surface-2')}" stroke-width="${off?1.5:1}"><title>${n.night} #${f.frame} · ${f.filter} · Höhe ${f.alt}° · Az ${f.az}°\nMond ${f.malt>0?f.malt+'° hoch':'unter dem Horizont'}</title></circle>`});
+    const mf=n.frames.filter(f=>f.malt>0);
+    if(mf.length&&n.illum>3){const m=mf[Math.floor(mf.length/2)];const [x,y]=P(m.malt,m.maz);
+      g+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(4+6*n.illum/100).toFixed(1)}" fill="${moonC}" fill-opacity="${(0.3+0.7*n.illum/100).toFixed(2)}" stroke="${css('--surface-2')}" stroke-width="2"><title>Mond ${n.night}: ${n.illum} % beleuchtet</title></circle>`;}
+    svg+=g+'</g>';
+  });
+  const dome=document.getElementById('dome'); dome.innerHTML=svg;
+  // mini charts
+  const grid=document.getElementById('nightGrid');
+  const tf=new Intl.DateTimeFormat('de-AT',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Vienna'});
+  const clockAt=(n,v)=>tf.format(new Date(n.t0+(v-12)*3600e3));
+  grid.innerHTML=S.map((n,i)=>{const used=n.frames.filter(f=>!['rejected','suggest'].includes(f.status)).length;
+    return `<div class="nmini" data-i="${i}"><div class="h"><b>${n.night.slice(8)}.${n.night.slice(5,7)}. · ${esc(n.filters.join(', '))}</b><span>${used}/${n.frames.length} Frames · Mond ${n.illum} %</span></div><div class="cb"><canvas></canvas></div></div>`}).join('');
+  // twilight: merge consecutive samples of the same level into one rectangle (no seams)
+  const lvl=s=>s>-6?3:s>-12?2:s>-18?1:0;
+  const twilight={id:'twilight',beforeDatasetsDraw(ch,_,o){const n=o.n,{ctx,chartArea:a,scales:{x}}=ch;ctx.save();
+    ctx.beginPath();ctx.rect(a.left,a.top,a.right-a.left,a.bottom-a.top);ctx.clip();
+    const tint=css('--text-muted');let k=0;
+    while(k<n.x.length){const L=lvl(n.sun[k]);let j=k;while(j+1<n.x.length&&lvl(n.sun[j+1])===L)j++;
+      if(L>0){const x0=x.getPixelForValue(n.x[k]-(k>0?(n.x[k]-n.x[k-1])/2:0)),x1=x.getPixelForValue(n.x[j]+(j<n.x.length-1?(n.x[j+1]-n.x[j])/2:0));
+        ctx.fillStyle=tint;ctx.globalAlpha=[0,.07,.13,.2][L];ctx.fillRect(Math.round(x0),a.top,Math.round(x1)-Math.round(x0),a.bottom-a.top);}
+      k=j+1;}
+    ctx.restore();}};
+  grid.querySelectorAll('.nmini').forEach(el=>{const i=+el.dataset.i,n=S[i];
+    const o=baseOpts(); o.scales.x={type:'linear',min:n.x[0],max:n.x[n.x.length-1],grid:{display:false},border:{color:css('--line')},ticks:{color:css('--text-muted'),font:{size:10},stepSize:(n.x[n.x.length-1]-n.x[0])>11?4:2,callback:v=>clockAt(n,v),maxRotation:0,autoSkip:true,maxTicksLimit:5,includeBounds:false}};
+    o.scales.y.min=0;o.scales.y.max=90;o.scales.y.ticks.stepSize=30;o.scales.y.ticks.callback=v=>v+'°';
+    o.plugins.twilight={n};o.interaction={mode:'nearest',intersect:true};
+    o.plugins.tooltip.callbacks={title:()=>'',label:c=>{if(c.dataset.fr){const f=c.raw.f;return ` ${clockAt(n,f.x)} · #${f.frame} · ${f.alt}° · ${STATUS[f.status][0]}`}return null}};
+    const ds=[{data:n.x.map((x,k)=>({x,y:n.obj[k]})),borderColor:css('--text-secondary'),borderWidth:1.5,pointRadius:0,showLine:true,tension:.3},
+      {data:n.x.map((x,k)=>({x,y:n.moon[k]})),borderColor:moonC,borderWidth:2,borderDash:[4,3],pointRadius:0,showLine:true,tension:.3,hidden:n.illum<=3}];
+    n.filters.forEach(fl=>{const fr=n.frames.filter(f=>f.filter===fl);ds.push({fr:true,data:fr.map(f=>({x:f.x,y:f.alt,f})),pointRadius:3.5,pointHoverRadius:5,showLine:false,
+      pointBackgroundColor:fr.map(f=>['rejected','suggest'].includes(f.status)?'transparent':fcolor(fl)),pointBorderColor:fcolor(fl),pointBorderWidth:fr.map(f=>['rejected','suggest'].includes(f.status)?1.5:0)})});
+    skyCharts.push(new Chart(el.querySelector('canvas'),{type:'scatter',data:{datasets:ds},options:o,plugins:[twilight]}));
+    el.onmouseenter=()=>{dome.classList.add('focus');dome.querySelector(`g.n[data-i="${i}"]`).classList.add('on')};
+    el.onmouseleave=()=>{dome.classList.remove('focus');dome.querySelectorAll('g.n.on').forEach(g=>g.classList.remove('on'))};
+  });
+}
+drawSky();
+
+// nights table
+(function(){
+  const t=document.getElementById('tNights');
+  t.innerHTML=`<thead><tr><th class="l">Nacht</th><th class="l">Filter</th><th>Frames</th><th>Belichtung</th><th>effektiv</th><th>Note</th><th>FWHM</th><th>Rauschen</th><th>Sterne</th><th>Höhe</th><th>Mond</th><th>Sensor</th></tr></thead><tbody>`+
+  D.nights.map(n=>`<tr><td>${n.night}</td><td class="l"><span class="dot" style="background:${fcolor(n.filter)}"></span> ${esc(n.filter)}</td>
+   <td>${n.n_used}/${n.n}</td><td>${fmt(n.used_h,2)} h</td><td>${fmt(n.eff_h,2)} h</td>
+   <td><span class="grade g${n.grade}" title="Qualität ${Math.round(n.quality*100)} %">${n.grade}</span></td>
+   <td>${fmt(n.fwhm_as,2)}"</td><td>${fmt(n.noise,1)}</td><td>${fmt(n.nstars,0)}</td><td>${fmt(n.alt[0],0)}–${fmt(n.alt[1],0)}°</td>
+   <td>${n.moon?'<span class="badge b-warning">Mond</span> ':''}${fmt(n.moon_illum,0)} %</td><td>${fmt(n.temp,1)} °C</td></tr>`).join('')+'</tbody>';
+})();
+
+// gallery + filters
+let selF='Alle', selS='Alle';
+function seg(el,opts,get,set){el.innerHTML=opts.map(o=>`<button type="button" class="${o===get()?'on':''}">${esc(o)}</button>`).join('');
+  [...el.children].forEach((b,i)=>b.onclick=()=>{set(opts[i]);seg(el,opts,get,set);renderGallery();});}
+const SOPTS=['Alle','OK','Hinweis','Aussortieren?','Aussortiert'];
+seg(document.getElementById('fFilter'),['Alle',...D.filters],()=>selF,v=>selF=v);
+seg(document.getElementById('fStatus'),SOPTS,()=>selS,v=>selS=v);
+function renderGallery(){
+  const list=D.frames.map((f,i)=>({f,i})).filter(({f})=>(selF==='Alle'||f.filter===selF)&&(selS==='Alle'||STATUS[f.status][0]===selS));
+  document.getElementById('fCount').textContent=list.length+' Frames';
+  document.getElementById('gallery').innerHTML=list.map(({f,i})=>`<div class="tile ${f.status}" data-i="${i}" title="${esc(f.flags.join(', '))}">
+    <span class="badge st ${STATUS[f.status][1]}">${STATUS[f.status][0]}</span><img loading="lazy" src="${f.img}" alt="">
+    <div class="cap"><span>${f.night.slice(5).replace('-','.')} · #${f.frame}</span><span>${fmt(f.fwhm_as,1)}" · ${f.nstars}★</span></div></div>`).join('');
+  document.querySelectorAll('.tile').forEach(t=>t.onclick=()=>openFrame(+t.dataset.i));
+}
+renderGallery();
+const dlg=document.getElementById('dlg');
+function openFrame(i){
+  const f=D.frames[i];
+  document.getElementById('dImg').src=f.img;
+  const m=[['Datei',f.file],['Nacht',f.night],['Filter',f.filter],['Status',STATUS[f.status][0]],['FWHM',fmt(f.fwhm_as,2)+'"'],['Exzentrizität',fmt(f.ecc,2)],
+    ['Sterne',f.nstars],['Hintergrund',fmt(f.bg,0)+' ADU'],['Rauschen',fmt(f.noise,1)+' ADU'],['Gewicht',fmt(f.weight,2)],['Höhe',fmt(f.alt,0)+'°'],
+    ['Mond',fmt(f.moon_illum,0)+' % · '+fmt(f.moon_alt,0)+'°'],['Sensor',fmt(f.temp,1)+' °C'],['Hinweise',f.flags.join(', ')||'–']];
+  document.getElementById('dMeta').innerHTML=m.map(([k,v])=>`<div><span>${k}</span>${esc(v)}</div>`).join('');
+  dlg.showModal();
+}
+
+// frames table (sortable)
+(function(){
+  const cols=[['night','Nacht'],['filter','Filter'],['frame','#'],['status','Status'],['fwhm_as','FWHM "'],['ecc','Exz.'],['nstars','Sterne'],['bg','Hintergrund'],['noise','Rauschen'],['weight','Gewicht'],['alt','Höhe'],['moon_illum','Mond %'],['temp','Sensor °C']];
+  const t=document.getElementById('tFrames'); let key='t', dir=1;
+  function render(){
+    const rows=[...D.frames].sort((a,b)=>{const x=a[key],y=b[key];return (x>y?1:x<y?-1:0)*dir});
+    t.innerHTML='<thead><tr>'+cols.map(([k,l])=>`<th data-k="${k}" class="${['night','filter','status'].includes(k)?'l':''}">${l}${k===key?(dir>0?' ▲':' ▼'):''}</th>`).join('')+'</tr></thead><tbody>'+
+      rows.map(f=>'<tr>'+cols.map(([k])=>{let v=f[k];if(k==='status')v=`<span class="badge ${STATUS[v][1]}">${STATUS[v][0]}</span>`;else if(typeof v==='number')v=fmt(v,['nstars','bg'].includes(k)?0:2);else v=esc(v);
+        return `<td class="${['night','filter','status'].includes(k)?'l':''}">${v}</td>`}).join('')+'</tr>').join('')+'</tbody>';
+    t.querySelectorAll('th').forEach(th=>th.onclick=()=>{const k=th.dataset.k;dir=(k===key)?-dir:1;key=k;render();});
+  }
+  render();
+})();
+</script>
+</body>
+</html>
