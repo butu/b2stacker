@@ -85,3 +85,22 @@ def test_single_frame_loses(tmp_path):
     assert best["set"]["frames"] == 20 and "/b/" in best["set"]["folder"].replace("\\", "/")
     verw = next(c for c in res["matches"][0]["flats"] if "verworfen" in c["set"]["folder"])
     assert not verw["usable"]
+
+
+def test_bias_from_other_driver_name_is_used(tmp_path):
+    """Bias 2024 mit nativem ToupTek-Treiber (ATR3CMOS26000KPA), Lights 2026 mit ATR2600C(USB2.0): dieselbe Kamera."""
+    r = str(tmp_path)
+    make_fits(f"{r}/vdB 15/2026-04-08/RGB/l.fits", dict(NINA_LIGHT, FILTER="RGB"), shape=(200, 300))
+    hb = dict(NINA_LIGHT, INSTRUME="ATR3CMOS26000KPA", EXPOSURE=0.0001, EXPTIME=0.0001, FILTER="RGB")
+    hb.pop("OBJECT")
+    for i in range(5):
+        make_fits(f"{r}/Bias/SNAPSHOT/RGB/2024-11-05/b{i}.fits", hb, shape=(200, 300), value=500)
+    hx = dict(hb, GAIN=0)          # falscher Gain bleibt unbrauchbar
+    make_fits(f"{r}/Bias2/b.fits", hx, shape=(200, 300), value=500)
+    res = calibcheck.check_all(discover.scan([r]))
+    m = res["matches"][0]
+    best = m["bias"][0]
+    assert best["usable"] and best["set"]["frames"] == 5
+    other = next(c for c in m["bias"] if "Bias2" in c["set"]["folder"])
+    assert not other["usable"]
+    assert "Kein Bias und keine Dark-Flats" not in [f["title"] for f in m["findings"]]

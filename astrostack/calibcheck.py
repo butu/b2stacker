@@ -155,14 +155,24 @@ def _days(a: str | None, b: str | None):
 
 
 def _settings_mismatch(a: tuple, b: tuple) -> list[str]:
+    """Harte Abweichungen (Kalibrierframe unbrauchbar). Der Kameraname allein zählt nicht, wenn
+    Sensorgröße und alle Einstellungen stimmen – das ist meist nur ein anderer Treiber."""
     names = ["Kamera", "Gain", "Offset", "Auslesemodus", "Binning", "Breite", "Höhe"]
     out = []
     for n, x, y in zip(names, a, b):
-        if n == "Kamera" and (x is None or y is None):
+        if n == "Kamera":
             continue
         if x != y and not (x in (None, "") or y in (None, "")):
             out.append("%s %s ≠ %s" % (n, y, x))
+    if a[0] and b[0] and a[0] != b[0] and (a[5] in (None, "") or b[5] in (None, "")):
+        out.append("Kamera %s ≠ %s" % (b[0], a[0]))     # ohne Sensorgröße nicht vergleichbar
     return out
+
+
+def _camera_note(a: tuple, b: tuple) -> list[str]:
+    if a[0] and b[0] and a[0] != b[0] and a[5] not in (None, "") and b[5] not in (None, ""):
+        return ["anderer Kameraname (%s), gleiche Sensorgröße und Einstellungen" % b[0]]
+    return []
 
 
 def _median(vals):
@@ -192,6 +202,7 @@ def match_calibration(inv, flat_checks: dict | None = None, th: Thresholds | Non
                 continue
             mism = _settings_mismatch(g.settings, c.settings)
             first = c.frames[0]
+            camnote = _camera_note(g.settings, c.settings)
             cfoc = _median([f.focus_pos for f in c.frames])
             crot = _median([f.rotator for f in c.frames])
             age = _days(first.date_loc or first.date_obs, last_night)
@@ -200,6 +211,9 @@ def match_calibration(inv, flat_checks: dict | None = None, th: Thresholds | Non
             if mism:
                 reasons += mism
                 score -= 1000
+            if camnote:
+                reasons += camnote
+                score -= 10
             if rd is not None:
                 if rd > th.rot_tol:
                     reasons.append("Rotation weicht um %.1f° ab" % rd); score -= 200
@@ -241,8 +255,8 @@ def match_calibration(inv, flat_checks: dict | None = None, th: Thresholds | Non
                 if c.type != typ:
                     continue
                 mism = _settings_mismatch(g.settings, c.settings)
-                reasons = list(mism)
-                score = -1000 if mism else 0
+                reasons = list(mism) + _camera_note(g.settings, c.settings)
+                score = (-1000 if mism else 0) - (5 if _camera_note(g.settings, c.settings) else 0)
                 if typ == fm.DARK:
                     if c.exposure and exp and abs(c.exposure - exp) / exp > 0.02:
                         reasons.append("Belichtung %.0f s statt %.0f s" % (c.exposure, exp)); score -= 500

@@ -74,3 +74,6 @@
   FWHM/HFR, Sternzahl, Exzentrizität, Farbversatz, Verlauf. Vergleichbar innerhalb derselben Kamera/Einstellungen.
 - **Dateinamen**: `Ziel_Filter_Datum_Stunden.xisf` – eindeutig, nichts wird überschrieben; Historie in `stacks.json`
   mit Pfaden relativ zum Projekt (Arbeitsverzeichnis lässt sich verschieben).
+- **Kameranamen unterscheiden sich je nach Treiber** (z. B. `ATR3CMOS26000KPA` nativ 2024 vs. `ATR2600C(USB2.0)`,
+  `ZWO CCD ASI2600MC Pro` vs. `ZWO ASI2600MC Pro`). Namen werden normalisiert; ein abweichender Name bei gleicher
+  Sensorgröße, Gain, Offset, Auslesemodus und Binning ist nur ein Hinweis, kein Ausschluss (vdB 15, 01.11.).

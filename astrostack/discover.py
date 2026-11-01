@@ -173,7 +173,7 @@ def scan(roots: list[str], opt: ScanOptions | None = None, progress=None) -> Inv
         for sess in flat_sessions(frames):
             exp = _median_exp(sess)
             c = CalibSet(fm.FLAT, flt, settings, folder, exp, list(sess),
-                         session=(sess[0].date_obs or sess[0].date_loc or "")[:19])
+                         session=(sess[0].date_loc or sess[0].date_obs or "")[:19])
             calib[(fm.FLAT, flt, settings, folder, c.session, exp)] = c
     for g in lights.values():
         g.frames.sort(key=lambda f: f.date_obs or "")

@@ -82,7 +82,7 @@ class FrameMeta:
 
     def settings_key(self) -> tuple:
         """Kamera-Einstellungen, die bei Lights/Flats/Bias/Darks übereinstimmen müssen."""
-        return (self.camera, self.gain, self.offset, (self.readout or "").lower(), self.binning, self.width, self.height)
+        return (camera_norm(self.camera), self.gain, self.offset, (self.readout or "").lower(), self.binning, self.width, self.height)
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -124,6 +124,24 @@ _TYPE_WORDS = [
     (DARK, ("dark", "darkframe", "darks")),
     (LIGHT, ("light", "science", "object", "lightframe", "lights")),
 ]
+
+
+# Dieselbe Kamera meldet sich je nach Treiber (nativ / ASCOM / Alpaca / ältere Version) unterschiedlich.
+CAMERA_ALIASES = {
+    "atr3cmos26000kpa": "atr2600c",      # ToupTek/Altair ATR2600C – nativer Treiber 2024
+    "atr3cmos26000kmb": "atr2600m",
+}
+
+
+def camera_norm(name: str | None) -> str | None:
+    """Kameranamen vereinheitlichen: Groß/klein, Treiber-Zusätze wie (USB2.0), "ZWO CCD", Leerzeichen."""
+    if not name:
+        return name
+    n = name.lower()
+    n = re.sub(r"\((usb\s*[23](\.0)?|usb)\)", "", n)
+    n = re.sub(r"\b(zwo|ccd|camera|kamera|ascom|alpaca|driver|touptek|altair)\b", "", n)
+    n = re.sub(r"[^a-z0-9]+", "", n)
+    return CAMERA_ALIASES.get(n, n) or name
 
 
 def type_from_string(s: str | None) -> tuple[str, bool]:
