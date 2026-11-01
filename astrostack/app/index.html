@@ -172,6 +172,13 @@ svg.i.tiny{width:12px;height:12px;opacity:.7}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .seg button{background:none;border:none;padding:5px 10px;cursor:pointer;color:var(--text-secondary);font-size:12.5px}
 .seg button.on{background:var(--surface-3);color:var(--text-primary);font-weight:600}
+.copt{display:grid;grid-template-columns:22px 1fr;gap:10px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;cursor:pointer;align-items:start}
+.copt:hover{background:var(--surface-2)}
+.copt.sel{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--surface-1))}
+.copt.bad{opacity:.7}
+.copt input{margin-top:3px;accent-color:var(--accent)}
+.copt .r{font-size:12.5px;color:var(--text-muted)}
+.calres{border-radius:8px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);font-size:13px}
 /* Checkliste */
 .cl{display:grid;gap:2px;margin-top:8px}
 .cli{display:grid;grid-template-columns:28px 1fr;gap:10px;padding:9px 6px;border-radius:8px;cursor:pointer;align-items:start}
@@ -219,6 +226,9 @@ dialog img.full{width:100%;display:block;background:#000}
   <div class="bd" id="setBody"></div>
   <div class="ft"><button class="btn" onclick="setDlg.close()">Abbrechen</button><button class="btn primary" id="setSave">Speichern</button></div>
 </dialog>
+<dialog id="calDlg"><div class="hd"><h2 style="margin:0" id="calTitle"></h2><button class="btn icon" onclick="calDlg.close()">✕</button></div>
+  <div class="bd" id="calBody"></div>
+  <div class="ft"><button class="btn" onclick="calDlg.close()">Abbrechen</button><button class="btn primary" id="calSave">Übernehmen</button></div></dialog>
 <dialog id="imgDlg" class="wide"><div class="hd"><b id="imgTitle"></b><button class="btn icon" onclick="imgDlg.close()">✕</button></div><img class="full" id="imgFull" alt=""></dialog>
 
 <script>
@@ -566,10 +576,15 @@ function renderPlan(b){
         <div class="why">${esc(r.why)}</div>
         <div class="kv"><span>${ic('star')} <b>${r.lightCount}</b> Lights · <b>${fmt(r.hours,1)} h</b></span><span><b>${r.nights.length}</b> Nächte</span>
           ${(r.light_dirs||[]).length?`<span>${(r.light_dirs||[]).map(d=>dirLink(d)).join(' ')}</span>`:''}</div>
-        <div class="kv"><span>${ic('sun')} Flats ${r.flats.length?`<span class="badge ${r.flat_ok?'good':'warning'}">${r.flats.length}${r.flat_sky?' · Himmelsflats':''}</span> ${dirLink(r.flat_set)}${r.flat_session?` <span class="muted">${esc(r.flat_session.replace('T',' ').slice(0,16))}</span>`:''}`:'<span class="badge critical">fehlen</span>'}</span></div>
+        <div class="kv"><span>${ic('sun')} Flats ${r.flats.length?`<span class="badge ${r.flat_ok?'good':'warning'}">${r.flats.length}${r.flat_sky?' · Himmelsflats':''}</span> ${dirLink(r.flat_set)}${r.flat_session?` <span class="muted">${esc(r.flat_session.replace('T',' ').slice(0,16))}</span>`:''}`:'<span class="badge critical">fehlen</span>'}
+          ${manBadge(r,'flats')}<button class="btn sm" data-cal="${i}|flats">ändern</button></span></div>
         ${(r.flat_reasons||[]).filter(x=>!/unbekannt/.test(x)).length?`<div class="muted small" style="margin-top:2px">Hinweis: ${esc(r.flat_reasons.filter(x=>!/unbekannt/.test(x)).join('; '))}</div>`:''}
-        <div class="kv"><span>${ic('layers')} Bias ${r.bias.length?`<span class="badge good">${r.bias.length}</span> ${dirLink(r.bias_set)}`:'<span class="badge warning">keine</span>'}</span>
-          ${r.darks.length?`<span>Darks <span class="badge good">${r.darks.length}</span> ${dirLink(r.dark_set)}</span>`:''}</div></div>
+        <div class="kv"><span>${ic('layers')} Bias ${r.bias.length?`<span class="badge good">${r.bias.length}</span> ${dirLink(r.bias_set)}`:'<span class="badge warning">keine</span>'}
+          ${manBadge(r,'bias')}<button class="btn sm" data-cal="${i}|bias">ändern</button></span></div>
+        <div class="kv"><span>${ic('clock')} Darks ${r.darks.length?`<span class="badge good">${r.darks.length}</span> ${dirLink(r.dark_set)}`:'<span class="badge neutral">keine</span>'}
+          ${manBadge(r,'darks')}<button class="btn sm" data-cal="${i}|darks">ändern</button></span>
+          ${(r.darkflats||[]).length||(r.calib_manual||{}).darkflats?`<span>Dark-Flats ${(r.darkflats||[]).length?`<span class="badge good">${r.darkflats.length}</span> ${dirLink(r.darkflat_set)}`:'<span class="badge neutral">keine</span>'} ${manBadge(r,'darkflats')}</span>`:''}
+          <button class="btn sm ghost" data-cal="${i}|darkflats">Dark-Flats …</button></div></div>
       <div class="side" style="text-align:right;font-size:13px"><div class="muted">Referenz</div>
         <select data-ref="${i}">${runOpts(r).map(o=>`<option value="${esc(o)}" ${o===(r.reference||'auto')?'selected':''}>${o==='auto'?'bester Frame':'Master von '+esc(o.slice(7))}</option>`).join('')}</select>
         <div class="muted" style="margin-top:6px">~${fmt(r.gb,0)} GB · ~${fmt(r.ram_gb,0)} GB RAM</div></div>
@@ -586,6 +601,7 @@ function renderPlan(b){
   <div class="go" id="goBox"></div>
   <details class="card"><summary style="cursor:pointer"><b>Warum diese Einstellungen?</b></summary>
     <table class="why">${(plan.settings||[]).map(s=>`<tr><td>${esc(s[0])}</td><td>${esc(s[1])}</td><td>${esc(s[2])}</td></tr>`).join('')}</table></details>`;
+  b.querySelectorAll('[data-cal]').forEach(x=>x.onclick=()=>{const [i,k]=x.dataset.cal.split('|');openCalib(runs[+i],k)});
   b.querySelectorAll('[data-run]').forEach(c=>c.onchange=()=>savePlan({runs:{[runs[+c.dataset.run].name]:{enabled:c.checked}}}));
   b.querySelectorAll('[data-ref]').forEach(c=>c.onchange=()=>savePlan({runs:{[runs[+c.dataset.ref].name]:{reference:c.value}}}));
   b.querySelectorAll('[data-opt]').forEach(c=>c.onchange=()=>savePlan({options:{[c.dataset.opt]:c.checked}}));
@@ -634,6 +650,71 @@ function renderDirty(){
 async function savePlan(edits){
   try{const plan=await api('/api/project/'+encodeURIComponent(cur.project)+'/plan',edits);P.plan=plan;renderTab();}catch(e){toast(e.message,true)}
 }
+
+// ---------- Kalibrierdaten wählen
+const KNAME={flats:'Flats',bias:'Bias',darks:'Darks',darkflats:'Dark-Flats'};
+const KHELP={flats:'Flats korrigieren Vignettierung und Staub. Gleicher Filter, Fokus und Kamera-Drehung wie die Lights, am besten aus derselben Session.',
+  bias:'Bias (0-s-Aufnahmen) liefern das Ausleserauschen-Muster und kalibrieren die Flats. Gleicher Gain, Offset und Auslesemodus.',
+  darks:'Darks (gleiche Belichtung und Temperatur wie die Lights) entfernen Hotpixel und Verstärkerglühen. Ohne Darks übernimmt die Rejection die Hotpixel – dank Dithering.',
+  darkflats:'Dark-Flats (gleiche Belichtung wie die Flats) ersetzen Bias bei langen Flat-Belichtungen. Meist nicht nötig.'};
+const manBadge=(r,k)=>(r.calib_manual||{})[k]?`<span class="badge neutral" title="von dir geändert">${ic('edit','tiny')} ${esc(r.calib_manual[k])}</span>`:'';
+let calState=null;
+function openCalib(run,kind){
+  const ch=(run.calib_choices||{})[kind]||[];
+  const curPaths=run[kind]||[], curSet=run[{flats:'flat_set',bias:'bias_set',darks:'dark_set',darkflats:'darkflat_set'}[kind]];
+  const auto=ch.find(c=>c.usable);
+  const manual=(run.calib_manual||{})[kind];
+  const match=ch.find(c=>c.folder===curSet&&c.frames===curPaths.length);
+  let sel=manual==='keine'?'none':manual==='eigener Ordner'?'folder':(!manual||!match||match===auto)?'auto':match.id;
+  calState={run,kind,sel,folder:manual==='eigener Ordner'?curSet:'',inspect:null};
+  $('#calTitle').textContent=KNAME[kind]+' für '+run.name;
+  renderCalib(ch,auto);
+  calDlg.showModal();
+}
+function renderCalib(ch,auto){
+  const st=calState,k=st.kind;
+  const opt=(id,title,sub,bad)=>`<label class="copt ${st.sel===id?'sel':''} ${bad?'bad':''}"><input type="radio" name="cal" value="${esc(id)}" ${st.sel===id?'checked':''}><div>${title}${sub?`<div class="r">${sub}</div>`:''}</div></label>`;
+  $('#calBody').innerHTML=`<div class="muted small">${ic('info')} ${esc(KHELP[k])}</div>
+    ${opt('auto',`<b>Vorschlag des Programms</b>${auto?` · ${esc(auto.label)} · ${auto.frames} Frames`:' · keine passenden gefunden'}`,'Wird bei jeder Neu-Analyse automatisch neu gewählt.')}
+    ${ch.filter(c=>c!==auto).map(c=>opt(c.id,`${esc(c.label)} · <b>${c.frames}</b> Frames${c.sky?'':''}${c.verdict==='critical'?' <span class="badge critical">Problem</span>':c.verdict==='warning'?' <span class="badge warning">Hinweis</span>':''}`,
+      (c.usable?'':'⚠ passt nicht: ')+esc((c.reasons||[]).filter(x=>!/unbekannt/.test(x)).join('; ')||'passt'),!c.usable)).join('')}
+    ${opt('none','<b>Keine verwenden</b>',k==='bias'?'Nicht empfohlen – Flats werden dann ungenauer kalibriert.':k==='flats'?'Nicht empfohlen – Vignettierung und Staub bleiben im Bild.':'')}
+    ${opt('folder','<b>Eigenen Ordner wählen …</b>','Alle FITS/XISF darin werden als '+KNAME[k]+' verwendet (auch wenn der Header anderes sagt).')}
+    ${st.sel==='folder'?`<div class="frow"><input type="text" id="calFolder" value="${esc(st.folder||'')}" placeholder="Ordner mit ${KNAME[k]}"><button class="btn" id="calPick">Durchsuchen …</button><button class="btn" id="calCheck">Prüfen</button></div>
+      <div id="calRes">${st.inspect?calResHtml(st.inspect):''}</div>`:''}`;
+  $('#calBody').querySelectorAll('input[name=cal]').forEach(r=>r.onchange=()=>{st.sel=r.value;renderCalib(ch,auto)});
+  const pick=$('#calPick'); if(pick)pick.onclick=async()=>{try{const r=await api('/api/pick-folder',{initial:st.folder||''});if(r.path){st.folder=r.path;await inspectCal();renderCalib(ch,auto);}}catch(e){toast(e.message,true)}};
+  const chk=$('#calCheck'); if(chk)chk.onclick=async()=>{st.folder=$('#calFolder').value.trim();await inspectCal();renderCalib(ch,auto);};
+  const fi=$('#calFolder'); if(fi)fi.onchange=()=>{st.folder=fi.value.trim();st.inspect=null;};
+}
+async function inspectCal(){
+  const st=calState;
+  try{st.inspect=await api('/api/project/'+encodeURIComponent(cur.project)+'/calib-inspect',{run:st.run.name,kind:st.kind,folder:st.folder});}
+  catch(e){st.inspect={error:e.message};}
+}
+function calResHtml(r){
+  if(r.error)return `<div class="calres" style="border-color:var(--critical)">✗ ${esc(r.error)}</div>`;
+  return `<div class="calres" style="border-color:var(${r.ok?(r.warnings.length?'--warning':'--good'):'--critical'})"><b>${r.ok?'✓':'✗'} ${r.frames} Dateien</b> · erkannt: ${esc(Object.entries(r.types).map(([t,n])=>n+'× '+t).join(', '))}
+    ${r.problems.map(x=>`<div style="color:var(--critical)">✗ ${esc(x)}</div>`).join('')}${r.warnings.map(x=>`<div class="muted">⚠ ${esc(x)}</div>`).join('')}
+    ${!r.ok?'<div class="muted">Passt nicht zu den Lights – WBPP würde diese Dateien wahrscheinlich ignorieren oder falsch kalibrieren.</div>':''}</div>`;
+}
+$('#calSave').onclick=async()=>{
+  const st=calState; let choice=st.sel;
+  if(choice==='folder'){
+    st.folder=($('#calFolder')||{}).value?.trim()||st.folder;
+    if(!st.folder)return toast('Bitte einen Ordner wählen',true);
+    if(!st.inspect||st.inspect.folder!==st.folder)await inspectCal();
+    if(st.inspect.error)return renderCalib((st.run.calib_choices||{})[st.kind]||[],((st.run.calib_choices||{})[st.kind]||[]).find(c=>c.usable));
+    if(!st.inspect.ok&&!confirm('Der Ordner passt nicht zu den Lights:\n'+st.inspect.problems.join('\n')+'\n\nTrotzdem verwenden?'))return;
+    choice={folder:st.folder};
+  }else if(choice!=='auto'&&choice!=='none'){
+    const c=((st.run.calib_choices||{})[st.kind]||[]).find(x=>x.id===choice);
+    if(c&&!c.usable&&!confirm('Dieser Satz passt laut Prüfung nicht:\n'+c.reasons.join('\n')+'\n\nTrotzdem verwenden?'))return;
+  }
+  calDlg.close();
+  await savePlan({runs:{[st.run.name]:{calib:{[st.kind]:choice}}}});
+  toast(KNAME[st.kind]+' für '+st.run.name+' geändert');
+};
 
 // ---------- Bearbeitungs-Checkliste
 function renderChecklist(b){

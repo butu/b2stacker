@@ -387,6 +387,12 @@ class Handler(BaseHTTPRequestHandler):
                 if action == "sources":
                     project.set_sources(pdir, b.get("roots", []))
                     return self._json(project_detail(name))
+                if action == "calib-inspect":
+                    plan = project.load_plan(pdir)
+                    run = next((r for r in plan["runs"] if r["name"] == b["run"]), None)
+                    if not run:
+                        raise ValueError("Lauf nicht gefunden")
+                    return self._json(project.inspect_calib_folder(b["folder"], b["kind"], run))
                 if action == "requality":
                     return self._json(start_requality(name, b["stack_id"]))
             return self._json({"error": "nicht gefunden"}, 404)

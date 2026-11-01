@@ -71,6 +71,9 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
             bias_set=bias and bias["set"]["folder"], dark_set=dark and dark["set"]["folder"],
             flat_session=flat and flat["set"].get("session"), flat_sky=bool(flat and flat["set"].get("sky")),
             flat_reasons=flat["reasons"] if flat else [],
+            settings_key=list(g.settings),
+            calib_choices={k: _choices((m or {}).get(k, []), k) for k in ("flats", "bias", "darks", "darkflats")},
+            darkflat_set=dflat and dflat["set"]["folder"],
             lights=[f.path for f in frames],
             flats=[x.path for x in _frames_of(flat)] if flat else [],
             flat_set=flat and flat["set"]["folder"], flat_ok=bool(flat and (not flat.get("check") or flat["check"]["verdict"] != "critical")),
@@ -118,6 +121,36 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
                      weighting="psf_signal", rejection="auto", large_scale_rejection=True, distortion_correction=True,
                      cleanup=True))
     return plan
+
+
+CHOICE_MAX = 15
+
+
+def _label(cand: dict, kind: str) -> str:
+    st = cand["set"]
+    parts = [st["folder"].replace("\\", "/").split("/")[-2] + "/" + st["folder"].replace("\\", "/").split("/")[-1]]
+    if kind == "flats":
+        t = (st.get("session") or "")[11:16]
+        er = st.get("exposure_range")
+        exp = ("%g–%g s" % tuple(er)) if (er and er[1] > er[0] * 1.15) else ("%g s" % st["exposure"] if st.get("exposure") else "")
+        parts.append(" ".join(x for x in (((st.get("date") or [""])[0] or "")[:10], t, exp) if x))
+        if st.get("sky"):
+            parts.append("Himmelsflats")
+    elif kind in ("darks", "darkflats") and st.get("exposure"):
+        parts.append("%g s" % st["exposure"])
+    return " · ".join(p for p in parts if p)
+
+
+def _choices(cands: list, kind: str) -> list:
+    """Auswahlliste für die Oberfläche: brauchbare zuerst, dann einige unbrauchbare (mit Grund)."""
+    out = []
+    for c in sorted(cands, key=lambda x: (not x["usable"], -x["score"]))[:CHOICE_MAX]:
+        st = c["set"]
+        out.append(dict(id=st.get("id") or st["folder"], label=_label(c, kind), folder=st["folder"], frames=st["frames"],
+                        usable=c["usable"], score=c["score"], reasons=c["reasons"],
+                        verdict=(c.get("check") or {}).get("verdict"), sky=st.get("sky", False), session=st.get("session"),
+                        paths=[f.path for f in c.get("_frames", [])]))
+    return out
 
 
 def _frames_of(cand):

@@ -305,27 +305,132 @@ def _read(path, default):
         return default
 
 
+CALIB_KINDS = {"flats": "flat_set", "bias": "bias_set", "darks": "dark_set", "darkflats": "darkflat_set"}
+
+
 def save_edits(pdir: str, edits: dict) -> dict:
     """Benutzer-Anpassungen am Plan merken (überleben eine Neu-Analyse) und sofort anwenden.
-    edits = {options: {...}, runs: {name: {enabled, reference, wbpp}}}"""
+    edits = {options: {...}, runs: {name: {enabled, reference, wbpp, calib: {flats|bias|darks|darkflats: wahl}}}}
+    Kalibrier-Wahl: "auto" | "none" | "<Kandidaten-id>" | {"folder": "<pfad>"}"""
     cur = _read(os.path.join(pdir, "plan_edits.json"), {"options": {}, "runs": {}})
-    cur["options"].update(edits.get("options") or {})
+    cur.setdefault("options", {}).update(edits.get("options") or {})
     for k, v in (edits.get("runs") or {}).items():
-        cur["runs"].setdefault(k, {}).update(v)
-    json.dump(cur, open(os.path.join(pdir, "plan_edits.json"), "w", encoding="utf-8"), indent=2, ensure_ascii=False)
+        r = cur.setdefault("runs", {}).setdefault(k, {})
+        for kk, vv in v.items():
+            if kk == "calib":
+                cal = r.setdefault("calib", {})
+                for kind, choice in vv.items():
+                    if kind not in CALIB_KINDS:
+                        raise ValueError("unbekannte Kalibrierart: " + kind)
+                    if choice in (None, "auto"):
+                        cal.pop(kind, None)
+                    else:
+                        cal[kind] = choice
+            else:
+                r[kk] = vv
+    _write(os.path.join(pdir, "plan_edits.json"), cur)
     return apply_edits(pdir)
 
 
 def apply_edits(pdir: str) -> dict:
-    plan = load_plan(pdir)
+    """plan.json = plan_base.json (Vorschlag der Analyse) + plan_edits.json (Änderungen des Benutzers)."""
+    base_p = os.path.join(pdir, "plan_base.json")
+    plan = _read(base_p, None) if os.path.exists(base_p) else None
+    if plan is None:
+        plan = load_plan(pdir)
     ed = _read(os.path.join(pdir, "plan_edits.json"), None)
     if ed:
-        plan["options"].update(ed.get("options") or {})
+        cands = _read(os.path.join(pdir, "calib_candidates.json"), {})
+        plan.setdefault("options", {}).update(ed.get("options") or {})
         for r in plan["runs"]:
-            r.update({k: v for k, v in (ed.get("runs") or {}).get(r["name"], {}).items() if k in ("enabled", "reference", "wbpp")})
+            e = (ed.get("runs") or {}).get(r["name"], {})
+            r.update({k: v for k, v in e.items() if k in ("enabled", "reference", "wbpp")})
+            for kind, choice in (e.get("calib") or {}).items():
+                _apply_calib(r, kind, choice, cands)
         plan["edited"] = True
-        json.dump(plan, open(os.path.join(pdir, "plan.json"), "w", encoding="utf-8"), indent=2, ensure_ascii=False)
+    _write(os.path.join(pdir, "plan.json"), plan)
     return plan
+
+
+def _apply_calib(run: dict, kind: str, choice, cands: dict):
+    setkey = CALIB_KINDS[kind]
+    run.setdefault("calib_manual", {})
+    if choice == "none":
+        run[kind], run[setkey] = [], None
+        run["calib_manual"][kind] = "keine"
+    elif isinstance(choice, dict) and choice.get("folder"):
+        paths = calib_folder_files(choice["folder"])
+        run[kind], run[setkey] = paths, choice["folder"]
+        run["calib_manual"][kind] = "eigener Ordner"
+        if kind == "flats":
+            run["flat_ok"], run["flat_sky"], run["flat_session"], run["flat_reasons"] = True, False, None, ["eigener Ordner"]
+    elif isinstance(choice, str) and choice in cands:
+        c = next((x for x in run.get("calib_choices", {}).get(kind, []) if x["id"] == choice), None)
+        run[kind] = list(cands[choice])
+        run[setkey] = c["folder"] if c else os.path.dirname(cands[choice][0]) if cands[choice] else None
+        run["calib_manual"][kind] = "gewählt"
+        if kind == "flats" and c:
+            run["flat_ok"] = c.get("verdict") != "critical"
+            run["flat_sky"], run["flat_session"], run["flat_reasons"] = c.get("sky", False), c.get("session"), c.get("reasons", [])
+    else:
+        run["calib_manual"][kind] = "Auswahl nicht mehr vorhanden – Vorschlag verwendet"
+
+
+IMAGE_EXT = (".fits", ".fit", ".fts", ".xisf")
+
+
+def calib_folder_files(folder: str) -> list[str]:
+    out = []
+    for root, dirs, files in os.walk(folder):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        out += [os.path.join(root, f) for f in files if f.lower().endswith(IMAGE_EXT)]
+    return sorted(out)
+
+
+def inspect_calib_folder(folder: str, kind: str, run: dict) -> dict:
+    """Eigenen Kalibrier-Ordner prüfen: Anzahl, erkannter Typ, Einstellungen im Vergleich zu den Lights."""
+    from collections import Counter
+    from . import fitsmeta as fm
+    if not os.path.isdir(folder):
+        raise ValueError("Ordner nicht gefunden: " + folder)
+    files = calib_folder_files(folder)
+    if not files:
+        raise ValueError("Keine FITS/XISF-Dateien in " + folder)
+    metas, errors = [], 0
+    for p in files[:200]:
+        try:
+            metas.append(fm.read_meta(p))
+        except Exception:  # noqa: BLE001
+            errors += 1
+    want = {"flats": fm.FLAT, "bias": fm.BIAS, "darks": fm.DARK, "darkflats": fm.DARK}[kind]
+    types = Counter(m.type for m in metas)
+    warnings, problems = [], []
+    other = {t: n for t, n in types.items() if t not in (want, fm.DARKFLAT if kind == "darkflats" else want)}
+    if other:
+        warnings.append("Nicht alle Dateien sehen nach %s aus (%s) – sie werden trotzdem als %s verwendet."
+                        % ({"flats": "Flats", "bias": "Bias", "darks": "Darks", "darkflats": "Dark-Flats"}[kind],
+                           ", ".join("%d× %s" % (n, t) for t, n in other.items()), kind))
+    sk = run.get("settings_key") or []
+    if sk:
+        from .calibcheck import _settings_mismatch, _camera_note
+        mism = Counter()
+        for m in metas:
+            for x in _settings_mismatch(tuple(sk), m.settings_key()):
+                mism[x] += 1
+        for x, n in mism.items():
+            problems.append("%s (%d von %d Dateien)" % (x, n, len(metas)))
+        notes = {x for m in metas for x in _camera_note(tuple(sk), m.settings_key())}
+        warnings += sorted(notes)
+    if kind == "flats":
+        fl = Counter((m.filter or "–") for m in metas)
+        if run.get("filter") and run["filter"] not in fl:
+            warnings.append("Filter im Header: %s – die Lights haben %s." % (", ".join(fl), run["filter"]))
+    if len(files) < 5:
+        warnings.append("Nur %d Dateien – ein Master daraus rauscht stark." % len(files))
+    if errors:
+        warnings.append("%d Dateien nicht lesbar." % errors)
+    return dict(folder=folder, frames=len(files), types=dict(types), problems=problems, warnings=warnings,
+                ok=not problems)
 
 
 def set_override(pdir: str, path: str, value: str | None) -> dict:

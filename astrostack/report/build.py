@@ -133,6 +133,17 @@ def build(target: str, groups, inv, calib: dict, analysis_dir: str, workdir: str
         "__TITLE__", html.escape(target + " – Rohdaten"))
     os.makedirs(os.path.dirname(out_html), exist_ok=True)
     open(out_html, "w", encoding="utf-8").write(out)
-    with open(os.path.join(os.path.dirname(out_html), "plan.json"), "w", encoding="utf-8") as fh:
+    pdir = os.path.dirname(out_html)
+    # Basis-Plan (unverändert) + Kandidaten-Pfade getrennt; plan.json = Basis + Benutzer-Änderungen
+    cands = {}
+    for r in plan["runs"]:
+        for kind, lst in r.get("calib_choices", {}).items():
+            for c in lst:
+                cands[c["id"]] = c.pop("paths", [])
+    with open(os.path.join(pdir, "calib_candidates.json"), "w", encoding="utf-8") as fh:
+        json.dump(cands, fh, ensure_ascii=False)
+    with open(os.path.join(pdir, "plan_base.json"), "w", encoding="utf-8") as fh:
+        json.dump(public(plan), fh, indent=2, ensure_ascii=False)
+    with open(os.path.join(pdir, "plan.json"), "w", encoding="utf-8") as fh:
         json.dump(public(plan), fh, indent=2, ensure_ascii=False)
     return dict(html=out_html, plan=os.path.join(os.path.dirname(out_html), "plan.json"), frames=len(rows))

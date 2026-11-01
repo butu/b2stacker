@@ -289,9 +289,12 @@ def run_plan(plan: dict, settings, log=print, on_status=None, cancel: threading.
     st = Status(state="running", started=datetime.datetime.now().isoformat(timespec="seconds"))
     pdir = plan["workdir"]
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    base, k = stamp, 2
+    while os.path.exists(os.path.join(pdir, "runs", stamp)):      # eindeutig, auch bei zwei Läufen pro Sekunde
+        stamp, k = "%s-%d" % (base, k), k + 1
     jobdir = os.path.join(pdir, "runs", stamp)
     finaldir = os.path.join(pdir, "final")
-    os.makedirs(jobdir, exist_ok=True)
+    os.makedirs(jobdir)
     os.makedirs(finaldir, exist_ok=True)
     status_file = status_file or os.path.join(jobdir, "status.json")
     logfile = open(os.path.join(jobdir, "astrostack.log"), "a", encoding="utf-8")
