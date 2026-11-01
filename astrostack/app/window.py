@@ -94,17 +94,17 @@ def _edge_app(url: str) -> bool:
 
 def run(port: int = 8765):
     url = server.already_running(port)
-    if url:                                   # zweiter Doppelklick: vorhandenes Fenster nach vorne
+    attach = False
+    if url:                                   # läuft schon: vorhandenes Fenster nach vorne holen …
         try:
             if _post(url, "api/focus").get("ok"):
                 return
         except Exception:  # noqa: BLE001
             pass
-        if not _edge_app(url):
-            webbrowser.open(url)
-        return
-    url = _start_server(port)
-    logbook.event("window_start", url=url)
+        attach = True                         # … oder (Server ohne Fenster) ein Fenster dafür öffnen
+    else:
+        url = _start_server(port)
+    logbook.event("window_start", url=url, attach=attach)
     try:
         import webview
     except Exception as e:  # noqa: BLE001
@@ -117,7 +117,7 @@ def run(port: int = 8765):
     STATE["window"] = w
 
     def on_closing():
-        j = server.JOBS.active()
+        j = None if attach else server.JOBS.active()
         if not j:
             return True
         ok = w.create_confirmation_dialog(
