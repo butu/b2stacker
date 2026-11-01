@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+/build/
+/dist/
+*.fits
+*.fit
+*.xisf
+!tests/fixtures/*.fits
