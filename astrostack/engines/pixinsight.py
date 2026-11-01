@@ -22,7 +22,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from .. import stackqa, steps, system
+from .. import logbook, stackqa, steps, system
 from ..fitsmeta import BIAS, DARK, FLAT
 
 IMAGE_EXT = (".fits", ".fit", ".fts", ".xisf")
@@ -262,6 +262,66 @@ def wbpp_items(plan: dict, run: dict, outdir: str, reference: str | None, calib:
     return items
 
 
+# ---------------------------------------------------------------- Flats je Nachtgruppe (Grouping Keyword)
+
+GROUP_KEYWORD = "ASFLAT"
+
+
+def _is_link(p: str) -> bool:
+    if os.path.islink(p):
+        return True
+    isj = getattr(os.path, "isjunction", None)
+    if isj and isj(p):
+        return True
+    if sys.platform == "win32":
+        try:
+            return bool(os.lstat(p).st_file_attributes & 0x400)       # FILE_ATTRIBUTE_REPARSE_POINT
+        except (OSError, AttributeError):
+            return False
+    return False
+
+
+def link_dir(target: str, link: str):
+    """Verzeichnis-Verknüpfung ohne Kopie: Windows-Junction (keine Adminrechte nötig), sonst Symlink."""
+    os.makedirs(os.path.dirname(link), exist_ok=True)
+    if sys.platform == "win32":
+        import _winapi
+        _winapi.CreateJunction(os.path.abspath(target), os.path.abspath(link))
+    else:
+        os.symlink(os.path.abspath(target), link, target_is_directory=True)
+
+
+def remove_link_tree(root: str):
+    """Ordnerbaum mit Verknüpfungen entfernen, OHNE je in die Ziele hineinzulöschen (Originaldaten!)."""
+    if not os.path.isdir(root) and not _is_link(root):
+        return
+    for dirpath, dirnames, filenames in os.walk(root, topdown=True, followlinks=False):
+        for d in list(dirnames):
+            p = os.path.join(dirpath, d)
+            if _is_link(p):
+                (os.rmdir if sys.platform == "win32" else os.unlink)(p)
+                dirnames.remove(d)
+    for dirpath, dirnames, filenames in os.walk(root, topdown=False, followlinks=False):
+        for f in filenames:                      # sollte leer sein – nur eigene Dateien
+            os.unlink(os.path.join(dirpath, f))
+        os.rmdir(dirpath)
+
+
+def build_group_links(groups: list[dict], base: str, fix=lambda paths: paths) -> tuple[list[str], list[str]]:
+    """Lights/Flats je Gruppe über …/ASFLAT_<n>/L<i>/datei erreichbar machen. → (lights, flats) neue Pfade."""
+    lights, flats = [], []
+    for g in groups:
+        gdir = os.path.join(base, "%s_%s" % (GROUP_KEYWORD, g["key"]))
+        for kind, paths, out in (("L", g["lights"], lights), ("F", fix(g["flats"]), flats)):
+            dirs = sorted({os.path.dirname(os.path.abspath(p)) for p in paths})
+            for i, d in enumerate(dirs):
+                link = os.path.join(gdir, "%s%d" % (kind, i))
+                if not os.path.exists(link):
+                    link_dir(d, link)
+                out += [os.path.join(link, os.path.basename(p)) for p in paths if os.path.dirname(os.path.abspath(p)) == d]
+    return lights, flats
+
+
 def stage_lights(paths: list[str], dst: str, log) -> list[str]:
     """Bei sehr vielen Einzeldateien: Lights in einen Ordner verlinken (Hardlink) bzw. kopieren."""
     os.makedirs(dst, exist_ok=True)
@@ -314,6 +374,14 @@ def run_plan(plan: dict, settings, log=print, on_status=None, cancel: threading.
             on_status(st)
 
     json.dump(plan, open(os.path.join(jobdir, "plan.json"), "w", encoding="utf-8"), indent=2, ensure_ascii=False)
+    logbook.setup(settings.workdir)
+    project_name = os.path.basename(pdir)
+    t_job = time.time()
+    logbook.event("stack_start", project=project_name, run_id=stamp, jobdir=jobdir,
+                  runs=[dict(name=r["name"], mode=r["mode"], lights=r["lightCount"], hours=r.get("hours"), flats=len(r["flats"]),
+                             bias=len(r["bias"]), darks=len(r["darks"]), reference=r.get("reference"),
+                             flat_groups=len(r.get("flat_groups") or []) or None, calib_manual=r.get("calib_manual"))
+                        for r in plan["runs"] if r.get("enabled", True)], options=plan.get("options"))
     masters: dict[str, str] = {}
     keep = system.KeepAwake() if settings.keep_awake else None
     try:
@@ -345,10 +413,18 @@ def run_plan(plan: dict, settings, log=print, on_status=None, cancel: threading.
     except StackError as e:
         st.state, st.error = "failed", str(e)
         _log("FEHLER: " + str(e))
+        logbook.event("error", project=project_name, run_id=stamp, run=st.run, step=st.step, message=str(e))
     except Exception as e:  # noqa: BLE001 – alles melden statt still sterben
         st.state, st.error = "failed", "%s: %s" % (type(e).__name__, e)
         _log("FEHLER: %s: %s" % (type(e).__name__, e))
+        logbook.error("Stacking-Fehler", project=project_name, run_id=stamp, run=st.run, step=st.step)
     finally:
+        try:
+            remove_link_tree(os.path.join(jobdir, "_grp"))       # nur Verknüpfungen, nie Originale
+        except OSError as e:
+            _log("Hinweis: Verknüpfungen nicht entfernt (%s)" % e)
+        logbook.event("stack_end", project=project_name, run_id=stamp, state=st.state, error=st.error or None,
+                      duration_s=round(time.time() - t_job, 1), finals=[os.path.basename(f) for f in st.finals])
         if keep:
             keep.__exit__(None, None, None)
         st.finished = datetime.datetime.now().isoformat(timespec="seconds")
@@ -406,6 +482,20 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     if not calib["flats"]:
         log("  WARNUNG: keine Flats – Vignettierung und Staub bleiben im Bild.")
     script = settings.wbpp_script
+    fg = [g for g in (run.get("flat_groups") or []) if g.get("lights")]
+    linkbase = os.path.join(jobdir, "_grp", safe_file(name))
+    if len(fg) > 1:
+        log("  Kamera-Stellung wechselt zwischen den Nächten → %d Gruppen mit eigenen Flats:" % len(fg))
+        for g in fg:
+            log("    Gruppe %s: Nächte %s · Flats %s (%d)" % (g["key"], ", ".join(g["nights"]), g.get("flat_set") or "keine",
+                                                          len(g["flats"])))
+        lights_l, flats_l = build_group_links(fg, linkbase, lambda p: fix_calibration(p, FLAT, cache))
+        run = dict(run, lights=lights_l)
+        calib["flats"] = flats_l
+        run.setdefault("wbpp", {})
+        run["wbpp"] = dict(run["wbpp"], groupingKeywordsEnabled="true", keywords="%s pre" % GROUP_KEYWORD)
+        logbook.event("flat_groups", run=name, groups=[dict(key=g["key"], nights=g["nights"], flats=len(g["flats"]),
+                                                             flat_set=g.get("flat_set")) for g in fg])
     items = wbpp_items(plan, run, outdir, ref, calib)
     if len(",".join(items)) > MAX_CMDLINE:
         log("  Sehr viele Einzeldateien – verlinke Lights in einen Arbeitsordner …")
@@ -436,6 +526,9 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
             runner.kill()
             raise Cancelled("abgebrochen")
     _finish_step(st, settings.workdir, n)
+    logbook.event("pixinsight_exit", run=name, code=code, code_hex="0x%08X" % (code & 0xFFFFFFFF) if code else "0",
+                  duration_s=round(time.time() - t0, 1), command=cmd[:3000], wbpp_logs=os.path.join(outdir, "logs"),
+                  master=find_master(outdir))
     master = find_master(outdir)
     if not master:
         raise StackError("%s Kein Master entstanden – Details in %s" % (
@@ -458,6 +551,9 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     st.steps_done.append("quality")
     finals = [o["file"] for o in outputs]
     st.finals += finals
+    logbook.event("stack_run", project=os.path.basename(plan["workdir"]), run=name, lights=n, hours=run.get("hours"),
+                  minutes=round((time.time() - t0) / 60, 1),
+                  outputs=[dict(name=o["name"], file=os.path.basename(o["file"]), kpi=o["kpi"]) for o in outputs])
     st.runs[name] = dict(master=master, finals=finals, outputs=outputs, minutes=round((time.time() - t0) / 60, 1),
                          lights=n, hours=run.get("hours"), nights=run.get("nights"), filter=run.get("filter"),
                          mode=run.get("mode"), flats=len(run.get("flats", [])), bias=len(run.get("bias", [])),
@@ -469,6 +565,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
                 shutil.rmtree(full, ignore_errors=True)
         shutil.rmtree(os.path.join(jobdir, "_lights", safe_file(name)), ignore_errors=True)
         log("  Zwischendateien gelöscht")
+    remove_link_tree(os.path.join(jobdir, "_grp", safe_file(name)))
     save()
     return master
 
@@ -483,8 +580,11 @@ def _set_step(st: Status, key: str, done: int, total: int):
 def _finish_step(st: Status, workdir: str, n: int):
     if st.step and st.step not in st.steps_done:
         st.steps_done.append(st.step)
-        if st.step_started and st.step != "check":
-            steps.learn_timing(workdir, st.step, time.time() - st.step_started, n)
+        if st.step_started:
+            dur = time.time() - st.step_started
+            if st.step != "check":
+                steps.learn_timing(workdir, st.step, dur, n)
+            logbook.event("stack_step", run=st.run, step=st.step, duration_s=round(dur, 1), frames=n)
 
 
 def _eta(st: Status, n: int, timing: dict) -> float | None:

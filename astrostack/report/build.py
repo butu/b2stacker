@@ -14,7 +14,8 @@ from PIL import Image
 
 from .. import fitsmeta as fm
 from ..analyze import thumb_name
-from ..calibcheck import public
+from ..calibcheck import match_calibration, public
+from .. import discover, rotation
 from ..plan import build_plan
 from . import assess as A
 from .diag import rig_diagnostics
@@ -81,6 +82,38 @@ def calib_checks(matches: list[dict]) -> list[dict]:
     return res
 
 
+def night_flat_groups(groups, rows, inv, calib: dict, analysis_dir: str) -> dict:
+    """Je Light-Gruppe: Nächte nach Kamera-Stellung gruppieren und je Gruppe Flats zuordnen.
+    → {(filter, settings): [dict(key, nights, angle, source, match)]} – nur Einträge mit Drehungs-Info."""
+    out = {}
+    for g in groups:
+        used = [f for f in g.frames if not f.excluded]
+        nights = sorted({f.night for f in used if f.night})
+        if not nights:
+            continue
+        hdr = {}
+        for n in nights:
+            vals = [f.rotator for f in used if f.night == n and f.rotator is not None]
+            hdr[n] = float(np.median(vals)) if vals else None
+        grows = [r for r in rows if r.get("filter") == g.filter]
+        try:
+            meas = rotation.night_rotations(grows, analysis_dir, thumb_name) if len(nights) > 1 else {}
+        except Exception:  # noqa: BLE001
+            meas = {}
+        ng = rotation.group_nights(nights, hdr, meas)
+        info = dict(header=hdr, measured=meas)
+        entry = []
+        for grp in ng:
+            sub = discover.LightGroup(g.target, g.filter, g.filter_kind, g.is_osc, g.settings,
+                                      [f for f in g.frames if f.night in grp["nights"]])
+            fake = type("Inv", (), {})()
+            fake.lights, fake.calib = [sub], inv.calib
+            m = match_calibration(fake, calib.get("flat_checks", {}))
+            entry.append(dict(grp, match=m[0] if m else None))
+        out[(g.filter, tuple(g.settings))] = dict(groups=entry, info=info)
+    return out
+
+
 def build(target: str, groups, inv, calib: dict, analysis_dir: str, workdir: str, out_html: str) -> dict:
     rows = A.load_rows(os.path.join(analysis_dir, "metrics.csv"))
     pdir = os.path.dirname(out_html)
@@ -90,7 +123,8 @@ def build(target: str, groups, inv, calib: dict, analysis_dir: str, workdir: str
     rec = A.recommendations(rows, ntab, filters)
     matches = [m for m in calib["matches"] if m["group"]["target"] == target]
     checks = calib_checks(matches)
-    plan = build_plan(target, groups, rows, ntab, matches, workdir)
+    flat_groups = night_flat_groups(groups, rows, inv, calib, analysis_dir)
+    plan = build_plan(target, groups, rows, ntab, matches, workdir, flat_groups=flat_groups)
     scale = st.median([r["pixscale"] for r in rows if r["pixscale"]]) if any(r["pixscale"] for r in rows) else None
     try:
         diag = rig_diagnostics(rows, scale, analysis_dir)

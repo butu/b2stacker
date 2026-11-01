@@ -23,7 +23,9 @@ Beim ersten Start: in den Einstellungen das **Arbeitsverzeichnis** wählen
 
 ## Ablauf
 
-1. **Neue Analyse** – einen oder mehrere Ordner wählen (NINA, ASIAIR, Ekos, SharpCap, APT …).
+Die Startseite zeigt alle Projekte als Kacheln mit Vorschau des neuesten Stacks (Suche und Sortierung links).
+
+1. **Neues Projekt** – einen oder mehrere Ordner wählen (NINA, ASIAIR, Ekos, SharpCap, APT …).
    Lights, Flats, Bias und Darks werden anhand der FITS-Header gefunden, egal wie die Ordner heißen.
    Ordner mit `_rejected`, `_verworfen`, `_alt` im Namen gelten als aussortiert.
 2. **Bericht** – jeder Frame wird vermessen (FWHM, Exzentrizität, Sterne, Hintergrund, Rauschen,
@@ -40,7 +42,17 @@ Beim ersten Start: in den Einstellungen das **Arbeitsverzeichnis** wählen
 6. **Ergebnisse** – in `<Arbeitsverzeichnis>/projects/<Ziel>/final/` als `Ziel_Filter_Datum_Stunden.xisf`.
    Jeder Stack bekommt Qualitätskennzahlen (Rauschen, Schärfe, Sterne, Sternform, Farbversatz, Verlauf) und
    eine Vorschau. Die **Übersicht** zeigt alle Stacks eines Projekts und ihren Verlauf als Diagramm.
-7. **Bearbeitung** – Checkliste mit der empfohlenen Reihenfolge in PixInsight (DBE, SPCC, BXT, NXT …).
+7. **Spickzettel Bearbeitung** – empfohlene Reihenfolge in PixInsight (DBE, SPCC, BXT, NXT …) mit Begründung.
+
+Flats/Bias/Darks lassen sich im Plan selbst wählen (auch eigene Ordner). Wurde die Kamera zwischen Nächten
+gedreht, bekommt jede Nachtgruppe automatisch ihre eigenen Flats.
+
+## Protokoll (Fehlersuche, auch für KI-Agenten)
+
+Alles Wichtige wird im Hintergrund mitgeschrieben: `<Arbeitsverzeichnis>/logs/` – `events-JJJJ-MM.jsonl`
+(ein Ereignis pro Zeile: Analyse, Stacking-Schritte mit Dauer, PixInsight-Exit-Codes, Fehler mit Traceback) und
+`b2stacker.log`. Je Stacking-Lauf zusätzlich `projects/<Ziel>/runs/<Zeit>/` mit exaktem PixInsight-Aufruf und den
+WBPP-Protokollen. Schnellzugriff: `astrostack logs --kind error --trace`.
 
 Projekte lassen sich umbenennen, beschreiben und jederzeit (auch nach Monaten, mit neuer Programmversion)
 neu analysieren und erneut stacken.
@@ -59,6 +71,7 @@ Alle Befehle antworten mit `--json` maschinenlesbar.
 | `astrostack override <projekt> in\|out\|auto <datei…>` | Frames manuell aufnehmen/ausschließen |
 | `astrostack stack <projekt> [--only Lauf]` | mit PixInsight stacken |
 | `astrostack status` | letzte Aufträge und Läufe |
+| `astrostack logs [--kind error] [--project X] [--trace]` | Protokoll-Ereignisse |
 | `astrostack settings [--set schluessel=wert]` | Einstellungen |
 
 ## Entwicklung

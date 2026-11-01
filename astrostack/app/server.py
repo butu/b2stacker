@@ -17,7 +17,7 @@ import webbrowser
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from .. import __version__, checklist, project, stackqa, steps, system
+from .. import __version__, checklist, logbook, project, stackqa, steps, system
 from ..engines import pixinsight as pi
 from ..jobs import JobManager
 from ..settings import Settings
@@ -101,6 +101,8 @@ def save_settings(data: dict) -> dict:
         if s.workdir:
             os.makedirs(s.workdir, exist_ok=True)
         s.save()
+    logbook.setup(s.workdir)
+    logbook.event("settings", changed={k: v for k, v in data.items()}, workdir=s.workdir)
     st = state()
     if old_workdir and os.path.abspath(old_workdir) != os.path.abspath(s.workdir):
         st["move_offer"] = dict(old=old_workdir, projects=project.foreign_projects(old_workdir, s.workdir))
@@ -191,7 +193,7 @@ def start_stack(name: str) -> dict:
                              run_steps=x.run_steps, steps_done=x.steps_done, done=x.done, total=x.total,
                              eta_s=x.eta_s, message=x.message))
         return st.as_dict()
-    job = JOBS.submit("stack", "Stacking " + plan["target"], s.workdir, fn)
+    job = JOBS.submit("stack", "Stacking " + plan["target"], s.workdir, fn, project=name)
     return job.as_dict()
 
 
@@ -207,6 +209,7 @@ def project_detail(name: str) -> dict:
                 o["preview_url"] = "/api/stack-preview/%s?file=%s" % (
                     urllib.parse.quote(name), urllib.parse.quote(os.path.relpath(o["preview"], pdir).replace("\\", "/")))
     return dict(name=name, meta=project.meta(pdir), plan=plan, sources=project.sources(pdir),
+                facts=project.project_facts(pdir, plan, hist),
                 overrides=project._read(os.path.join(pdir, "overrides.json"), {}), stacks=hist,
                 checklist=checklist.items(outs), pdir=pdir)
 
@@ -242,7 +245,7 @@ def start_requality(name: str, stack_id: str) -> dict:
             project.update_stack_output(pdir, stack_id, i, kpi=k, preview=pv)
             job.write("%s: Rauschen %.2f ADU, %d Sterne" % (os.path.basename(o["file"]), k["noise"], k["stars"]))
         return {"ok": True}
-    return JOBS.submit("quality", "Kennzahlen " + rec.get("run", ""), s.workdir, fn).as_dict()
+    return JOBS.submit("quality", "Kennzahlen " + rec.get("run", ""), s.workdir, fn, project=name).as_dict()
 
 
 def open_path(path: str):
@@ -333,6 +336,12 @@ class Handler(BaseHTTPRequestHandler):
                 if not f.startswith(os.path.join(pdir, "stacks")) or not f.lower().endswith(".jpg"):
                     return self._json({"error": "verboten"}, 403)
                 return self._file(f, "image/jpeg")
+            if parts[:2] == ["api", "project-thumb"] and len(parts) == 3:
+                pdir = project.pdir_of(settings(), parts[2])
+                t = project.thumbnail(pdir)
+                if not t:
+                    return self._json({"error": "kein Bild"}, 404)
+                return self._file(t, "image/jpeg")
             if parts == ["static", "chart.js"]:
                 return self._file(os.path.join(os.path.dirname(HERE), "report", "vendor", "chart.umd.js"), "text/javascript; charset=utf-8")
             if parts[0] == "p" and len(parts) == 3 and parts[2] == "report.html":
@@ -341,6 +350,7 @@ class Handler(BaseHTTPRequestHandler):
         except FileNotFoundError as e:
             return self._json({"error": str(e)}, 404)
         except Exception as e:  # noqa: BLE001
+            logbook.error("HTTP %s %s" % (self.command, self.path), kind_detail="http_error")
             return self._json({"error": "%s: %s" % (type(e).__name__, e), "trace": traceback.format_exc()[-800:]}, 500)
 
     def do_POST(self):
@@ -366,6 +376,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": True})
             if parts == ["api", "move-projects"]:
                 moved = project.move_projects(b["old"], settings().workdir, b.get("projects", []))
+                logbook.event("move_projects", old=b["old"], new=settings().workdir, moved=moved)
                 return self._json({"moved": moved})
             if parts == ["api", "open-pixinsight"]:
                 open_in_pixinsight(b["paths"])
@@ -374,6 +385,8 @@ class Handler(BaseHTTPRequestHandler):
                 name, action = parts[2], parts[3]
                 pdir = project.pdir_of(settings(), name)
                 if action == "plan":
+                    if any("calib" in (v or {}) for v in (b.get("runs") or {}).values()):
+                        logbook.event("calib_choice", project=name, change=b.get("runs"))
                     return self._json(project.save_edits(pdir, b))
                 if action == "override":
                     return self._json(project.set_override(pdir, b["path"], b.get("value")))
@@ -401,10 +414,15 @@ class Handler(BaseHTTPRequestHandler):
         except FileNotFoundError as e:
             return self._json({"error": "nicht gefunden: %s" % e}, 404)
         except Exception as e:  # noqa: BLE001
+            logbook.error("HTTP %s %s" % (self.command, self.path), kind_detail="http_error")
             return self._json({"error": "%s: %s" % (type(e).__name__, e), "trace": traceback.format_exc()[-800:]}, 500)
 
 
 def serve(port: int = 8765, open_browser: bool = True) -> ThreadingHTTPServer:
+    s = settings()
+    logbook.setup(s.workdir)
+    logbook.event("app_start", workdir=s.workdir, pixinsight=s.pixinsight, pixinsight_ok=os.path.exists(s.pixinsight),
+                  frozen=bool(getattr(sys, "frozen", False)), python=sys.version.split()[0], platform=sys.platform)
     for p in range(port, port + 20):
         try:
             httpd = ThreadingHTTPServer(("127.0.0.1", p), Handler)

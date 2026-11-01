@@ -18,7 +18,7 @@ def _med(vals):
 
 
 def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: str = "pixinsight",
-               low_alt: float = 30.0) -> dict:
+               low_alt: float = 30.0, flat_groups: dict | None = None) -> dict:
     """groups: LightGroups des Ziels; rows: bewertete Frames; matches: calibcheck.match_calibration-Ergebnis."""
     status = {r["path"]: r["status"] for r in rows}
     runs, settings = [], []
@@ -62,7 +62,7 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
         elif first_debayer:
             ref = "master:" + first_debayer
         name = (g.filter or "L").replace("/", "_")
-        runs.append(dict(
+        runs.append(_merge_flat_groups(dict(
             name=name, filter=g.filter, filter_kind=g.filter_kind, mode=proc.mode, outputs=list(proc.outputs),
             channel_map=proc.channel_map, engine="pixinsight-wbpp", enabled=True,
             reference=ref, lightCount=len(frames), nights=sorted({f.night for f in frames if f.night}),
@@ -74,13 +74,14 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
             settings_key=list(g.settings),
             calib_choices={k: _choices((m or {}).get(k, []), k) for k in ("flats", "bias", "darks", "darkflats")},
             darkflat_set=dflat and dflat["set"]["folder"],
+            **_flat_group_fields(flat_groups, g, frames, flat),
             lights=[f.path for f in frames],
             flats=[x.path for x in _frames_of(flat)] if flat else [],
             flat_set=flat and flat["set"]["folder"], flat_ok=bool(flat and (not flat.get("check") or flat["check"]["verdict"] != "critical")),
             bias=[x.path for x in _frames_of(bias)] if bias else [],
             darkflats=[x.path for x in _frames_of(dflat)] if dflat else [],
             darks=[x.path for x in _frames_of(dark)] if dark else [],
-            gb=round(disk, 1), ram_gb=round(ram, 1), why=why))
+            gb=round(disk, 1), ram_gb=round(ram, 1), why=why)))
     nn = len({n["night"] for n in ntab})
     moon_n = sum(1 for n in ntab if n["moon"])
     any_run = runs[0] if runs else None
@@ -121,6 +122,52 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
                      weighting="psf_signal", rejection="auto", large_scale_rejection=True, distortion_correction=True,
                      cleanup=True))
     return plan
+
+
+def _merge_flat_groups(run: dict) -> dict:
+    fg = run.get("flat_groups")
+    if fg and len(fg) > 1:
+        allf = []
+        for x in fg:
+            allf += [p for p in x["flats"] if p not in allf]
+        run["flats"] = allf
+        run["flat_set"] = " + ".join(sorted({x["flat_set"] for x in fg if x["flat_set"]})) or None
+        run["flat_ok"] = all(x["flat_ok"] for x in fg)
+        run["why"] += " Die Kamera wurde zwischen den Nächten gedreht: %d Nachtgruppen mit eigenen Flats." % len(fg)
+    return run
+
+
+def _flat_group_fields(flat_groups, g, frames, flat) -> dict:
+    """Drehungs-Info je Nacht und – falls nötig – eigene Flats je Nachtgruppe."""
+    fg = (flat_groups or {}).get((g.filter, tuple(g.settings)))
+    if not fg:
+        return {}
+    used_nights = {f.night for f in frames}
+    groups = [x for x in fg["groups"] if set(x["nights"]) & used_nights]
+    rot = dict(per_night={n: dict(rotator=fg["info"]["header"].get(n),
+                                  sky=(fg["info"]["measured"].get(n) or {}).get("angle"),
+                                  conf=(fg["info"]["measured"].get(n) or {}).get("conf"))
+                          for n in sorted(used_nights)},
+               groups=len(groups), source=groups[0]["source"] if groups else None)
+    out = dict(rotation=rot)
+    if len(groups) < 2:
+        return out
+    lst, notes = [], []
+    for x in groups:
+        m = x.get("match") or {}
+        best = next((c for c in m.get("flats", []) if c["usable"]), None)
+        gl = [f.path for f in frames if f.night in x["nights"]]
+        lst.append(dict(key=x["key"], nights=x["nights"], angle=x["angle"], source=x["source"], lights=gl,
+                        flats=[f.path for f in best.get("_frames", [])] if best else [],
+                        flat_set=best and best["set"]["folder"], flat_session=best and best["set"].get("session"),
+                        flat_sky=bool(best and best["set"].get("sky")), flat_reasons=best["reasons"] if best else [],
+                        flat_ok=bool(best and (best.get("check") or {}).get("verdict") != "critical")))
+    ids = {x["flat_set"] + "|" + str(x["flat_session"]) for x in lst if x["flat_set"]}
+    if len(ids) < len(lst):
+        notes.append("Die Kamera stand in %d Stellungen, aber es gibt nicht für jede eigene Flats – "
+                     "für manche Nächte passen Staub und Vignettierung nicht genau." % len(lst))
+    out.update(flat_groups=lst, flat_group_notes=notes)
+    return out
 
 
 CHOICE_MAX = 15

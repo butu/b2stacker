@@ -11,6 +11,8 @@ import threading
 import traceback
 import uuid
 
+from . import logbook
+
 
 class Job:
     def __init__(self, kind: str, title: str, workdir: str):
@@ -28,6 +30,7 @@ class Job:
         self._lock = threading.Lock()
 
     def write(self, msg: str):
+        logbook.text("[%s] %s" % (self.id, msg))
         with self._lock:
             self.log.append("%s  %s" % (datetime.datetime.now().strftime("%H:%M:%S"), msg))
             if len(self.log) > 2000:
@@ -79,16 +82,20 @@ class JobManager:
     def get(self, jid: str) -> Job | None:
         return next((j for j in self.jobs if j.id == jid), None)
 
-    def submit(self, kind: str, title: str, workdir: str, fn) -> Job:
+    def submit(self, kind: str, title: str, workdir: str, fn, project: str | None = None) -> Job:
         """fn(job) läuft im Hintergrund; Rückgabewert wird job.result."""
         with self._lock:
             if self.active():
                 raise RuntimeError("Es läuft bereits ein Auftrag: " + self.active().title)
             job = Job(kind, title, workdir)
+            job.project = project
             self.jobs.append(job)
         def _run():
+            import time
+            t0 = time.time()
             job.state = "running"
             job.save()
+            logbook.event("job_start", job=job.id, job_kind=kind, title=title, project=getattr(job, "project", None))
             try:
                 job.result = fn(job)
                 if job.cancel.is_set():
@@ -100,9 +107,12 @@ class JobManager:
                     job.state = "done"
             except Exception as e:  # noqa: BLE001
                 job.state, job.error = "failed", "%s: %s" % (type(e).__name__, e)
+                logbook.error("Auftrag fehlgeschlagen: %s" % title, job=job.id, project=getattr(job, "project", None))
                 job.write("FEHLER: " + job.error)
                 job.write(traceback.format_exc()[-1500:])
             job.finished = datetime.datetime.now().isoformat(timespec="seconds")
             job.save()
+            logbook.event("job_end", job=job.id, job_kind=kind, title=title, project=getattr(job, "project", None),
+                          state=job.state, error=job.error or None, duration_s=round(time.time() - t0, 1))
         threading.Thread(target=_run, daemon=True, name="job-" + job.id).start()
         return job

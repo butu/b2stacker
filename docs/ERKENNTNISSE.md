@@ -77,3 +77,12 @@
 - **Kameranamen unterscheiden sich je nach Treiber** (z. B. `ATR3CMOS26000KPA` nativ 2024 vs. `ATR2600C(USB2.0)`,
   `ZWO CCD ASI2600MC Pro` vs. `ZWO ASI2600MC Pro`). Namen werden normalisiert; ein abweichender Name bei gleicher
   Sensorgröße, Gain, Offset, Auslesemodus und Binning ist nur ein Hinweis, kein Ausschluss (vdB 15, 01.11.).
+- **Flats je Nachtgruppe**: Wird die Kamera zwischen Nächten gedreht (Rotator, auch manuell), passen Flats nur zur
+  jeweiligen Stellung. Stellung je Nacht aus `ROTATOR` im Header, sonst aus dem Sternfeld gemessen (Paar-Vektoren,
+  modulo 180° wegen Meridian-Flip). Ab 2° Unterschied eigene Gruppe mit eigenen Flats.
+  WBPP-Umsetzung im Automationsmodus: `groupingKeywordsEnabled=true`, `keywords=ASFLAT pre`; der Schlüsselwert kommt
+  aus dem Pfad (`…/ASFLAT_1/…`) – Lights und Flats werden dafür über Verzeichnis-Verknüpfungen (Windows-Junctions,
+  keine Kopien) eingebunden. Bias/Darks ohne Schlüssel gelten für alle Gruppen (WBPP: Kalibrier-Gruppen ohne
+  Schlüssel passen zu jedem Wert). Aufräumen entfernt nur die Verknüpfungen, nie die Ziele.
+- **Protokoll für Agenten**: `<Arbeitsverzeichnis>/logs/events-JJJJ-MM.jsonl` (+ `b2stacker.log`, README dort).
+  `astrostack logs --kind error --trace` zeigt die letzten Fehler.

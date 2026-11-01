@@ -145,6 +145,19 @@ def cmd_override(args, s: Settings):
     _out(args, ov, lambda d: print("%d manuelle Entscheidungen. Danach: astrostack report … (Plan neu berechnen)" % len(d)))
 
 
+def cmd_logs(args, s: Settings):
+    from . import logbook
+    ev = logbook.read_events(s.workdir, args.last, args.kind, args.project)
+
+    def text(d):
+        for e in d:
+            extra = {k: v for k, v in e.items() if k not in ("ts", "v", "kind", "trace")}
+            print("%s  %-15s %s" % (e["ts"], e["kind"], json.dumps(extra, ensure_ascii=False, default=str)[:300]))
+            if e.get("trace") and args.trace:
+                print(e["trace"])
+    _out(args, ev, text)
+
+
 def cmd_settings(args, s: Settings):
     if args.set:
         for kv in args.set:
@@ -191,14 +204,22 @@ def main(argv=None):
     p = sub.add_parser("status", help="letzte Aufträge und Stacking-Läufe")
     p.add_argument("--last", type=int, default=5)
     p.add_argument("--tail", type=int, default=20)
+    p = sub.add_parser("logs", help="Protokoll: letzte Ereignisse (für Fehlersuche)")
+    p.add_argument("--last", type=int, default=40)
+    p.add_argument("--kind", help="z. B. error, job_end, stack_step, analysis")
+    p.add_argument("--project")
+    p.add_argument("--trace", action="store_true", help="Tracebacks mit ausgeben")
     p = sub.add_parser("settings", help="Einstellungen anzeigen/ändern")
     p.add_argument("--set", nargs="*", help="schluessel=wert")
     args = ap.parse_args(argv)
     if not args.cmd:                       # Doppelklick / ohne Befehl → Oberfläche
         args = ap.parse_args(["gui"] + (["--json"] if args.json else []))
     s = Settings.load()
+    if args.cmd not in ("settings",):
+        from . import logbook
+        logbook.setup(s.workdir)
     {"scan": cmd_scan, "check-calib": cmd_check_calib, "report": cmd_report, "settings": cmd_settings, "gui": cmd_gui,
-     "plan": cmd_plan, "override": cmd_override, "stack": cmd_stack, "status": cmd_status}[args.cmd](args, s)
+     "plan": cmd_plan, "override": cmd_override, "stack": cmd_stack, "status": cmd_status, "logs": cmd_logs}[args.cmd](args, s)
 
 
 if __name__ == "__main__":

@@ -179,10 +179,38 @@ svg.i.tiny{width:12px;height:12px;opacity:.7}
 .copt input{margin-top:3px;accent-color:var(--accent)}
 .copt .r{font-size:12.5px;color:var(--text-muted)}
 .calres{border-radius:8px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);font-size:13px}
-/* Checkliste */
+/* Startseite / Kacheln */
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px;margin-top:18px}
+.tile{background:var(--surface-1);border:1px solid var(--line);border-radius:12px;overflow:hidden;cursor:pointer;text-align:left;padding:0;display:flex;flex-direction:column;transition:transform .12s,border-color .12s}
+.tile:hover{border-color:var(--accent);transform:translateY(-2px)}
+.tile .ph{aspect-ratio:3/2;background:#000 center/cover no-repeat;display:grid;place-items:center;color:var(--text-muted)}
+.tile .tx{padding:10px 12px 12px}
+.tile .tx b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .tx .m{font-size:12.5px;color:var(--text-muted);display:flex;gap:10px;flex-wrap:wrap;margin-top:2px}
+.tile.new{border-style:dashed;align-items:center;justify-content:center;min-height:200px;color:var(--accent);font-weight:600;gap:8px}
+.tile.new svg.i{width:34px;height:34px}
+.sidetools{display:flex;gap:6px;margin:4px 0 8px}
+.sidetools input{flex:1;min-width:0;padding:6px 9px;font-size:13px}
+.sidetools select{padding:6px;font-size:13px}
+/* Dashboard */
+.facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:12px}
+.fact{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;gap:10px;align-items:center}
+.fact .fi{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);flex:none}
+.fact .fv{font-size:20px;font-weight:700;line-height:1.15}
+.fact .fl{font-size:12px;color:var(--text-muted)}
+.fbars{display:grid;gap:6px;margin-top:12px}
+.fbar{display:grid;grid-template-columns:90px 1fr 120px;gap:10px;align-items:center;font-size:13px}
+.fbar .tr{height:10px;background:var(--surface-3);border-radius:6px;overflow:hidden;position:relative}
+.fbar .tr>div{position:absolute;top:0;bottom:0;left:0;border-radius:6px}
+.stiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;margin-top:12px}
+.stile{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
+.stile .ph{aspect-ratio:3/2;background:#000 center/cover no-repeat;cursor:zoom-in;position:relative}
+.stile .ph .tag{position:absolute;left:8px;top:8px;background:rgba(0,0,0,.65);color:#fff;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:600}
+.stile .tx{padding:10px 12px;font-size:13px;display:grid;gap:4px}
+.stile .acts{display:flex;gap:6px;padding:0 12px 12px;flex-wrap:wrap}
+/* Spickzettel */
 .cl{display:grid;gap:2px;margin-top:8px}
-.cli{display:grid;grid-template-columns:28px 1fr;gap:10px;padding:9px 6px;border-radius:8px;cursor:pointer;align-items:start}
-.cli:hover{background:var(--surface-2)}
+.cli{display:grid;grid-template-columns:28px 1fr;gap:10px;padding:8px 6px;border-radius:8px;align-items:start}
 .cli input{width:18px;height:18px;margin-top:2px;accent-color:var(--good)}
 .cli.ok .t{text-decoration:line-through;color:var(--text-muted)}
 .cli .t{font-weight:600}
@@ -207,15 +235,17 @@ dialog img.full{width:100%;display:block;background:#000}
 </head>
 <body>
 <header>
-  <div class="logo" id="logo"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l2.5 2.5M16.5 16.5 19 19M5 19l2.5-2.5M16.5 7.5 19 5"/></svg>b2stacker</div>
+  <div class="logo" id="logo" style="cursor:pointer" onclick="go('home')"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l2.5 2.5M16.5 16.5 19 19M5 19l2.5-2.5M16.5 7.5 19 5"/></svg>b2stacker</div>
   <div class="chips" id="chips"></div>
   <button class="btn icon" id="themeBtn" title="Hell/Dunkel" aria-label="Hell/Dunkel umschalten"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
   <button class="btn" id="setBtn"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Einstellungen</button>
 </header>
 <div class="main">
   <aside>
-    <button class="btn primary" style="width:100%;justify-content:center" id="newBtn">＋ Neue Analyse</button>
+    <button class="btn primary" style="width:100%;justify-content:center" id="newBtn">＋ Neues Projekt</button>
     <h3>Projekte</h3>
+    <div class="sidetools"><input type="search" id="pSearch" placeholder="Suchen …" aria-label="Projekte durchsuchen">
+      <select id="pSort" aria-label="Sortierung"><option value="recent">Neueste</option><option value="name">Name</option></select></div>
     <div id="projList"></div>
   </aside>
   <section class="view"><div class="wrap" id="view"></div></section>
@@ -266,7 +296,7 @@ const ICONS={
 };
 const ic=(n,cls='')=>`<svg class="i ${cls}" viewBox="0 0 24 24">${ICONS[n]||ICONS.info}</svg>`;
 
-let S=null, STEPS=null, cur={view:'new',project:null,tab:'overview'}, P=null, dirty=false, folders=[''], lastJobState=null;
+let S=null, STEPS=null, cur={view:'home',project:null,tab:'overview'}, P=null, dirty=false, folders=[''], lastJobState=null;
 const ramHist=[];
 
 async function api(path,body){
@@ -328,31 +358,56 @@ function renderChips(){
   if(S.pixinsight_running&&S.pixinsight_running.length) c.push(`<span class="chip" title="Vor dem Stacken schließen"><span class="dot warning"></span>PixInsight offen (${S.pixinsight_running.length})</span>`);
   const ramPct=S.ram_total_gb?100*(1-S.ram_free_gb/S.ram_total_gb):0, ramLow=S.ram_free_gb!=null&&S.ram_free_gb<S.settings.min_free_ram_gb;
   c.push(`<span class="chip" title="Freier Arbeitsspeicher (Verlauf der letzten Minuten)">${ic('ram')}<b>${fmt(S.ram_free_gb,1)}</b> / ${fmt(S.ram_total_gb,0)} GB frei ${spark(ramHist,S.ram_total_gb)}<span class="dot ${ramLow?'warning':'good'}"></span></span>`);
-  const dPct=S.disk_total_gb?100*(1-S.disk_free_gb/S.disk_total_gb):null;
-  c.push(`<span class="chip" title="${esc(S.settings.workdir)}">${ic('disk')}<b>${fmt(S.disk_free_gb,0)}</b> GB frei ${dPct!=null?`<span class="minibar"><div style="width:${dPct}%;background:var(${dPct>90?'--critical':dPct>75?'--warning':'--good'})"></div></span>`:''}</span>`);
+  // Platz: Balken = freier Anteil; Farbe nach absolutem freiem Platz (ein Stack braucht je nach Menge 20–100 GB)
+  const fr=S.disk_free_gb, fPct=S.disk_total_gb?100*fr/S.disk_total_gb:null, dcol=fr==null?'--text-muted':fr<20?'--critical':fr<50?'--warning':'--good';
+  c.push(`<span class="chip" title="Arbeitsverzeichnis ${esc(S.settings.workdir)}: ${fmt(fr,0)} GB frei von ${fmt(S.disk_total_gb,0)} GB">${ic('disk')}<b>${fmt(fr,0)}</b> GB frei <span class="dot" style="background:var(${dcol})"></span></span>`);
   const j=S.job; if(j&&['queued','running'].includes(j.state)){const p=j.progress||{};
     c.push(`<span class="chip" style="cursor:pointer" onclick="go('job')">${ic('clock')}${esc(j.title)} · ${esc(p.stage||'…')}${p.eta_s!=null?' · noch ~'+dur(p.eta_s):''}</span>`);}
   $('#chips').innerHTML=c.join('');
 }
+let pFilter='', pSort=(()=>{try{return localStorage.getItem('as-sort')||'recent'}catch(e){return 'recent'}})();
+function sortedProjects(){
+  let L=[...S.projects];
+  if(pFilter){const q=pFilter.toLowerCase();L=L.filter(p=>(p.title+' '+p.target+' '+(p.description||'')+' '+(p.filters||[]).join(' ')).toLowerCase().includes(q));}
+  if(pSort==='name')L.sort((a,b)=>a.title.localeCompare(b.title,'de',{numeric:true}));else L.sort((a,b)=>b.updated-a.updated);
+  return L;
+}
 function renderProjects(){
-  const L=S.projects;
+  const L=sortedProjects();
   $('#projList').innerHTML=L.length?L.map(p=>`<button class="proj ${cur.project===p.name&&cur.view==='project'?'on':''}" data-n="${esc(p.name)}"><b>${esc(p.title)}</b>
-    <span>${p.stacks?`<span>${ic('layers')} ${p.stacks} Stack${p.stacks>1?'s':''}</span>`:'<span>noch nicht gestackt</span>'}${p.last_stack?`<span>${dshort(p.last_stack)}</span>`:''}</span></button>`).join(''):'<div class="muted small" style="padding:4px 8px">Noch keine. Starte mit „Neue Analyse“.</div>';
+    <span>${p.stacks?`<span>${ic('layers')} ${p.stacks} Stack${p.stacks>1?'s':''}</span>`:'<span>noch nicht gestackt</span>'}${p.last_stack?`<span>${dshort(p.last_stack)}</span>`:''}</span></button>`).join(''):`<div class="muted small" style="padding:4px 8px">${S.projects.length?'Nichts gefunden.':'Noch keine. Starte mit „Neues Projekt“.'}</div>`;
   document.querySelectorAll('.proj').forEach(b=>b.onclick=()=>openProject(b.dataset.n));
 }
 function go(v){cur.view=v;render();}
 function render(){
   renderProjects();
+  if(cur.view==='home')return renderHome();
   if(cur.view==='new')return renderNew();
   if(cur.view==='job')return renderJob();
   if(cur.view==='project')return renderProject();
 }
 
-// ---------- Neue Analyse
+// ---------- Startseite
+function renderHome(){
+  const L=sortedProjects();
+  $('#view').innerHTML=`<div class="row"><h1 class="grow">Projekte</h1><span class="muted small">${S.projects.length} Projekt${S.projects.length===1?'':'e'}</span></div>
+    <div class="tiles">
+      <button class="tile new" onclick="go('new')">${ic('folder')}<span>Neues Projekt</span><span class="muted small" style="font-weight:400">Ordner wählen, analysieren, stacken</span></button>
+      ${L.map(p=>`<button class="tile" data-n="${esc(p.name)}">
+        <div class="ph" style="background-image:url('/api/project-thumb/${encodeURIComponent(p.name)}?t=${Math.round(p.updated)}')"></div>
+        <div class="tx"><b title="${esc(p.title)}">${esc(p.title)}</b>
+          <div class="m"><span>${ic('clock','tiny')} ${p.last_stack?dshort(p.last_stack):p.last_night?dshort(p.last_night):'–'}</span>
+            <span>${ic('layers','tiny')} ${p.stacks} Stack${p.stacks===1?'':'s'}</span>${p.hours?`<span>${fmt(p.hours,1)} h</span>`:''}</div>
+          ${(p.filters||[]).length?`<div class="m">${p.filters.map(f=>`<span class="badge neutral">${esc(f)}</span>`).join('')}</div>`:''}</div></button>`).join('')}
+    </div>`;
+  document.querySelectorAll('.tile[data-n]').forEach(t=>t.onclick=()=>openProject(t.dataset.n));
+}
+
+// ---------- Neues Projekt
 function renderNew(){
   const rec=(S.settings.sources||[]).filter(x=>!folders.includes(x));
   $('#view').innerHTML=`
-  <h1>Neue Analyse</h1><div class="sub" style="margin-top:4px">Ordner wählen – das Programm findet Lights, Flats und Bias selbst, bewertet jedes Foto und schlägt Stacking-Einstellungen vor.</div>
+  <h1>Neues Projekt</h1><div class="sub" style="margin-top:4px">Ordner wählen – das Programm findet Lights, Flats und Bias selbst, bewertet jedes Foto und schlägt Stacking-Einstellungen vor. Gibt es das Objekt schon als Projekt, wird es aktualisiert.</div>
   <div class="card steps">
     <div class="step"><div class="num">1</div><div><h2>${ic('folder')} Wo liegen die Aufnahmen?</h2>
       <div class="muted small">Am besten den Hauptordner von NINA/ASIAIR – inklusive Flat- und Bias-Ordner. Mehrere Ordner möglich.</div>
@@ -421,6 +476,7 @@ function renderJob(){
 }
 function onJobFinished(j){
   if(j.state==='done'&&j.kind==='analyze'&&Array.isArray(j.result)&&j.result.length===1){dirty=false;openProject(j.result[0].project);toast('Analyse fertig');}
+  else if(j.state==='done'&&j.kind==='analyze'&&cur.view==='job'){toast('Analyse fertig');}
   else if(j.state==='done'&&j.kind==='stack'){toast('Stacking fertig');if(cur.project){cur.tab='overview';openProject(cur.project);}}
   else if(j.state==='done'&&j.kind==='quality'){if(cur.project)openProject(cur.project);}
   else if(j.state==='failed')toast(j.kind==='stack'?'Stacking fehlgeschlagen':'Auftrag fehlgeschlagen',true);
@@ -459,7 +515,7 @@ function renderProject(){
     <button data-t="overview" class="${cur.tab==='overview'?'on':''}">${ic('chart')} Übersicht &amp; Stacks</button>
     <button data-t="plan" class="${cur.tab==='plan'?'on':''}">${ic('sliders')} Stacking-Plan</button>
     <button data-t="report" class="${cur.tab==='report'?'on':''}">${ic('image')} Bericht &amp; Frames</button>
-    <button data-t="check" class="${cur.tab==='check'?'on':''}">${ic('list')} Bearbeitung</button>
+    <button data-t="check" class="${cur.tab==='check'?'on':''}">${ic('list')} Spickzettel Bearbeitung</button>
   </div>
   <div id="tabBody"></div>`;
   document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{cur.tab=b.dataset.t;renderTab();document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));});
@@ -499,43 +555,59 @@ const KPIS=[
 ];
 function outKey(s,o){return o.name}
 function renderOverview(b){
-  const H=P.stacks;
-  if(!H.length){b.innerHTML=`<div class="card empty">${ic('layers')}<div style="margin-top:6px">Noch kein Stack. Im Reiter <b>Stacking-Plan</b> auf „Los – stacken“ klicken.</div></div>`;return;}
-  // neuester Stack je Ausgabe + Vorgänger
+  const H=P.stacks, F=P.facts||{};
+  const fact=(icon,v,l,t)=>`<div class="fact" title="${esc(t||'')}"><div class="fi">${ic(icon)}</div><div><div class="fv">${v}</div><div class="fl">${l}</div></div></div>`;
+  const maxH=Math.max(1,...(F.filters||[]).map(f=>f.hours));
+  const pal=['--s1','--s2','--s3','--s4','--s5'];
+  let html=`<div class="card"><h2>${ic('gauge')} Auf einen Blick</h2>
+    <div class="facts">
+      ${fact('clock',fmt(F.hours_total,1)+' h','belichtet','Alle gefundenen Lights dieses Objekts')}
+      ${fact('star',`${F.lights_used??0}<span class="muted" style="font-size:14px;font-weight:500"> / ${F.lights_total??0}</span>`,'Lights genutzt','verwendet / gesamt – aussortierte Frames zählen nicht')}
+      ${fact('sun',F.nights??0,'Nächte',F.first_night?dshort(F.first_night)+' – '+dshort(F.last_night):'')}
+      ${fact('palette',(F.filters||[]).length,'Filter',(F.filters||[]).map(f=>f.name).join(', '))}
+      ${fact('layers',F.stacks??0,'Stacks',F.last_stack?'zuletzt '+dt(F.last_stack):'noch keiner')}
+      ${fact('image',H.reduce((a,s)=>a+s.outputs.filter(o=>o.exists).length,0),'Ergebnis-Dateien','im Ordner final')}
+    </div>
+    ${(F.filters||[]).length?`<div class="fbars">${F.filters.map((f,i)=>`<div class="fbar"><b>${esc(f.name)}</b>
+      <div class="tr" title="${fmt(f.used_hours,1)} h verwendet von ${fmt(f.hours,1)} h"><div style="width:${100*f.hours/maxH}%;background:var(${pal[i%5]});opacity:.35"></div><div style="width:${100*f.used_hours/maxH}%;background:var(${pal[i%5]})"></div></div>
+      <span class="muted small">${fmt(f.used_hours,1)} von ${fmt(f.hours,1)} h · ${f.used}/${f.lights}</span></div>`).join('')}
+      <div class="muted small">Kräftig = wird gestackt, blass = aussortiert oder nicht gewählt.</div></div>`:''}
+  </div>`;
+  if(!H.length){
+    b.innerHTML=html+`<div class="card empty">${ic('layers')}<div style="margin-top:6px">Noch kein Stack. Im Reiter <b>Stacking-Plan</b> auf „Los – stacken“ klicken.</div></div>`;return;}
+  // Stacks als Kacheln (neueste zuerst)
+  html+=`<div class="card"><h2>${ic('layers')} Stacks <span class="muted" style="font-weight:400">· ${H.length} · zusammen ${fmt(F.stacked_hours,1)} h</span></h2>
+    <div class="stiles">${[...H].reverse().flatMap(s=>s.outputs.map(o=>`<div class="stile">
+      <div class="ph" style="${o.preview_url?`background-image:url('${o.preview_url}')`:''}" ${o.preview_url?`onclick='showImg(${JSON.stringify(o.preview_url)},${JSON.stringify(o.name+' · '+dt(s.date))})'`:''}>
+        <span class="tag">${esc(o.name)}</span>${o.preview_url?'':'<div class="empty small">keine Vorschau</div>'}</div>
+      <div class="tx"><div><b>${dt(s.date)}</b>${s.legacy?' <span class="badge neutral">ältere Version</span>':''}</div>
+        <div class="muted">${fmt(s.hours,1)} h · ${s.lights??'?'} Lights · ${(s.nights||[]).length} Nächte${s.minutes?' · '+dur(s.minutes*60):''}</div>
+        ${o.kpi?`<div class="muted">σ ${fmt(o.kpi.noise,2)} · ${o.kpi.fwhm_as!=null?fmt(o.kpi.fwhm_as,2)+'"':fmt(o.kpi.fwhm_px,2)+' px'} · ${o.kpi.stars} ★ · Form ${fmt(o.kpi.ecc,2)}</div>`:''}
+        <div class="muted small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.file)}">${o.exists?'':'⚠ fehlt: '}${esc(o.file.split(/[\\/]/).pop())}</div></div>
+      <div class="acts">${o.exists?`<button class="btn sm" onclick='openPi([${JSON.stringify(o.file)}])'>${ic('pi')} PixInsight</button>
+        <button class="btn sm" onclick='openDir(${JSON.stringify(o.file.replace(/[\\/][^\\/]+$/,''))})'>${ic('folder')} Ordner</button>`:''}
+        ${o.exists&&!o.kpi?`<button class="btn sm" onclick="requality('${esc(s.id)}')">${ic('gauge')} messen</button>`:''}</div></div>`)).join('')}</div></div>`;
+  // Stand + Vergleich
   const byOut={};H.forEach(s=>s.outputs.forEach(o=>{(byOut[o.name]=byOut[o.name]||[]).push({s,o})}));
-  const names=Object.keys(byOut);
-  const latest=names.map(n=>{const l=byOut[n];return {name:n,cur:l[l.length-1],prev:l.length>1?l[l.length-2]:null,count:l.length}});
-  const totalH=H.reduce((a,s)=>a+(s.hours||0),0);
+  const latest=Object.keys(byOut).map(n=>{const l=byOut[n];return {name:n,cur:l[l.length-1],prev:l.length>1?l[l.length-2]:null,count:l.length}});
   const cols=KPIS.filter(([key])=>latest.some(L=>L.cur.o.kpi&&L.cur.o.kpi[key]!=null));
   const cell=(L,[key,l,u,d,dir])=>{const k=L.cur.o.kpi||{},pk=L.prev&&L.prev.o.kpi||{},v=k[key],pv=pk[key];
     let dl='';if(pv!=null&&v!=null&&pv!==0){const ch=(v-pv)/Math.abs(pv)*100,better=ch*dir>0;dl=Math.abs(ch)<1?'<div class="dlt flat">± 0 %</div>':`<div class="dlt ${better?'up':'down'}">${better?'▲':'▼'} ${fmt(Math.abs(ch),0)} %</div>`;}
     return `<td><b>${fmt(v,d)}</b> <span class="muted small">${u}</span>${dl}</td>`};
-  b.innerHTML=`
-  <div class="card"><h2>${ic('gauge')} Aktueller Stand</h2>
-    <div class="muted small">Neuester Stack je Ergebnis. Pfeil = Veränderung zum vorherigen Stack: <span class="dlt up">▲ grün = besser</span>, <span class="dlt down">▼ rot = schlechter</span>.</div>
-    <div style="overflow-x:auto"><table class="kt"><thead><tr><th>Ergebnis</th><th>Belichtung</th>${cols.map(([key,l,u,d,dir,h])=>`<th title="${esc(h)}">${esc(l)} ${ic('info','tiny')}</th>`).join('')}<th></th></tr></thead>
+  html+=`<div class="card"><h2>${ic('chart')} Qualität – neuester Stack je Ergebnis</h2>
+    <div class="muted small">Pfeil = Veränderung zum vorherigen Stack: <span class="dlt up">▲ grün = besser</span>, <span class="dlt down">▼ rot = schlechter</span>.</div>
+    <div style="overflow-x:auto"><table class="kt"><thead><tr><th>Ergebnis</th><th>Belichtung</th>${cols.map(([key,l,u,d,dir,h])=>`<th title="${esc(h)}">${esc(l)} ${ic('info','tiny')}</th>`).join('')}</tr></thead>
     <tbody>${latest.map(L=>`<tr><td><b>${esc(L.name)}</b><div class="muted small">${dshort(L.cur.s.date)} · Stack ${L.count}</div></td>
       <td><b>${fmt(L.cur.s.hours,1)}</b> <span class="muted small">h</span><div class="muted small">${L.cur.s.lights??'?'} Lights</div></td>
-      ${L.cur.o.kpi?cols.map(c=>cell(L,c)).join(''):`<td colspan="${cols.length}"><button class="btn primary sm" onclick="requality('${esc(L.cur.s.id)}')">${ic('gauge')} Kennzahlen jetzt messen</button> <span class="muted small">(älterer Stack)</span></td>`}
-      <td>${L.cur.o.exists?`<button class="btn sm" title="In PixInsight öffnen" onclick='openPi([${JSON.stringify(L.cur.o.file)}])'>${ic('pi')}</button>`:'<span class="badge warning">Datei fehlt</span>'}</td></tr>`).join('')}</tbody></table></div>
+      ${L.cur.o.kpi?cols.map(c=>cell(L,c)).join(''):`<td colspan="${cols.length}"><button class="btn primary sm" onclick="requality('${esc(L.cur.s.id)}')">${ic('gauge')} Kennzahlen jetzt messen</button></td>`}</tr>`).join('')}</tbody></table></div>
     <details style="margin-top:8px"><summary class="muted small" style="cursor:pointer">${ic('info')} Was bedeuten die Werte?</summary>
       <table class="why">${KPIS.map(([key,l,u,d,dir,h])=>`<tr><td>${esc(l)}</td><td>${dir<0?'kleiner = besser':'größer = besser'}</td><td>${esc(h)}</td></tr>`).join('')}</table></details>
   </div>
   <div class="card"><div class="row"><h2 class="grow" style="margin:0">${ic('chart')} Verlauf über alle Stacks</h2>
     <div class="seg" id="metricSeg">${[['noise','Rauschen'],['fwhm_as','Schärfe'],['stars','Sterne'],['hours','Stunden']].map(([k,l])=>`<button data-m="${k}" class="${(cur.metric||'noise')===k?'on':''}">${l}</button>`).join('')}</div></div>
     <div class="muted small" style="margin-top:4px" id="metricHelp"></div>
-    <div class="chartbox"><canvas id="histChart" role="img" aria-label="Verlauf der Stack-Qualität"></canvas></div></div>
-  <div class="card"><h2>${ic('layers')} Alle Stacks <span class="muted" style="font-weight:400">· ${H.length} · zusammen ${fmt(totalH,1)} h Belichtung</span></h2>
-    ${[...H].reverse().map(s=>`<div class="stk">
-      ${s.outputs[0]&&s.outputs[0].preview_url?`<img loading="lazy" src="${s.outputs[0].preview_url}" alt="" onclick='showImg(${JSON.stringify(s.outputs[0].preview_url)},${JSON.stringify(s.outputs[0].name+' · '+dshort(s.date))})'>`:`<div class="noimg">keine Vorschau</div>`}
-      <div><b>${esc(s.run)}</b> <span class="muted">${dt(s.date)}</span>${s.legacy?' <span class="badge neutral">ältere Version</span>':''}
-        <div class="kv"><span>${ic('clock')} <b>${fmt(s.hours,1)} h</b></span><span><b>${s.lights??'?'}</b> Lights</span><span><b>${(s.nights||[]).length}</b> Nächte</span>
-          <span>Flats <b>${s.flats??'–'}</b> · Bias <b>${s.bias??'–'}</b>${s.darks?` · Darks <b>${s.darks}</b>`:''}</span>${s.minutes?`<span>Dauer ${dur(s.minutes*60)}</span>`:''}</div>
-        <div class="kv">${s.outputs.map(o=>`<span>${o.exists?ic('check'):'⚠'} ${esc(o.file.split(/[\\/]/).pop())}${o.kpi?` <span class="muted">· σ ${fmt(o.kpi.noise,2)} · ${o.kpi.fwhm_as!=null?fmt(o.kpi.fwhm_as,2)+'"':fmt(o.kpi.fwhm_px,2)+' px'} · ${o.kpi.stars} ★</span>`:''}</span>`).join('')}</div></div>
-      <div class="row" style="flex-direction:column;align-items:stretch">${s.outputs.some(o=>o.exists)?`<button class="btn sm" onclick='openPi(${JSON.stringify(s.outputs.filter(o=>o.exists).map(o=>o.file))})'>${ic('pi')} PixInsight</button>
-        <button class="btn sm" onclick='openDir(${JSON.stringify(s.outputs[0].file.replace(/[\\/][^\\/]+$/,''))})'>${ic('folder')} Ordner</button>`:''}
-        ${s.outputs.some(o=>o.exists&&!o.kpi)?`<button class="btn sm" onclick="requality('${esc(s.id)}')">${ic('gauge')} messen</button>`:''}</div></div>`).join('')}
-  </div>`;
+    <div class="chartbox"><canvas id="histChart" role="img" aria-label="Verlauf der Stack-Qualität"></canvas></div></div>`;
+  b.innerHTML=html;
   document.querySelectorAll('#metricSeg button').forEach(x=>x.onclick=()=>{cur.metric=x.dataset.m;document.querySelectorAll('#metricSeg button').forEach(y=>y.classList.toggle('on',y===x));drawHistory();});
   drawHistory();
 }
@@ -576,8 +648,13 @@ function renderPlan(b){
         <div class="why">${esc(r.why)}</div>
         <div class="kv"><span>${ic('star')} <b>${r.lightCount}</b> Lights · <b>${fmt(r.hours,1)} h</b></span><span><b>${r.nights.length}</b> Nächte</span>
           ${(r.light_dirs||[]).length?`<span>${(r.light_dirs||[]).map(d=>dirLink(d)).join(' ')}</span>`:''}</div>
-        <div class="kv"><span>${ic('sun')} Flats ${r.flats.length?`<span class="badge ${r.flat_ok?'good':'warning'}">${r.flats.length}${r.flat_sky?' · Himmelsflats':''}</span> ${dirLink(r.flat_set)}${r.flat_session?` <span class="muted">${esc(r.flat_session.replace('T',' ').slice(0,16))}</span>`:''}`:'<span class="badge critical">fehlen</span>'}
+        <div class="kv"><span>${ic('sun')} Flats ${(r.flat_groups||[]).length>1?`<span class="badge ${r.flat_ok?'good':'warning'}">${r.flats.length}</span> <span class="muted">in ${r.flat_groups.length} Gruppen – siehe unten</span>`:r.flats.length?`<span class="badge ${r.flat_ok?'good':'warning'}">${r.flats.length}${r.flat_sky?' · Himmelsflats':''}</span> ${dirLink(r.flat_set)}${r.flat_session?` <span class="muted">${esc(r.flat_session.replace('T',' ').slice(0,16))}</span>`:''}`:'<span class="badge critical">fehlen</span>'}
           ${manBadge(r,'flats')}<button class="btn sm" data-cal="${i}|flats">ändern</button></span></div>
+        ${(r.flat_groups||[]).length>1?`<div class="banner info" style="margin-top:8px;display:block">${ic('target')} <b>Kamera zwischen den Nächten gedreht</b> (${r.rotation&&r.rotation.source==='rotator'?'laut Rotator im Header':'am Sternfeld gemessen'}) – jede Gruppe bekommt eigene Flats:
+          ${r.flat_groups.map(g=>`<div class="kv" style="margin-top:4px"><span class="badge neutral">Gruppe ${g.key}</span><span>${g.angle!=null?fmt(g.angle,1)+'°':''}</span><span>Nächte ${g.nights.map(dshort).join(', ')}</span>
+            <span>→ Flats ${g.flats.length?`<span class="badge ${g.flat_ok?'good':'warning'}">${g.flats.length}</span> ${dirLink(g.flat_set)}`:'<span class="badge critical">keine passenden</span>'}</span></div>`).join('')}
+          ${(r.flat_group_notes||[]).map(x=>`<div class="small" style="margin-top:4px">⚠ ${esc(x)}</div>`).join('')}</div>`:''}
+        ${r.rotation&&r.rotation.groups===1&&Object.keys(r.rotation.per_night||{}).length>1?`<div class="muted small" style="margin-top:2px">${ic('target','tiny')} Kamera-Stellung in allen Nächten gleich (${r.rotation.source==='rotator'?'Rotator':'Sternfeld gemessen'}) – ein Flat-Satz passt für alle.</div>`:''}
         ${(r.flat_reasons||[]).filter(x=>!/unbekannt/.test(x)).length?`<div class="muted small" style="margin-top:2px">Hinweis: ${esc(r.flat_reasons.filter(x=>!/unbekannt/.test(x)).join('; '))}</div>`:''}
         <div class="kv"><span>${ic('layers')} Bias ${r.bias.length?`<span class="badge good">${r.bias.length}</span> ${dirLink(r.bias_set)}`:'<span class="badge warning">keine</span>'}
           ${manBadge(r,'bias')}<button class="btn sm" data-cal="${i}|bias">ändern</button></span></div>
@@ -610,19 +687,19 @@ function renderPlan(b){
 }
 function needs(){const en=P.plan.runs.filter(r=>r.enabled!==false);return {gb:Math.max(0,...en.map(r=>r.gb||0))+2,ram:Math.max(0,...en.map(r=>r.ram_gb||0)),en};}
 function meterHtml(icon,title,need,free,total,unit,sub){
-  const ok=free==null||free>=need;
-  const used=total?100*(1-(free||0)/total):null, needPct=total?100*need/total:null;
+  // Balken = Anteil des freien Platzes, den der Lauf braucht (grün < 80 %, gelb bis 100 %, rot = reicht nicht)
+  const ratio=free?need/free:null, pct=ratio==null?0:Math.min(100,ratio*100);
+  const col=ratio==null?'--text-muted':ratio>1?'--critical':ratio>0.8?'--warning':'--good';
   return `<div class="muted small">${ic(icon)} ${esc(title)}</div>
-    <div><span class="big">${fmt(free,free<10?1:0)} ${unit}</span> <span class="muted">frei · ${fmt(need,0)} ${unit} nötig</span></div>
-    <div class="bar" title="belegt / frei">${used!=null?`<div style="width:${used}%;background:var(--surface-3);filter:brightness(1.6)"></div>`:''}
-      ${needPct!=null&&used!=null?`<div style="position:absolute;left:${used}%;top:0;bottom:0;width:${Math.min(needPct,100-used)}%;background:var(${ok?'--good':'--critical'})"></div>`:''}</div>
-    <div class="muted small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(sub)}">${ok?'✓ reicht':'✗ reicht nicht'} · ${esc(sub)}</div>`;
+    <div><span class="big">${fmt(need,need<10?1:0)} ${unit}</span> <span class="muted">nötig von ${fmt(free,free<10?1:0)} ${unit} frei</span></div>
+    <div class="bar" role="img" aria-label="${fmt(pct,0)} % des freien Platzes werden gebraucht"><div style="width:${Math.max(2,pct)}%;background:var(${col})"></div></div>
+    <div class="muted small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(sub)}">${ratio==null?'':ratio>1?'✗ reicht nicht':'✓ reicht · '+fmt(pct,0)+' % des freien Platzes'} · ${esc(sub)}</div>`;
 }
 function updateMeters(){
   if(cur.view!=='project'||cur.tab!=='plan'||!$('#mDisk')||!P)return;
   const n=needs();
   $('#mDisk').innerHTML=meterHtml('disk','Platz im Arbeitsverzeichnis',n.gb,S.disk_free_gb,S.disk_total_gb,'GB',S.settings.workdir);
-  $('#mRam').innerHTML=meterHtml('ram','Arbeitsspeicher',n.ram,S.ram_free_gb,S.ram_total_gb,'GB','gesamt '+fmt(S.ram_total_gb,0)+' GB');
+  $('#mRam').innerHTML=meterHtml('ram','Arbeitsspeicher (beim Stacken)',n.ram,S.ram_free_gb,S.ram_total_gb,'GB','gesamt '+fmt(S.ram_total_gb,0)+' GB · andere Programme schließen gibt mehr frei');
   const active=S.job&&['queued','running'].includes(S.job.state);
   const bl=[],wn=[];
   if(!S.pixinsight_ok)bl.push('PixInsight wurde nicht gefunden – Pfad in den Einstellungen prüfen.');
@@ -716,20 +793,17 @@ $('#calSave').onclick=async()=>{
   toast(KNAME[st.kind]+' für '+st.run.name+' geändert');
 };
 
-// ---------- Bearbeitungs-Checkliste
+// ---------- Spickzettel Bearbeitung (nur Hilfe, nichts zum Abhaken)
 function renderChecklist(b){
-  const done=P.meta.checklist||{}, L=P.checklist, n=L.filter(x=>done[x.key]).length;
-  const grp=ph=>L.filter(x=>x.phase===ph).map(x=>`<label class="cli ${done[x.key]?'ok':''}"><input type="checkbox" data-ck="${x.key}" ${done[x.key]?'checked':''}>
-    <div><div class="t">${esc(x.title)}</div><div class="tool">${esc(x.tool)}</div><div class="w">${esc(x.why)}</div></div></label>`).join('');
-  b.innerHTML=`<div class="card"><div class="row"><h2 class="grow" style="margin:0">${ic('list')} Bearbeitung in PixInsight – Reihenfolge</h2>
-      <span class="badge ${n===L.length?'good':'neutral'}">${n} / ${L.length} erledigt</span><button class="btn sm" id="ckReset">zurücksetzen</button></div>
-    <div class="progress"><div style="width:${100*n/L.length}%;background:var(--good)"></div></div>
-    <div class="muted small">Faustregel: Alles, was misst (Verläufe, Farbe, Schärfe, Rauschen), passiert <b>linear</b> – vor dem Strecken. Danach wird gestaltet. Die Liste passt sich an die Ergebnisse an (${esc([...new Set(P.stacks.flatMap(s=>s.outputs.map(o=>o.name)))].join(', ')||P.plan.runs.map(r=>r.name).join(', '))}).</div>
+  const L=P.checklist;
+  let n=0;
+  const grp=ph=>L.filter(x=>x.phase===ph).map(x=>`<div class="cli"><div class="num" style="width:24px;height:24px;font-size:12px">${++n}</div>
+    <div><div class="t">${esc(x.title)} <span class="tool">· ${esc(x.tool)}</span></div><div class="w">${esc(x.why)}</div></div></div>`).join('');
+  b.innerHTML=`<div class="card"><h2>${ic('list')} Spickzettel: Reihenfolge der Bearbeitung in PixInsight</h2>
+    <div class="muted small">Faustregel: Alles, was misst (Verläufe, Farbe, Schärfe, Rauschen), passiert <b>linear</b> – vor dem Strecken. Danach wird gestaltet.
+      Passend zu den Ergebnissen dieses Projekts (${esc([...new Set(P.stacks.flatMap(s=>s.outputs.map(o=>o.name)))].join(', ')||P.plan.runs.map(r=>r.name).join(', '))}).</div>
     <div class="phase">1 · Linear (vor dem Strecken)</div><div class="cl">${grp('linear')}</div>
     <div class="phase">2 · Nach dem Strecken</div><div class="cl">${grp('nonlinear')}</div></div>`;
-  b.querySelectorAll('[data-ck]').forEach(c=>c.onchange=async()=>{const d=Object.assign({},P.meta.checklist||{});if(c.checked)d[c.dataset.ck]=new Date().toISOString().slice(0,10);else delete d[c.dataset.ck];
-    try{P=await api('/api/project/'+encodeURIComponent(cur.project)+'/meta',{checklist:d});renderChecklist(b);}catch(e){toast(e.message,true)}});
-  $('#ckReset').onclick=async()=>{if(!confirm('Alle Haken entfernen?'))return;P=await api('/api/project/'+encodeURIComponent(cur.project)+'/meta',{checklist:{}});renderChecklist(b);};
 }
 
 // ---------- Einstellungen
@@ -762,7 +836,10 @@ $('#setSave').onclick=async()=>{
 $('#setBtn').onclick=()=>openSettings(false);
 $('#newBtn').onclick=()=>{cur={view:'new',project:null,tab:'overview'};render();};
 
-refresh().then(()=>{pollSys();if(S&&S.job&&['queued','running'].includes(S.job.state))cur.view='job';else if(S&&S.projects.length)return openProject(S.projects[0].name);render();});
+$('#pSort').value=pSort;
+$('#pSearch').oninput=e=>{pFilter=e.target.value.trim();renderProjects();if(cur.view==='home')renderHome();};
+$('#pSort').onchange=e=>{pSort=e.target.value;try{localStorage.setItem('as-sort',pSort)}catch(x){};renderProjects();if(cur.view==='home')renderHome();};
+refresh().then(()=>{pollSys();if(S&&S.job&&['queued','running'].includes(S.job.state))cur.view='job';else if(S&&!S.projects.length)cur.view='new';render();});
 </script>
 </body>
 </html>

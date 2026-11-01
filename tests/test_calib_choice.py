@@ -61,3 +61,20 @@ def test_inspect_detects_wrong_gain(tmp_path):
     run = {"settings_key": ["atr2600c", 100, 50, "high conversion gain", 1, 96, 64], "filter": "RGB"}
     info = project.inspect_calib_folder(str(d), "bias", run)
     assert not info["ok"] and any("Gain" in p for p in info["problems"])
+
+
+def test_second_analysis_keeps_old_sources(tmp_path, monkeypatch):
+    """Dasselbe Objekt aus einem weiteren Ordner analysieren: bisherige Ordner/Nächte bleiben im Projekt."""
+    monkeypatch.setenv("ASTROSTACK_SETTINGS", str(tmp_path / "s.json"))
+    a, b = str(tmp_path / "A"), str(tmp_path / "B")
+    for root, night in ((a, "2026-04-08"), (b, "2026-05-02")):
+        for i in range(2):
+            make_fits(f"{root}/vdB 15/{night}/RGB/L_{i}.fits",
+                      dict(NINA_LIGHT, OBJECT="vdB 15", FILTER="RGB", **{"DATE-OBS": "%sT21:%02d:00" % (night, i)}),
+                      data=star_field(i))
+    s = Settings(workdir=str(tmp_path / "work"), analysis_workers=1)
+    project.run_report([a], None, s, log=lambda *x: None)
+    project.run_report([b], None, s, log=lambda *x: None)
+    pdir = project.pdir_of(s, "vdB 15")
+    assert len(project.sources(pdir)["roots"]) == 2
+    assert project.load_plan(pdir)["runs"][0]["lightCount"] == 4
