@@ -17,7 +17,7 @@ import webbrowser
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from .. import __version__, project, system
+from .. import __version__, checklist, project, stackqa, steps, system
 from ..engines import pixinsight as pi
 from ..jobs import JobManager
 from ..settings import Settings
@@ -61,6 +61,24 @@ def state() -> dict:
     )
 
 
+def sysinfo() -> dict:
+    """Leichte Abfrage für die Live-Anzeige (alle paar Sekunden)."""
+    s = settings()
+    free_ram, total_ram = _safe(system.ram_gb, (None, None))
+    du = _safe(lambda: __import__("shutil").disk_usage(_existing(s.workdir)), None)
+    j = JOBS.active()
+    return dict(ram_free_gb=_r(free_ram), ram_total_gb=_r(total_ram),
+                disk_free_gb=_r(du.free / 1024 ** 3) if du else None, disk_total_gb=_r(du.total / 1024 ** 3) if du else None,
+                pixinsight_running=_safe(system.pixinsight_processes, []),
+                job=j.as_dict(40) if j else None)
+
+
+def _existing(p: str) -> str:
+    while p and not os.path.exists(p):
+        p = os.path.dirname(p)
+    return p or "."
+
+
 def _r(x, n=1):
     return round(x, n) if x is not None else None
 
@@ -68,6 +86,7 @@ def _r(x, n=1):
 def save_settings(data: dict) -> dict:
     with SETTINGS_LOCK:
         s = settings()
+        old_workdir = s.workdir
         for k, v in data.items():
             if not hasattr(s, k):
                 raise ValueError("unbekannte Einstellung: " + k)
@@ -82,7 +101,10 @@ def save_settings(data: dict) -> dict:
         if s.workdir:
             os.makedirs(s.workdir, exist_ok=True)
         s.save()
-    return state()
+    st = state()
+    if old_workdir and os.path.abspath(old_workdir) != os.path.abspath(s.workdir):
+        st["move_offer"] = dict(old=old_workdir, projects=project.foreign_projects(old_workdir, s.workdir))
+    return st
 
 
 def _pick_folder_dialog(initial: str = ""):
@@ -164,11 +186,63 @@ def start_stack(name: str) -> dict:
 
     def fn(job):
         st = pi.run_plan(plan, s, log=job.write, cancel=job.cancel,
-                         on_status=lambda x: job.set_progress(stage=(x.run + " · " + x.stage) if x.run else x.stage,
-                                                              done=x.done, total=x.total, message=x.message))
+                         on_status=lambda x: job.set_progress(
+                             stage=x.stage, step=x.step, run=x.run, run_index=x.run_index, runs_total=x.runs_total,
+                             run_steps=x.run_steps, steps_done=x.steps_done, done=x.done, total=x.total,
+                             eta_s=x.eta_s, message=x.message))
         return st.as_dict()
     job = JOBS.submit("stack", "Stacking " + plan["target"], s.workdir, fn)
     return job.as_dict()
+
+
+def project_detail(name: str) -> dict:
+    pdir = project.pdir_of(settings(), name)
+    plan = project.load_plan(pdir)
+    hist = project.stacks(pdir)
+    outs = sorted({o["name"] for r in hist for o in r.get("outputs", [])}) or \
+        [o for r in plan.get("runs", []) if r.get("enabled", True) for o in r.get("outputs", [])]
+    for r in hist:
+        for o in r["outputs"]:
+            if o.get("preview"):
+                o["preview_url"] = "/api/stack-preview/%s?file=%s" % (
+                    urllib.parse.quote(name), urllib.parse.quote(os.path.relpath(o["preview"], pdir).replace("\\", "/")))
+    return dict(name=name, meta=project.meta(pdir), plan=plan, sources=project.sources(pdir),
+                overrides=project._read(os.path.join(pdir, "overrides.json"), {}), stacks=hist,
+                checklist=checklist.items(outs), pdir=pdir)
+
+
+def _known_frame(pdir: str, path: str) -> bool:
+    """Nur Dateien ausliefern, die zum Projekt gehören (Schutz vor beliebigen Pfaden)."""
+    import csv
+    try:
+        with open(os.path.join(pdir, "analysis", "metrics.csv"), encoding="utf-8") as fh:
+            return any(r.get("path") == path for r in csv.DictReader(fh))
+    except OSError:
+        return False
+
+
+def start_requality(name: str, stack_id: str) -> dict:
+    """Kennzahlen für ältere Stacks (ohne Messung) nachträglich berechnen."""
+    s = settings()
+    pdir = project.pdir_of(s, name)
+    rec = next((r for r in project.stacks(pdir) if r.get("id") == stack_id), None)
+    if not rec:
+        raise ValueError("Stack nicht gefunden")
+    plan = project.load_plan(pdir)
+
+    def fn(job):
+        for i, o in enumerate(rec["outputs"]):
+            if not o.get("exists"):
+                continue
+            job.set_progress(stage="Qualität messen: " + os.path.basename(o["file"]), step="quality", done=i, total=len(rec["outputs"]))
+            img = stackqa.load_master(o["file"])
+            sh = stackqa.channel_shifts(img) if img.shape[0] == 3 else {}
+            k = stackqa.kpis(img, plan.get("pixscale"), sh)
+            pv = stackqa.preview_jpeg(img, os.path.join(pdir, "stacks", os.path.splitext(os.path.basename(o["file"]))[0] + ".jpg"))
+            project.update_stack_output(pdir, stack_id, i, kpi=k, preview=pv)
+            job.write("%s: Rauschen %.2f ADU, %d Sterne" % (os.path.basename(o["file"]), k["noise"], k["stars"]))
+        return {"ok": True}
+    return JOBS.submit("quality", "Kennzahlen " + rec.get("run", ""), s.workdir, fn).as_dict()
 
 
 def open_path(path: str):
@@ -240,13 +314,27 @@ class Handler(BaseHTTPRequestHandler):
             if parts[:2] == ["api", "job"] and len(parts) == 3:
                 j = JOBS.get(parts[2])
                 return self._json(j.as_dict(int(q.get("tail", ["300"])[0])) if j else {"error": "unbekannt"}, 200 if j else 404)
+            if parts == ["api", "sys"]:
+                return self._json(sysinfo())
+            if parts == ["api", "steps"]:
+                return self._json(dict(analyze=steps.ANALYZE, stack=steps.STACK))
             if parts[:2] == ["api", "project"] and len(parts) == 3:
+                return self._json(project_detail(parts[2]))
+            if parts[:2] == ["api", "frame-preview"] and len(parts) == 3:
                 pdir = project.pdir_of(settings(), parts[2])
-                fdir = os.path.join(pdir, "final")
-                finals = sorted(f for f in os.listdir(fdir) if f.endswith(".xisf")) if os.path.isdir(fdir) else []
-                return self._json(dict(plan=project.load_plan(pdir), sources=project.sources(pdir),
-                                       overrides=project._read(os.path.join(pdir, "overrides.json"), {}),
-                                       finals=finals, pdir=pdir))
+                path = q.get("path", [""])[0]
+                if not _known_frame(pdir, path):
+                    return self._json({"error": "unbekannte Datei"}, 403)
+                from .. import previews
+                return self._file(previews.frame_preview(path, os.path.join(pdir, "analysis", "previews")), "image/jpeg")
+            if parts[:2] == ["api", "stack-preview"] and len(parts) == 3:
+                pdir = project.pdir_of(settings(), parts[2])
+                f = os.path.normpath(os.path.join(pdir, q.get("file", [""])[0]))
+                if not f.startswith(os.path.join(pdir, "stacks")) or not f.lower().endswith(".jpg"):
+                    return self._json({"error": "verboten"}, 403)
+                return self._file(f, "image/jpeg")
+            if parts == ["static", "chart.js"]:
+                return self._file(os.path.join(os.path.dirname(HERE), "report", "vendor", "chart.umd.js"), "text/javascript; charset=utf-8")
             if parts[0] == "p" and len(parts) == 3 and parts[2] == "report.html":
                 return self._file(os.path.join(project.pdir_of(settings(), parts[1]), "report.html"), "text/html; charset=utf-8")
             return self._json({"error": "nicht gefunden"}, 404)
@@ -276,6 +364,9 @@ class Handler(BaseHTTPRequestHandler):
             if parts == ["api", "open"]:
                 open_path(b["path"])
                 return self._json({"ok": True})
+            if parts == ["api", "move-projects"]:
+                moved = project.move_projects(b["old"], settings().workdir, b.get("projects", []))
+                return self._json({"moved": moved})
             if parts == ["api", "open-pixinsight"]:
                 open_in_pixinsight(b["paths"])
                 return self._json({"ok": True})
@@ -290,6 +381,14 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(reanalyze(name))
                 if action == "stack":
                     return self._json(start_stack(name))
+                if action == "meta":
+                    project.save_meta(pdir, **{k: v for k, v in b.items() if k in ("name", "description", "checklist")})
+                    return self._json(project_detail(name))
+                if action == "sources":
+                    project.set_sources(pdir, b.get("roots", []))
+                    return self._json(project_detail(name))
+                if action == "requality":
+                    return self._json(start_requality(name, b["stack_id"]))
             return self._json({"error": "nicht gefunden"}, 404)
         except (ValueError, RuntimeError, KeyError) as e:
             return self._json({"error": str(e)}, 400)

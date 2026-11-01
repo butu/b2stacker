@@ -90,7 +90,9 @@ tr:hover td{background:var(--surface-2)}
 .tile.rejected img,.tile.suggest img{opacity:.55}
 dialog{border:1px solid var(--line);border-radius:12px;background:var(--surface-1);color:var(--text-primary);padding:0;max-width:min(920px,94vw);width:100%}
 dialog::backdrop{background:rgba(0,0,0,.7)}
-dialog img{width:100%;max-height:58vh;object-fit:contain;display:block;background:#000}
+dialog img{width:100%;max-height:58vh;object-fit:contain;display:block;background:#000;cursor:zoom-in}
+dialog img.zoom{width:auto;max-width:none;max-height:none;cursor:zoom-out}
+.imgwrap{overflow:auto;max-height:70vh;background:#000}
 dialog .meta{padding:14px 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px 16px;font-size:13px}
 dialog .meta div span{display:block;color:var(--text-muted);font-size:11px}
 dialog .close{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.6);color:#fff;border:0;border-radius:8px;padding:4px 10px;cursor:pointer;font-size:16px}
@@ -249,7 +251,7 @@ pre{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;p
   <footer id="foot"></footer>
 </div>
 
-<dialog id="dlg"><button class="close" type="button" onclick="dlg.close()">✕</button><img id="dImg" alt=""><div class="meta" id="dMeta"></div></dialog>
+<dialog id="dlg"><button class="close" type="button" onclick="dlg.close()">✕</button><div class="imgwrap"><img id="dImg" alt="" onclick="this.classList.toggle('zoom')" title="Klicken: 100 % / einpassen"></div><div class="meta" id="dMeta"></div></dialog>
 
 <script>
 const D = /*__DATA__*/null;
@@ -510,7 +512,12 @@ renderGallery();
 const dlg=document.getElementById('dlg');
 function openFrame(i){
   const f=D.frames[i];
-  document.getElementById('dImg').src=f.img;
+  const im=document.getElementById('dImg');
+  im.src=f.img; im.classList.remove('zoom');
+  if(APP&&APP.previewUrl){                      // in der App: Rohbild in hoher Auflösung nachladen
+    const hi=new Image(); hi.onload=()=>{if(document.getElementById('dlg').open&&im.dataset.i==String(i))im.src=hi.src};
+    im.dataset.i=String(i); hi.src=APP.previewUrl(f.path);
+  }
   const m=[['Datei',f.file],['Nacht',f.night],['Filter',f.filter],['Status',STATUS[f.status][0]],['FWHM',fmt(f.fwhm_as,2)+'"'],['Exzentrizität',fmt(f.ecc,2)],
     ['Sterne',f.nstars],['Hintergrund',fmt(f.bg,0)+' ADU'],['Rauschen',fmt(f.noise,1)+' ADU'],['Gewicht',fmt(f.weight,2)],['Höhe',fmt(f.alt,0)+'°'],
     ['Mond',fmt(f.moon_illum,0)+' % · '+fmt(f.moon_alt,0)+'°'],['Sensor',fmt(f.temp,1)+' °C'],['Hinweise',f.flags.join(', ')||'–']];

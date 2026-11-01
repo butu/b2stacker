@@ -56,3 +56,21 @@
 - PC ging nachts in den Energiesparmodus -> Local Normalization "dauerte" 8 h.
 - Ergebnis vdB 131 (Flats bei 35 %): Farbring weg (B/G radial 5 %, vorher 45 %);
   HaO3 deckungsgleich mit RGB (Ha 0,28 px, OIII 0,30 px, OIII-Ha 0,36 px).
+
+
+## Nachtrag 01.11.2026 (b2stacker 0.2)
+
+- **Bias liegen bei NINA oft unter `Bias/SNAPSHOT/…`** (Snapshot-Modus, IMAGETYP=LIGHT, 0 s). Snapshot-Ordner dürfen
+  daher nicht pauschal übersprungen werden: Kalibrierframes daraus verwenden, Test-Lights nicht.
+- **Himmelsflats haben pro Frame eine andere Belichtung** (Dämmerung). Flats deshalb nach *Sitzung* gruppieren
+  (Zeitlücke > 10 min oder Belichtungssprung > 2,5×), nicht nach Belichtung – sonst zerfällt eine Himmelsflat-Serie
+  in Einzelframes, und im schlimmsten Fall wird ein einzelnes Flat verwendet (so passiert bei vdB 15, 01.11.).
+- **Anzahl der Flats gehört in die Bewertung**: unter 5 Frames stark abwerten, unter 15 leicht. Ordner mit
+  `_alt`/`_verworfen` nie verwenden.
+- **Farbsäume**: WBPP richtet das debayerte Farbbild als Ganzes aus. Der verbleibende R/B-Versatz (atmosphärische
+  Dispersion) wird am Master an den Sternen gemessen und ab 0,15 px per Subpixel-Verschiebung korrigiert.
+  Bei Dualband liegt Ha dadurch exakt auf OIII.
+- **Qualitätskennzahlen** am linearen Master: Rauschen (aus Nachbarpixel-Differenzen, unempfindlich gegen Nebel),
+  FWHM/HFR, Sternzahl, Exzentrizität, Farbversatz, Verlauf. Vergleichbar innerhalb derselben Kamera/Einstellungen.
+- **Dateinamen**: `Ziel_Filter_Datum_Stunden.xisf` – eindeutig, nichts wird überschrieben; Historie in `stacks.json`
+  mit Pfaden relativ zum Projekt (Arbeitsverzeichnis lässt sich verschieben).

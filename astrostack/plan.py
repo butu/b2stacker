@@ -66,6 +66,11 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
             name=name, filter=g.filter, filter_kind=g.filter_kind, mode=proc.mode, outputs=list(proc.outputs),
             channel_map=proc.channel_map, engine="pixinsight-wbpp", enabled=True,
             reference=ref, lightCount=len(frames), nights=sorted({f.night for f in frames if f.night}),
+            hours=round(sum(f.exposure or 0 for f in frames) / 3600, 2), is_osc=g.is_osc,
+            light_dirs=sorted({os.path.dirname(f.path) for f in frames}),
+            bias_set=bias and bias["set"]["folder"], dark_set=dark and dark["set"]["folder"],
+            flat_session=flat and flat["set"].get("session"), flat_sky=bool(flat and flat["set"].get("sky")),
+            flat_reasons=flat["reasons"] if flat else [],
             lights=[f.path for f in frames],
             flats=[x.path for x in _frames_of(flat)] if flat else [],
             flat_set=flat and flat["set"]["folder"], flat_ok=bool(flat and (not flat.get("check") or flat["check"]["verdict"] != "critical")),
@@ -92,6 +97,9 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
         ("Rejection", "automatisch + Large-Scale (hoch)", "Entfernt Satelliten- und Flugzeugspuren."),
         ("Drizzle", "aus" if (samp is None or samp > 3) else "2× empfohlen (in WBPP von Hand)",
          ("FWHM %.1f\" = %.1f px: überabgetastet." % (fw, samp)) if (samp and samp > 3) else (("FWHM %.1f\" = %.1f px: Drizzle 2× lohnt." % (fw, samp)) if samp else "Keine FWHM-Daten.")),
+        ("Farbsäume", "nach dem Stacken korrigieren",
+         "Rot und Blau werden an den Sternen auf Grün ausgerichtet (atmosphärische Dispersion, v. a. bei tiefem Objekt)."),
+        ("Dateinamen", "Ziel_Filter_Datum_Stunden.xisf", "Jeder Stack bekommt einen eigenen Namen – nichts wird überschrieben."),
         ("Autocrop", "aus", "Masters bleiben gleich groß und deckungsgleich; Zuschneiden in der Bearbeitung."),
         ("Zwischendateien", "nach jedem Lauf löschen", "Spart Platz; Masters und Logs bleiben."),
     ]
@@ -105,7 +113,8 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
         need_ram_gb=round(peak_ram, 1), free_ram_gb=round(free_ram, 1) if free_ram else None, total_ram_gb=round(total_ram, 1) if total_ram else None,
         peak_note="Zwischendateien werden nach jedem Lauf gelöscht, daher zählt der größte Lauf.",
         suggest_n=suggest_n, total_frames=total_frames,
-        options=dict(local_normalization=nn > 1, drizzle=bool(samp and samp <= 3), autocrop=False,
+        pixscale=round(scale, 4) if scale else None,
+        options=dict(fix_fringes=True, local_normalization=nn > 1, drizzle=bool(samp and samp <= 3), autocrop=False,
                      weighting="psf_signal", rejection="auto", large_scale_rejection=True, distortion_correction=True,
                      cleanup=True))
     return plan

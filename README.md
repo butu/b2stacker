@@ -32,11 +32,18 @@ Beim ersten Start: in den Einstellungen das **Arbeitsverzeichnis** wählen
    In der Galerie lassen sich Frames per Klick aus- oder einschließen.
 3. **Stacking-Plan** – Vorschlag mit Begründung, Läufe ein/aus, Referenz, Optionen,
    Speicher- und RAM-Anzeige.
-4. **Los – stacken** – PixInsight läuft unsichtbar im Hintergrund, Fortschritt live, PC bleibt wach.
+4. **Los – stacken** – PixInsight läuft unsichtbar im Hintergrund, der PC bleibt wach. Der Ablauf wird Schritt
+   für Schritt angezeigt – mit Erklärung, was gerade passiert und wozu, und geschätzter Restzeit.
    Vorher wird geprüft: Platz, Arbeitsspeicher, ob PixInsight schon offen ist.
-5. **Ergebnisse** – in `<Arbeitsverzeichnis>/projects/<Ziel>/final/`. Dualband an Farbkamera
-   (HaO3, L-eXtreme, SII/OIII …) wird automatisch in Ha + OIII bzw. SII + OIII aufgeteilt.
-   Ältere Ergebnisse werden nach `final/_alt/` verschoben, nie überschrieben.
+5. **Nachbearbeitung des Stacks** – Farbsäume (R/B-Versatz) werden an den Sternen gemessen und korrigiert,
+   Dualband (HaO3, L-eXtreme, SII/OIII …) wird in Ha + OIII bzw. SII + OIII geteilt.
+6. **Ergebnisse** – in `<Arbeitsverzeichnis>/projects/<Ziel>/final/` als `Ziel_Filter_Datum_Stunden.xisf`.
+   Jeder Stack bekommt Qualitätskennzahlen (Rauschen, Schärfe, Sterne, Sternform, Farbversatz, Verlauf) und
+   eine Vorschau. Die **Übersicht** zeigt alle Stacks eines Projekts und ihren Verlauf als Diagramm.
+7. **Bearbeitung** – Checkliste mit der empfohlenen Reihenfolge in PixInsight (DBE, SPCC, BXT, NXT …).
+
+Projekte lassen sich umbenennen, beschreiben und jederzeit (auch nach Monaten, mit neuer Programmversion)
+neu analysieren und erneut stacken.
 
 ## Kommandozeile (auch für KI-Bedienung)
 

@@ -52,3 +52,18 @@ def test_target_guess_without_object(tmp_path):
     inv = discover.scan([str(tmp_path)])
     assert inv.lights[0].target == "M 42"
     assert os.path.exists(p)
+
+
+def test_bias_in_snapshot_folder_found(tmp_path):
+    """NINA legt Bias oft unter Bias/SNAPSHOT/… ab – die müssen gefunden werden, Test-Lights dort nicht."""
+    from .conftest import NINA_LIGHT, make_fits
+    r = str(tmp_path)
+    hb = dict(NINA_LIGHT, EXPOSURE=0.0001, EXPTIME=0.0001)
+    hb.pop("OBJECT")
+    for i in range(4):
+        make_fits(f"{r}/Bias/SNAPSHOT/RGB/2024-11-05/0.00_Bias_0.00sec_gain100_22.{i}0c_000{i}.fits", hb)
+    make_fits(f"{r}/Snapshot/2026-04-14/RGB/test.fits", NINA_LIGHT)
+    inv = discover.scan([r])
+    bias = [c for c in inv.calib if c.type == "bias"]
+    assert len(bias) == 1 and len(bias[0].frames) == 4
+    assert not inv.lights

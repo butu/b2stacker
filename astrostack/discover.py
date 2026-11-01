@@ -9,7 +9,11 @@ from dataclasses import dataclass, field
 
 from . import fitsmeta as fm
 
-DEFAULT_SKIP_DIRS = ("snapshot", "work", "final", "_claude", "$recycle.bin", ".git", "__pycache__")
+DEFAULT_SKIP_DIRS = ("work", "final", "_claude", "$recycle.bin", ".git", "__pycache__")
+# NINA-Snapshot-Ordner: Test-Lights ignorieren, Kalibrierframes (z. B. Bias) aber verwenden
+SNAPSHOT_DIRS = ("snapshot", "snapshots")
+FLAT_SESSION_GAP_MIN = 10        # neue Flat-Sitzung nach so vielen Minuten Pause …
+FLAT_SESSION_EXP_JUMP = 2.5      # … oder wenn die Belichtung sprunghaft wechselt (Panel-Serien)
 DEFAULT_EXCLUDE_DIRS = ("_rejected", "_verworfen", "_alt", "_bad", "rejected")
 
 
@@ -78,9 +82,15 @@ class CalibSet:
     folder: str
     exposure: float | None
     frames: list = field(default_factory=list)
+    session: str = ""                 # Startzeit der Sitzung (Flats)
+
+    @property
+    def id(self) -> str:
+        return "%s|%s|%s" % (self.folder, self.exposure, self.session)
 
     def summary(self) -> dict:
         fr = self.frames
+        exps = [f.exposure for f in fr if f.exposure is not None]
         def rng(attr):
             vals = [getattr(f, attr) for f in fr if getattr(f, attr) is not None]
             return [min(vals), max(vals)] if vals else None
@@ -90,7 +100,9 @@ class CalibSet:
                     binning=self.settings[4], size=[self.settings[5], self.settings[6]], exposure=self.exposure,
                     date=rng("date_loc") or rng("date_obs"), ccd_temp=rng("ccd_temp"), focus_pos=rng("focus_pos"),
                     rotator=rng("rotator"), type_reasons=sorted({f.type_reason for f in fr}),
-                    warnings=sorted({w for f in fr for w in f.warnings}))
+                    warnings=sorted({w for f in fr for w in f.warnings}), id=self.id, session=self.session,
+                    exposure_range=[min(exps), max(exps)] if exps else None,
+                    sky=bool(exps and max(exps) > 1.15 * min(exps)))
 
 
 @dataclass
@@ -132,26 +144,37 @@ def scan(roots: list[str], opt: ScanOptions | None = None, progress=None) -> Inv
 
     lights: dict[tuple, LightGroup] = {}
     calib: dict[tuple, CalibSet] = {}
+    flat_pool: dict[tuple, list] = {}
     unknown = []
     for m in metas:
+        snap = any(p.lower() in SNAPSHOT_DIRS for p in os.path.dirname(m.path).split(os.sep))
         if m.type == fm.LIGHT and not m.is_master:
+            if snap:                       # Testaufnahmen aus dem Snapshot-Ordner nie stacken
+                continue
             target = m.object or _guess_target(m.path, roots)
             key = (_norm_target(target), m.filter, m.settings_key())
             g = lights.get(key)
             if g is None:
                 g = lights[key] = LightGroup(target, m.filter, m.filter_kind, m.is_osc, m.settings_key())
             g.frames.append(m)
-        elif m.type in (fm.FLAT, fm.BIAS, fm.DARK, fm.DARKFLAT):
+        elif m.type == fm.FLAT:
+            flat_pool.setdefault((m.filter, m.settings_key(), os.path.dirname(m.path)), []).append(m)
+        elif m.type in (fm.BIAS, fm.DARK, fm.DARKFLAT):
             exp = round(m.exposure, 3) if m.exposure is not None else None
             folder = os.path.dirname(m.path)
-            key = (m.type, m.filter if m.type == fm.FLAT else None, m.settings_key(), folder,
-                   exp if m.type in (fm.DARK, fm.DARKFLAT, fm.FLAT) else None)
+            key = (m.type, None, m.settings_key(), folder, exp if m.type in (fm.DARK, fm.DARKFLAT) else None)
             c = calib.get(key)
             if c is None:
-                c = calib[key] = CalibSet(m.type, key[1], m.settings_key(), folder, exp)
+                c = calib[key] = CalibSet(m.type, None, m.settings_key(), folder, exp)
             c.frames.append(m)
         else:
             unknown.append(m)
+    for (flt, settings, folder), frames in flat_pool.items():
+        for sess in flat_sessions(frames):
+            exp = _median_exp(sess)
+            c = CalibSet(fm.FLAT, flt, settings, folder, exp, list(sess),
+                         session=(sess[0].date_obs or sess[0].date_loc or "")[:19])
+            calib[(fm.FLAT, flt, settings, folder, c.session, exp)] = c
     for g in lights.values():
         g.frames.sort(key=lambda f: f.date_obs or "")
     for c in calib.values():
@@ -159,6 +182,43 @@ def scan(roots: list[str], opt: ScanOptions | None = None, progress=None) -> Inv
     return Inventory(roots=list(roots), lights=sorted(lights.values(), key=lambda g: (g.target.lower(), g.filter or "")),
                      calib=sorted(calib.values(), key=lambda c: (c.type, c.filter or "", c.folder)),
                      unknown=unknown, errors=errors)
+
+
+def flat_sessions(frames: list) -> list[list]:
+    """Flats eines Ordners in Sitzungen teilen: nach Zeitlücken oder Belichtungssprüngen.
+
+    Himmelsflats (NINA Sky-Flat-Assistent) haben pro Frame eine andere Belichtung, weil die Dämmerung
+    heller/dunkler wird – sie gehören trotzdem zusammen. Panel-Serien mit 0,006 s und 0,062 s nicht.
+    """
+    fr = sorted(frames, key=lambda f: f.date_obs or f.date_loc or "")
+    out, cur = [], []
+    import datetime as _dt
+
+    def t(f):
+        s = (f.date_obs or f.date_loc or "")[:19]
+        try:
+            return _dt.datetime.fromisoformat(s)
+        except ValueError:
+            return None
+    for f in fr:
+        if cur:
+            p = cur[-1]
+            tp, tf = t(p), t(f)
+            gap = (tf - tp).total_seconds() / 60 if (tp and tf) else 0
+            e1, e2 = p.exposure or 0, f.exposure or 0
+            jump = (max(e1, e2) / min(e1, e2)) if (e1 > 0 and e2 > 0) else 1
+            if gap > FLAT_SESSION_GAP_MIN or jump > FLAT_SESSION_EXP_JUMP:
+                out.append(cur)
+                cur = []
+        cur.append(f)
+    if cur:
+        out.append(cur)
+    return out
+
+
+def _median_exp(frames):
+    v = sorted(f.exposure for f in frames if f.exposure is not None)
+    return round(v[len(v) // 2], 3) if v else None
 
 
 def _guess_target(path: str, roots: list[str]) -> str:

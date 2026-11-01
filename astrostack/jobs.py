@@ -35,8 +35,22 @@ class Job:
         self.save()
 
     def set_progress(self, **kw):
+        import time
+        now = time.time()
+        prev = self.progress or {}
+        step = kw.get("step") or kw.get("stage")
+        if step != (prev.get("step") or prev.get("stage")):
+            self._step_t0 = now
+            self._last_save = 0
+        t0 = getattr(self, "_step_t0", now)
+        kw["step_elapsed_s"] = round(now - t0)
+        if "eta_s" not in kw and kw.get("total") and kw.get("done", 0) >= 2 and now - t0 > 5:
+            kw["eta_s"] = round((kw["total"] - kw["done"]) * (now - t0) / kw["done"])
+        kw.setdefault("started", self.created)
         self.progress = kw
-        self.save()
+        if now - getattr(self, "_last_save", 0) > 1.0 or kw.get("done") == kw.get("total"):
+            self._last_save = now
+            self.save()
 
     def as_dict(self, log_tail: int | None = 200):
         return dict(id=self.id, kind=self.kind, title=self.title, state=self.state, progress=self.progress,

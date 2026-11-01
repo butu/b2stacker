@@ -36,7 +36,10 @@ class FakePI:
             os.makedirs(os.path.join(out, "registered"), exist_ok=True)
             open(os.path.join(out, "registered", "a_r.xisf"), "wb").close()
             os.makedirs(os.path.join(out, "master"), exist_ok=True)
-            open(os.path.join(out, "master", "masterLight_BIN-1_FILTER-HaO3_RGB.xisf"), "wb").write(b"XISF0100")
+            from astrostack import xisf
+            from .test_stackqa import synth_master
+            xisf.write_image(os.path.join(out, "master", "masterLight_BIN-1_FILTER-HaO3_RGB.xisf"),
+                             synth_master(shape=(300, 450)), {"OBJECT": "vdB 131"})
         self.code = 0xC000041D if self.fail else 0
         return cmd
 
@@ -78,8 +81,10 @@ def test_stack_extract_haoiii(tmp_path, monkeypatch):
     monkeypatch.setattr(pi.system, "pixinsight_processes", lambda: [])
     st = pi.run_plan(plan, s, log=lambda *a: None, runner_factory=FakePI)
     assert st.state == "done", st.error
+    import datetime
+    day = datetime.date.today().isoformat()
     names = sorted(os.path.basename(f) for f in st.finals)
-    assert names == ["vdB131_Ha.xisf", "vdB131_OIII.xisf"]
+    assert names == ["vdB131_Ha_%s_0.5h.xisf" % day, "vdB131_OIII_%s_0.5h.xisf" % day], names
     wbpp_items = FakePI.calls[0][1]
     assert "automationMode=true" in wbpp_items and "debayerOutputMethod=0" in wbpp_items
     # ganzer Light-Ordner → dir=, Flats-Ordner → dir=
@@ -89,17 +94,23 @@ def test_stack_extract_haoiii(tmp_path, monkeypatch):
     assert len(bias) == 1 and bias[0].startswith("dir=")
     fixed = [os.path.join(bias[0][4:], f) for f in os.listdir(bias[0][4:])]
     assert len(fixed) == 3 and fits.getheader(fixed[0])["IMAGETYP"] == "Bias Frame"
-    # Aufteilen mit R und GB
-    split_items = FakePI.calls[1][1]
-    assert "ch1=R" in split_items and "ch2=GB" in split_items
+    # Farbsäume gemessen und korrigiert, Kennzahlen da
+    outs = st.runs["HaO3"]["outputs"]
+    assert outs[0]["kpi"]["fringe_before_px"] > 0.4 and outs[0]["kpi"]["stars"] > 20
     # Zwischendateien weg, Master bleibt
-    run_dir = os.path.dirname(st.runs["HaO3"]["master"].rsplit(os.sep + "master", 1)[0] + os.sep)
+    run_dir = os.path.dirname(os.path.dirname(st.runs["HaO3"]["master"]))
     assert not os.path.exists(os.path.join(run_dir, "registered"))
     assert os.path.exists(st.runs["HaO3"]["master"])
-    # zweiter Lauf: altes Ergebnis wird archiviert statt überschrieben
+    # Historie
+    hist = project.stacks(pdir)
+    assert len(hist) == 1 and hist[0]["lights"] == 3 and hist[0]["outputs"][0]["exists"]
+    assert not os.path.isabs(json.load(open(os.path.join(pdir, "stacks.json")))[0]["outputs"][0]["file"])
+    # zweiter Lauf: eigener Dateiname (_2), nichts überschrieben, Historie wächst
     st2 = pi.run_plan(plan, s, log=lambda *a: None, runner_factory=FakePI)
     assert st2.state == "done"
-    assert len(os.listdir(os.path.join(pdir, "final", "_alt"))) == 2
+    assert len(os.listdir(os.path.join(pdir, "final"))) == 4
+    assert len(project.stacks(pdir)) == 2
+    assert project.latest_output(pdir, "HaO3").endswith("_2.xisf")
 
 
 def test_stack_crash_reports_reason(tmp_path, monkeypatch):

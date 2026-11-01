@@ -22,12 +22,12 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from .. import system
+from .. import stackqa, steps, system
 from ..fitsmeta import BIAS, DARK, FLAT
 
 IMAGE_EXT = (".fits", ".fit", ".fts", ".xisf")
-STAGES = [("calibrated", "Kalibrieren"), ("cosmetized", "Hotpixel"), ("debayered", "Debayern"),
-          ("registered", "Ausrichten"), ("master", "Integrieren")]
+STAGES = [("calibrated", "calibrate"), ("cosmetized", "cosmetic"), ("debayered", "debayer"),
+          ("registered", "register")]
 MAX_CMDLINE = 30000
 
 CRASH_CODES = {
@@ -69,6 +69,13 @@ class Status:
     finals: list = field(default_factory=list)
     runs: dict = field(default_factory=dict)
     error: str = ""
+    step: str = ""                    # Schlüssel aus steps.STACK
+    step_started: float = 0.0
+    eta_s: float | None = None
+    run_index: int = 0
+    runs_total: int = 0
+    run_steps: list = field(default_factory=list)
+    steps_done: list = field(default_factory=list)
 
     def as_dict(self):
         return dict(self.__dict__)
@@ -165,20 +172,17 @@ def find_master(outdir: str) -> str | None:
 
 
 def stage_progress(outdir: str, n_lights: int) -> tuple[str, int, int]:
-    """Fortschritt aus den Zwischenordnern ablesen → (Stufe, erledigt, gesamt)."""
+    """Fortschritt aus den Zwischenordnern von WBPP ablesen → (Schritt-Schlüssel, erledigt, gesamt)."""
     if glob.glob(os.path.join(outdir, "master", "masterLight*.xisf")):
-        return "Fertig integriert", 1, 1
-    last = ("Vorbereiten", 0, n_lights)
-    for sub, label in STAGES[:-1]:
+        return "integrate", 1, 1
+    last = ("calibrate", 0, n_lights)
+    for sub, key in STAGES:
         d = os.path.join(outdir, sub)
         if os.path.isdir(d):
             n = sum(1 for _r, _d, fs in os.walk(d) for f in fs if f.lower().endswith(".xisf"))
-            last = (label, min(n, n_lights), n_lights)
-    if last[0] == "Ausrichten" and last[1] >= n_lights * 0.9:
-        # Registrieren fertig → Local Normalization / Integration laufen
-        lnf = sum(1 for _r, _d, fs in os.walk(os.path.join(outdir, "registered")) for f in fs if f.lower().endswith(".xnml"))
-        if lnf:
-            return "Normalisieren / Integrieren", lnf, n_lights
+            last = (key, min(n, n_lights), n_lights)
+    if last[0] == "register" and last[1] >= n_lights * 0.9:
+        return "integrate", 0, 0        # Registrieren fertig → Local Normalization + Integration
     return last
 
 
@@ -193,7 +197,7 @@ def safe_file(name: str) -> str:
     return "".join(ch for ch in name if ch.isalnum() or ch in "-_") or "Ziel"
 
 
-def archive_existing(path: str):
+def archive_existing(path: str):  # (ältere Versionen; neue Dateinamen sind eindeutig)
     """Vorhandenes Ergebnis nicht überschreiben, sondern nach final/_alt verschieben."""
     if os.path.exists(path):
         alt = os.path.join(os.path.dirname(path), "_alt")
@@ -317,13 +321,18 @@ def run_plan(plan: dict, settings, log=print, on_status=None, cancel: threading.
         runs = [r for r in plan["runs"] if r.get("enabled", True)]
         if not runs:
             raise StackError("Kein Lauf aktiviert.")
-        for run in runs:
+        st.runs_total = len(runs)
+        for i, run in enumerate(runs):
             if cancel.is_set():
                 raise Cancelled("abgebrochen")
-            st.run, st.stage, st.done, st.total = run["name"], "Prüfen", 0, len(run["lights"])
+            st.run, st.run_index = run["name"], i + 1
+            st.run_steps = steps.stack_steps(run["mode"], run.get("is_osc", True))
+            st.steps_done = []
+            _set_step(st, "check", 0, len(run["lights"]))
             _save()
             masters[run["name"]] = _one_run(plan, run, settings, jobdir, masters, finaldir, st, _log, _save, cancel, runner_factory)
         st.state = "done"
+        _record_stacks(plan, st, stamp, _log)
         _log("Fertig: " + ", ".join(os.path.basename(f) for f in st.finals))
         if (settings.open_results if open_results is None else open_results) and st.finals and real_pi:
             subprocess.Popen([settings.pixinsight] + st.finals)
@@ -377,8 +386,8 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
         src = r[7:]
         ref = masters.get(src)
         if not ref:
-            cand = os.path.join(finaldir, "%s_%s.xisf" % (safe_file(plan["target"]), safe_file(src)))
-            ref = cand if os.path.exists(cand) else None
+            from .. import project as _project
+            ref = _project.latest_output(plan["workdir"], src)
         if not ref:
             log("  Referenz-Master %s nicht vorhanden – WBPP wählt selbst." % src)
     elif r.startswith("file:"):
@@ -404,28 +413,52 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     log("  PixInsight gestartet")
     open(os.path.join(outdir, "command.txt"), "w", encoding="utf-8").write(cmd)
     t0 = time.time()
+    timing = steps.load_timing(settings.workdir)
     last = None
     while True:
         code = runner.poll()
-        stage, d, total = stage_progress(outdir, n)
-        if (stage, d) != last:
-            st.stage, st.done, st.total = stage, d, total
-            st.message = "%s %d/%d · %s" % (stage, d, total, _elapsed(time.time() - t0))
-            save()
-            last = (stage, d)
+        key, d, total = stage_progress(outdir, n)
+        if key != st.step:
+            _finish_step(st, settings.workdir, n)
+            _set_step(st, key, d, total)
+        st.done, st.total = d, total
+        st.eta_s = _eta(st, n, timing)
+        st.stage = steps.BY_KEY[key]["title"]
+        st.message = "%s · Lauf läuft seit %s" % (st.stage, _elapsed(time.time() - t0))
+        save()                                  # alle 3 s: Fortschritt + Restzeit aktuell halten
+        last = (key, d)
         if code is not None:
             break
         if cancel.wait(3):
             runner.kill()
             raise Cancelled("abgebrochen")
+    _finish_step(st, settings.workdir, n)
     master = find_master(outdir)
     if not master:
         raise StackError("%s Kein Master entstanden – Details in %s" % (
             crash_text(code) if code else "WBPP lief durch, aber", os.path.join(outdir, "logs")))
     log("  Master: %s (%s)" % (os.path.basename(master), _elapsed(time.time() - t0)))
-    finals = _finalize(plan, run, master, finaldir, settings, runner_factory, log)
+    _set_step(st, "finalize", 0, 0)
+    save()
+    previewdir = os.path.join(plan["workdir"], "stacks")
+    outputs = stackqa.process_master(
+        master, run, plan["target"], finaldir, previewdir, datetime.date.today().isoformat(),
+        pixscale=plan.get("pixscale"), fix_fringes=plan.get("options", {}).get("fix_fringes", True), log=log)
+    st.steps_done.append("finalize")
+    _set_step(st, "quality", 0, 0)
+    save()
+    for o in outputs:
+        k = o["kpi"]
+        log("  Qualität %s: Rauschen %.2f ADU · FWHM %s · %d Sterne · Exz. %s · Verlauf %.1f %%" % (
+            o["name"], k["noise"], ('%.2f"' % k["fwhm_as"]) if k.get("fwhm_as") else ("%.2f px" % k["fwhm_px"] if k.get("fwhm_px") else "–"),
+            k["stars"], k["ecc"] if k["ecc"] is not None else "–", k["gradient_pct"]))
+    st.steps_done.append("quality")
+    finals = [o["file"] for o in outputs]
     st.finals += finals
-    st.runs[name] = dict(master=master, finals=finals, minutes=round((time.time() - t0) / 60, 1))
+    st.runs[name] = dict(master=master, finals=finals, outputs=outputs, minutes=round((time.time() - t0) / 60, 1),
+                         lights=n, hours=run.get("hours"), nights=run.get("nights"), filter=run.get("filter"),
+                         mode=run.get("mode"), flats=len(run.get("flats", [])), bias=len(run.get("bias", [])),
+                         darks=len(run.get("darks", [])), reference=run.get("reference"))
     if settings.cleanup_intermediate:
         for d in os.listdir(outdir):
             full = os.path.join(outdir, d)
@@ -437,29 +470,44 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     return master
 
 
-def _finalize(plan, run, master, finaldir, settings, runner_factory, log) -> list[str]:
-    tgt = safe_file(plan["target"])
-    if run["mode"] != "extract":
-        dst = os.path.join(finaldir, "%s_%s.xisf" % (tgt, safe_file(run["name"])))
-        archive_existing(dst)
-        shutil.copy2(master, dst)
-        return [dst]
-    items = ["in=" + pi_path(master)]
-    outs = []
-    for i, ch in enumerate(run["outputs"], 1):
-        dst = os.path.join(finaldir, "%s_%s.xisf" % (tgt, safe_file(ch)))
-        archive_existing(dst)
-        items += ["out%d=%s" % (i, pi_path(dst)), "ch%d=%s" % (i, run["channel_map"][ch])]
-        outs.append(dst)
-    log("  Teile in %s auf …" % " + ".join(run["outputs"]))
-    script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "pjsr", "split.js")
-    r = runner_factory()
-    r.start(script, items)
-    while r.poll() is None:
-        time.sleep(1)
-    if not all(os.path.exists(o) for o in outs):
-        raise StackError("Aufteilen fehlgeschlagen – der Farb-Master liegt in " + master)
-    return outs
+def _set_step(st: Status, key: str, done: int, total: int):
+    st.step, st.done, st.total = key, done, total
+    st.step_started = time.time()
+    st.stage = steps.BY_KEY.get(key, {}).get("title", key)
+    st.eta_s = None
+
+
+def _finish_step(st: Status, workdir: str, n: int):
+    if st.step and st.step not in st.steps_done:
+        st.steps_done.append(st.step)
+        if st.step_started and st.step != "check":
+            steps.learn_timing(workdir, st.step, time.time() - st.step_started, n)
+
+
+def _eta(st: Status, n: int, timing: dict) -> float | None:
+    """Restzeit des aktuellen Schritts: aus dem Tempo (gezählte Schritte) oder aus Erfahrungswerten."""
+    el = time.time() - st.step_started
+    if st.total and st.done >= 2 and el > 20:
+        return max(0.0, (st.total - st.done) * el / st.done)
+    per = timing.get(st.step)
+    if per:
+        return max(0.0, per * n - el)
+    return None
+
+
+def _record_stacks(plan: dict, st: Status, stamp: str, log):
+    """Fertige Stacks in die Projekt-Historie (stacks.json) eintragen."""
+    from .. import project as _project
+    for name, r in st.runs.items():
+        try:
+            _project.add_stack(plan["workdir"], dict(
+                id="%s-%s" % (stamp, safe_file(name)), run_id=stamp, date=datetime.datetime.now().isoformat(timespec="seconds"),
+                run=name, filter=r.get("filter"), mode=r.get("mode"), lights=r.get("lights"), hours=r.get("hours"),
+                nights=r.get("nights"), minutes=r.get("minutes"), flats=r.get("flats"), bias=r.get("bias"),
+                darks=r.get("darks"), reference=r.get("reference"), options=plan.get("options", {}),
+                outputs=r.get("outputs", [])))
+        except Exception as e:  # noqa: BLE001 – Historie darf das Ergebnis nicht gefährden
+            log("  Hinweis: Historie nicht gespeichert (%s)" % e)
 
 
 def _elapsed(sec: float) -> str:

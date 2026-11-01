@@ -31,6 +31,8 @@ class Thresholds:
     rot_tol: float = 2.0               # Grad
     focus_tol: float = 60.0            # Schritte
     flat_max_age_days: int = 60
+    flat_min_frames: int = 5           # darunter unbrauchbar (Rauschen des Master-Flats)
+    flat_good_frames: int = 15
     dark_temp_tol: float = 2.0
     sample_frames: int = 12            # pro Satz höchstens so viele Frames vermessen
 
@@ -212,11 +214,20 @@ def match_calibration(inv, flat_checks: dict | None = None, th: Thresholds | Non
                 score -= abs(age) * (0.5 if age >= 0 else 2.0)   # Flats nach der Nacht bevorzugen
                 if age < -th.flat_max_age_days:
                     reasons.append("%d Tage vor der letzten Nacht aufgenommen" % -age)
-            chk = flat_checks.get(c.folder + "|" + str(c.exposure))
+            n = len(c.frames)
+            if n < th.flat_min_frames:
+                reasons.append("nur %d Frame%s" % (n, "" if n == 1 else "s")); score -= 400 + 20 * (th.flat_min_frames - n)
+            elif n < th.flat_good_frames:
+                reasons.append("nur %d Frames (besser %d+)" % (n, th.flat_good_frames)); score -= 3 * (th.flat_good_frames - n)
+            excl = all(f.excluded for f in c.frames)
+            if excl:
+                reasons.append("Ordner als verworfen markiert"); score -= 2000
+            chk = flat_checks.get(c.id)
             if chk:
                 score -= {"critical": 300, "warning": 30}.get(chk["verdict"], 0)
             cands.append(dict(set=c.summary(), score=round(score, 1), reasons=reasons, _frames=c.frames,
-                              check=chk and dict(verdict=chk["verdict"], findings=chk["findings"]), usable=not mism))
+                              check=chk and dict(verdict=chk["verdict"], findings=chk["findings"]),
+                              usable=not mism and not excl))
         cands.sort(key=lambda x: -x["score"])
         res["flats"] = cands
         if not any(c["usable"] for c in cands):
@@ -241,6 +252,10 @@ def match_calibration(inv, flat_checks: dict | None = None, th: Thresholds | Non
                 age = _days((c.frames[0].date_loc or c.frames[0].date_obs), last_night)
                 if age is not None:
                     score -= abs(age) * 0.1
+                if all(f.excluded for f in c.frames):
+                    reasons.append("Ordner als verworfen markiert"); score -= 2000
+                if len(c.frames) < 10:
+                    reasons.append("nur %d Frames" % len(c.frames)); score -= 5 * (10 - len(c.frames))
                 lst.append(dict(set=c.summary(), score=round(score, 1), reasons=reasons, usable=score > -400, _frames=c.frames))
             lst.sort(key=lambda x: -x["score"])
             res[key] = lst
@@ -250,17 +265,29 @@ def match_calibration(inv, flat_checks: dict | None = None, th: Thresholds | Non
         if not any(d["usable"] for d in res["darks"]):
             res["findings"].append(Finding("info", "Keine passenden Darks",
                                            "Ohne Darks entfernt die Rejection Hotpixel nur bei Dithering.").to_dict())
-        sets_in_folder = {}
-        for c in inv.calib:
-            if c.type == fm.FLAT:
-                sets_in_folder.setdefault(c.folder, []).append(c)
-        for folder, lst in sets_in_folder.items():
-            if len(lst) > 1 and (lst[0].filter or "").lower() == (g.filter or "").lower():
-                res["findings"].append(Finding("warning", "Mehrere Flat-Serien im selben Ordner",
-                                               "%s enthält %d Serien (%s). WBPP würde sie mischen – nur eine verwenden." % (
-                                                   folder, len(lst), ", ".join("%s s × %d" % (c.exposure, len(c.frames)) for c in lst))).to_dict())
+        best = next((c for c in cands if c["usable"]), None)
+        if best and best["set"]["frames"] < th.flat_min_frames:
+            res["findings"].append(Finding("warning", "Sehr wenige Flats (%d)" % best["set"]["frames"],
+                                           "Ein Master-Flat aus so wenigen Frames bringt Rauschen ins Bild. "
+                                           "Besser 20–30 Flats je Filter aufnehmen.").to_dict())
+        if best:
+            same = [c for c in inv.calib if c.type == fm.FLAT and c.folder == best["set"]["folder"]
+                    and (c.filter or "").lower() == (g.filter or "").lower()]
+            if len(same) > 1:
+                res["findings"].append(Finding("info", "Mehrere Flat-Sitzungen im gewählten Ordner",
+                                               "%s enthält %d Sitzungen (%s). Verwendet wird nur: %s." % (
+                                                   best["set"]["folder"], len(same),
+                                                   ", ".join(_sess_label(c.summary()) for c in same),
+                                                   _sess_label(best["set"]))).to_dict())
         out.append(res)
     return out
+
+
+def _sess_label(s: dict) -> str:
+    t = (s.get("session") or "")[11:16]
+    er = s.get("exposure_range")
+    exp = ("%g–%g s" % tuple(er)) if (er and er[1] > er[0] * 1.15) else ("%g s" % s["exposure"] if s.get("exposure") else "?")
+    return "%s%s × %d%s" % ((t + " ") if t else "", exp, s["frames"], " Himmelsflats" if s.get("sky") else "")
 
 
 def check_all(inv, th: Thresholds | None = None, progress=None) -> dict:
@@ -269,7 +296,7 @@ def check_all(inv, th: Thresholds | None = None, progress=None) -> dict:
     checks, cache = {}, {}
     flats = [c for c in inv.calib if c.type == fm.FLAT]
     for i, c in enumerate(flats):
-        checks[c.folder + "|" + str(c.exposure)] = check_flat_set(c, th, cache)
+        checks[c.id] = check_flat_set(c, th, cache)
         if progress:
             progress(i + 1, len(flats), c.folder)
     matches = match_calibration(inv, checks, th)

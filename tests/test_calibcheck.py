@@ -48,11 +48,40 @@ def test_good_and_bad_flats(tmp_path):
 
 
 def test_mixed_series_warning(tmp_path):
+    """Nachbau von FLAT_2026-04-14: zwei Panel-Serien + Himmelsflats mit wechselnder Belichtung im selben Ordner."""
     r = str(tmp_path)
-    make_fits(f"{r}/L/2026-10-12/HaO3/l.fits", NINA_LIGHT, shape=(200, 300))
-    make_fits(f"{r}/FLAT/x/HaO3/a.fits", _flat_header(EXPOSURE=1.0, EXPTIME=1.0), data=synth_flat())
-    make_fits(f"{r}/FLAT/x/HaO3/b.fits", _flat_header(EXPOSURE=1.37, EXPTIME=1.37), data=synth_flat(g_center=47000))
+    make_fits(f"{r}/L/2026-04-08/RGB/l.fits", dict(NINA_LIGHT, FILTER="RGB", **{"DATE-OBS": "2026-04-08T21:00:00"}), shape=(200, 300))
+    f = "%s/FLAT/FLAT_2026-04-14/RGB" % r
+    for i in range(6):   # Panel 0,006 s um 15:23
+        make_fits(f"{f}/p1_{i}.fits", _flat_header(FILTER="RGB", EXPOSURE=0.006, EXPTIME=0.006,
+                                                   **{"DATE-OBS": "2026-04-14T15:23:%02d" % (i * 5)}), data=synth_flat())
+    for i in range(8):   # Panel 0,062 s um 17:20
+        make_fits(f"{f}/p2_{i}.fits", _flat_header(FILTER="RGB", EXPOSURE=0.062, EXPTIME=0.062,
+                                                   **{"DATE-OBS": "2026-04-14T17:20:%02d" % (i * 5)}), data=synth_flat())
+    for i in range(12):  # Himmelsflats: Belichtung steigt mit der Dämmerung, jede anders
+        make_fits(f"{f}/s_{i}.fits", _flat_header(FILTER="RGB", EXPOSURE=0.69 * 1.12 ** i, EXPTIME=0.69 * 1.12 ** i,
+                                                  **{"DATE-OBS": "2026-04-14T19:%02d:00" % (48 + i)}), data=synth_flat())
     inv = discover.scan([r])
+    flats = [c for c in inv.calib if c.type == "flat"]
+    assert sorted(len(c.frames) for c in flats) == [6, 8, 12], "Himmelsflats müssen eine Sitzung bilden"
     res = calibcheck.check_all(inv)
-    titles = [f["title"] for f in res["matches"][0]["findings"]]
-    assert "Mehrere Flat-Serien im selben Ordner" in titles
+    m = res["matches"][0]
+    best = m["flats"][0]
+    assert best["usable"] and best["set"]["frames"] == 12 and best["set"]["sky"]
+    titles = [f["title"] for f in m["findings"]]
+    assert "Mehrere Flat-Sitzungen im gewählten Ordner" in titles
+
+
+def test_single_frame_loses(tmp_path):
+    r = str(tmp_path)
+    make_fits(f"{r}/L/2026-04-08/RGB/l.fits", dict(NINA_LIGHT, FILTER="RGB"), shape=(200, 300))
+    make_fits(f"{r}/FLAT/a/RGB/one.fits", _flat_header(FILTER="RGB", **{"DATE-OBS": "2026-10-13T10:00:00"}), data=synth_flat())
+    for i in range(20):
+        make_fits(f"{r}/FLAT/b/RGB/f{i}.fits", _flat_header(FILTER="RGB", **{"DATE-OBS": "2026-10-14T10:00:%02d" % i}), data=synth_flat())
+    for i in range(20):  # verworfener Ordner zählt nicht
+        make_fits(f"{r}/FLAT/c_verworfen/RGB/f{i}.fits", _flat_header(FILTER="RGB", **{"DATE-OBS": "2026-10-12T10:00:%02d" % i}), data=synth_flat())
+    res = calibcheck.check_all(discover.scan([r]))
+    best = res["matches"][0]["flats"][0]
+    assert best["set"]["frames"] == 20 and "/b/" in best["set"]["folder"].replace("\\", "/")
+    verw = next(c for c in res["matches"][0]["flats"] if "verworfen" in c["set"]["folder"])
+    assert not verw["usable"]
