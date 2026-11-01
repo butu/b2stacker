@@ -618,6 +618,7 @@ async function openProject(name){
 const OPTS=[
   ['fix_fringes','Farbsäume korrigieren','Rot und Blau werden nach dem Stacken an den Sternen exakt auf Grün ausgerichtet. Entfernt farbige Sternränder durch die Atmosphäre – besonders bei tief stehenden Objekten.'],
   ['local_normalization','Local Normalization','Gleicht Helligkeitsverläufe zwischen Nächten an (Mond, Lichtverschmutzung). Bei mehreren Nächten empfohlen.'],
+  ['hot_pixels','Hotpixel entfernen (wenn keine Darks)','Ohne Darks ersetzt b2stacker heiße Pixel vor dem Stacken. Sonst kann PixInsight die Bilder an den Hotpixeln statt an den Sternen ausrichten – das gibt Geistersterne. Mit Darks nicht nötig.'],
   ['distortion_correction','Verzerrungskorrektur','Richtet auch leicht verzerrte Sterne am Bildrand sauber aus.'],
   ['large_scale_rejection','Satelliten-/Flugzeugspuren entfernen','Erkennt lange, helle Spuren und lässt sie beim Mitteln weg.'],
   ['autocrop','Ränder automatisch beschneiden','Aus lassen, wenn mehrere Filter später kombiniert werden – sonst passen die Bilder nicht mehr genau aufeinander.'],
@@ -821,7 +822,7 @@ function renderPlan(b){
         <div class="muted" style="margin-top:6px">~${fmt(r.gb,0)} GB · ~${fmt(r.ram_gb,0)} GB RAM</div></div>
     </div>`).join('')}</div>
   <div class="card"><h2>${ic('sliders')} Optionen</h2><div class="opts">
-    ${OPTS.map(([k,t,d])=>`<label class="opt"><span class="switch"><input type="checkbox" data-opt="${k}" ${op[k]!==false&&(op[k]||k==='fix_fringes')?'checked':''}><span></span></span><span><div class="t">${t}</div><div class="d">${d}</div></span></label>`).join('')}
+    ${OPTS.map(([k,t,d])=>`<label class="opt"><span class="switch"><input type="checkbox" data-opt="${k}" ${op[k]!==false&&(op[k]||k==='fix_fringes'||k==='hot_pixels')?'checked':''}><span></span></span><span><div class="t">${t}</div><div class="d">${d}</div></span></label>`).join('')}
     <label class="opt"><span style="width:40px"></span><span><div class="t">Gewichtung</div>
       <select data-opt-sel="weighting"><option value="psf_signal" ${op.weighting==='psf_signal'?'selected':''}>PSF Signal (empfohlen)</option><option value="psf_snr" ${op.weighting==='psf_snr'?'selected':''}>PSF SNR</option><option value="snr" ${op.weighting==='snr'?'selected':''}>SNR</option></select>
       <div class="d">Schwache Frames (Mond, Dunst) zählen automatisch weniger.</div></span></label>

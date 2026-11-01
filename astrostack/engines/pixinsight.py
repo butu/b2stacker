@@ -22,7 +22,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from .. import logbook, stackqa, steps, system, wbpplog
+from .. import hotpix, logbook, stackqa, steps, system, wbpplog
 from ..fitsmeta import BIAS, DARK, FLAT
 
 IMAGE_EXT = (".fits", ".fit", ".fts", ".xisf")
@@ -460,8 +460,8 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     outdir = os.path.join(jobdir, safe_file(name))
     os.makedirs(outdir, exist_ok=True)
     n = len(run["lights"])
-    if run.get("_retry"):
-        log("=== Lauf %s wiederholt: %d Lights (Zwischenergebnisse werden wiederverwendet) ===" % (name, n))
+    if run.get("_retry") or run.get("_lock_retry"):
+        log("=== Lauf %s wird wiederholt: %d Lights ===" % (name, n))
     else:
         log("=== Lauf %s: %d Lights ===" % (name, n))
     missing = [p for p in run["lights"] if not os.path.exists(p)]
@@ -506,6 +506,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
                  flats=fix_calibration(run.get("flats", []), FLAT, cache))
     if not calib["flats"]:
         log("  WARNUNG: keine Flats – Vignettierung und Staub bleiben im Bild.")
+    run = _cosmetic(plan, run, settings, jobdir, calib, st, log, save, cancel)
     script = settings.wbpp_script
     fg = [g for g in (run.get("flat_groups") or []) if g.get("lights")]
     linkbase = os.path.join(jobdir, "_grp", safe_file(name))
@@ -595,10 +596,51 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
             if os.path.isdir(full) and d not in ("master", "logs"):
                 shutil.rmtree(full, ignore_errors=True)
         shutil.rmtree(os.path.join(jobdir, "_lights", safe_file(name)), ignore_errors=True)
+        shutil.rmtree(os.path.join(jobdir, "_cosmetic", safe_file(name)), ignore_errors=True)
         log("  Zwischendateien gelöscht")
     remove_link_tree(os.path.join(jobdir, "_grp", safe_file(name)))
     save()
     return master
+
+
+def _cosmetic(plan, run, settings, jobdir, calib, st, log, save, cancel) -> dict:
+    """Ohne Darks: Hotpixel selbst entfernen (bereinigte Kopien der Lights) → Lauf mit den neuen Pfaden."""
+    if not run.get("_force_cosmetic") and (calib.get("darks") or plan.get("options", {}).get("hot_pixels", True) is False):
+        return run
+    fits_l = [p for p in run["lights"] if p.lower().endswith((".fits", ".fit", ".fts"))]
+    if not fits_l:
+        return run
+    st.run_steps = steps.stack_steps(run["mode"], run.get("is_osc", True), cosmetic=True)
+    _finish_step(st, settings.workdir, len(run["lights"]))
+    _set_step(st, "cosmetic", 0, len(fits_l))
+    save()
+    log("  Keine Darks → Hotpixel werden vor dem Stacken entfernt (%d Lights) …" % len(fits_l))
+    cache = os.path.join(jobdir, "_cosmetic", safe_file(run["name"]))
+    last = [0.0]
+
+    def prog(d, t):
+        st.done, st.total = d, t
+        if time.time() - last[0] > 2:
+            last[0] = time.time()
+            st.eta_s = _eta(st, len(fits_l), steps.load_timing(settings.workdir))
+            save()
+
+    mapping, stats = hotpix.clean_lights(fits_l, cache, is_cfa=None if run.get("is_osc", True) else False,
+                                         workers=max(1, min(4, (os.cpu_count() or 2) // 2)), log=log,
+                                         progress=prog, cancel=cancel)
+    if cancel.is_set():
+        raise Cancelled("abgebrochen")
+    if stats:
+        px = [s["pixels"] for s in stats]
+        log("  Hotpixel ersetzt: im Mittel %d pro Bild (%d–%d)" % (sum(px) / len(px), min(px), max(px)))
+        logbook.event("cosmetic", run=run["name"], frames=len(stats), mean_pixels=round(sum(px) / len(px)),
+                      min_pixels=min(px), max_pixels=max(px))
+    _finish_step(st, settings.workdir, len(fits_l))
+    m = lambda ps: [mapping.get(p, p) for p in ps]                     # noqa: E731
+    fg = [dict(g, lights=m(g.get("lights", []))) for g in run.get("flat_groups") or []]
+    wb = dict(run.get("wbpp") or {})
+    wb.setdefault("hotPixelFilterRadius", "2")          # zusätzliche Sicherheit bei der Sternerkennung
+    return dict(run, lights=m(run["lights"]), flat_groups=fg or run.get("flat_groups"), wbpp=wb)
 
 
 def _check_registration(run: dict, outdir: str, master: str, notes: list, log) -> dict | None:
@@ -606,18 +648,33 @@ def _check_registration(run: dict, outdir: str, master: str, notes: list, log) -
 
     Gibt den Lauf für die Wiederholung zurück oder None (alles gut bzw. keine Wiederholung möglich)."""
     try:
-        chk = wbpplog.check_registration(outdir)
+        chk = wbpplog.check_registration(outdir, wbpplog.light_info(run["lights"]))
     except Exception as e:  # noqa: BLE001 – Prüfung darf das Ergebnis nicht gefährden
         log("  Hinweis: Registrierung nicht geprüft (%s)" % e)
         return None
     bad = chk["bad"]
+    lock = [b for b in bad if b.get("lock")]
     logbook.event("registration_check", run=run["name"], frames=chk["frames"], retry=bool(run.get("_retry")),
-                  bad=[dict(file=os.path.basename(b["file"]), why=b["why"], scale=b.get("scale"),
-                            inliers=b.get("inliers"), quality=b.get("quality")) for b in bad])
+                  lock_retry=bool(run.get("_lock_retry")), locked=len(lock), reference=chk.get("reference"),
+                  bad=[dict(file=os.path.basename(b["file"]), why=b["why"], scale=b.get("scale"), lock=b.get("lock"),
+                            inliers=b.get("inliers"), quality=b.get("quality"), tx=b.get("tx"), ty=b.get("ty"),
+                            rotation=b.get("rotation")) for b in bad])
     if not bad:
         if chk["frames"]:
             log("  Registrierung geprüft: alle %d Frames plausibel" % chk["frames"])
         return None
+    if lock:
+        log("  WARNUNG: %d Bilder aus anderen Nächten/von der anderen Meridianseite liegen „perfekt“ (0,0 px) auf der "
+            "Referenz – PixInsight hat sie an Hotpixeln (Sensor) statt an den Sternen ausgerichtet." % len(lock))
+        _discard(master)
+        if not run.get("_lock_retry"):
+            log("  → Neuer Versuch: Hotpixel werden entfernt und die Sternerkennung filtert stärker.")
+            wb = dict(run.get("wbpp") or {}, hotPixelFilterRadius="3", noiseReductionFilterRadius="2")
+            return dict(run, _lock_retry=True, _force_cosmetic=True, wbpp=wb,
+                        _notes=notes + ["Erster Versuch an Hotpixeln ausgerichtet – mit Hotpixel-Entfernung neu gerechnet."])
+        raise StackError("PixInsight hat die Bilder auch im zweiten Versuch an Sensor-Mustern statt an den Sternen "
+                         "ausgerichtet (%d Bilder). Der Stack wäre unbrauchbar (Geistersterne). Abhilfe: passende Darks "
+                         "aufnehmen und im Plan wählen, beim Aufnehmen dithern. Details: %s" % (len(lock), chk.get("log")))
     for b in bad:
         log("  WARNUNG: %s falsch registriert (%s)" % (os.path.basename(b["file"]), ", ".join(b["why"])))
     drop = wbpplog.map_to_lights(bad, run["lights"])
@@ -626,12 +683,8 @@ def _check_registration(run: dict, outdir: str, master: str, notes: list, log) -
         notes.append("%d Frame(s) möglicherweise falsch registriert – Stack auf Geistersterne prüfen: %s" % (
             len(bad), ", ".join(os.path.basename(b["file"]) for b in bad)))
         return None
-    log("  → Diese %d Frame(s) würden Geistersterne erzeugen. Stack wird ohne sie neu gerechnet "
-        "(Kalibrierung und Registrierung der übrigen Frames werden wiederverwendet)." % len(drop))
-    try:                                                # alter Master darf nicht als Ergebnis gefunden werden
-        os.replace(master, master + ".verworfen")
-    except OSError:
-        pass
+    log("  → Diese %d Frame(s) würden Geistersterne erzeugen. Stack wird ohne sie neu gerechnet." % len(drop))
+    _discard(master)
     old_n = len(run["lights"])
     dropped = set(drop)
     fg = []
@@ -642,6 +695,14 @@ def _check_registration(run: dict, outdir: str, master: str, notes: list, log) -
     return dict(run, lights=keep, lightCount=len(keep), flat_groups=fg or run.get("flat_groups"),
                 hours=round((run.get("hours") or 0) * len(keep) / old_n, 2) if run.get("hours") else run.get("hours"),
                 _retry=True, _notes=notes, _excluded=list(run.get("_excluded") or []) + drop)
+
+
+def _discard(master: str):
+    """Verworfenen Master umbenennen (darf nicht als Ergebnis gefunden werden)."""
+    try:
+        os.replace(master, master + ".verworfen")
+    except OSError:
+        pass
 
 
 def _set_step(st: Status, key: str, done: int, total: int):

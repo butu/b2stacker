@@ -50,11 +50,13 @@ class FakePI:
         pass
 
 
-def _setup(tmp_path, monkeypatch, n=3):
+def _setup(tmp_path, monkeypatch, n=3, pier=None):
     monkeypatch.setenv("ASTROSTACK_SETTINGS", str(tmp_path / "settings.json"))
     r = str(tmp_path / "data")
     for i in range(n):
         h = dict(NINA_LIGHT, **{"DATE-OBS": "2026-10-12T20:%02d:00" % (10 * i)})
+        if pier:
+            h["PIERSIDE"] = pier[i]
         make_fits(f"{r}/vdB 131/2026-10-12/HaO3/L_{i:04d}.fits", h, data=star_field(i))
     hf = dict(NINA_LIGHT, IMAGETYP="FLAT", EXPOSURE=1.0, EXPTIME=1.0)
     hf.pop("OBJECT")
@@ -87,8 +89,10 @@ def test_stack_extract_haoiii(tmp_path, monkeypatch):
     assert names == ["vdB131_Ha_%s_0.5h.xisf" % day, "vdB131_OIII_%s_0.5h.xisf" % day], names
     wbpp_items = FakePI.calls[0][1]
     assert "automationMode=true" in wbpp_items and "debayerOutputMethod=0" in wbpp_items
-    # ganzer Light-Ordner → dir=, Flats-Ordner → dir=
-    assert any(i.startswith("dir=") and i.endswith("/HaO3") and "vdB 131" in i for i in wbpp_items)
+    # keine Darks → Hotpixel-bereinigte Kopien (ganzer Ordner → dir=), strengere Sternerkennung
+    assert any(i.startswith("dir=") and "/_cosmetic/" in i for i in wbpp_items)
+    assert "hotPixelFilterRadius=2" in wbpp_items
+    assert not any("vdB 131/2026-10-12" in i for i in wbpp_items)
     # Snapshot-Bias (IMAGETYP=LIGHT) wurde als korrigierte Kopie übergeben
     bias = [i for i in wbpp_items if "calib_fixed" in i]
     assert len(bias) == 1 and bias[0].startswith("dir=")
@@ -209,3 +213,76 @@ def test_registration_parser_on_wbpp_log():
     assert len(regs) == 4 and regs[0]["matches"] == 900 and regs[0]["scale"] == 1.0
     assert wbpplog.judge(regs) == []                         # niedrige, aber plausible Qualität ist kein Fehler
     assert wbpplog.stem("G:/x/3.23_NGC 1999_600.00sec_-9.90c_0034_c_d_r.xisf") == "3.23_NGC 1999_600.00sec_-9.90c_0034"
+
+
+class FakePILocked(FakePI):
+    """Erster Lauf: Bilder der Ostseite liegen „perfekt“ auf der Referenz (an Hotpixeln ausgerichtet)."""
+
+    def start(self, script, items):
+        cmd = super().start(script, items)
+        out = dict(i.split("=", 1) for i in items if i.startswith("outputDirectory="))["outputDirectory"]
+        os.makedirs(os.path.join(out, "logs"), exist_ok=True)
+        k = len(os.listdir(os.path.join(out, "logs")))
+        ref = "[2026-11-01 17:49:55] Reference image: G:/w/debayered/L_0000_c_d.xisf\n"
+        frames = "".join(SA_FRAME % ("L_%04d" % i, 900, 0.6, 0.9, 1.0) for i in range(4))
+        if k:   # zweiter Versuch: echte Verschiebung/Drehung
+            frames = frames.replace("rotation      :     -0.36 deg", "rotation      :   +179.80 deg")
+        open(os.path.join(out, "logs", "run%d.log" % k), "w").write(SA_BLOCK % (ref + frames))
+        return cmd
+
+
+def test_sensor_lock_detected_and_retried_with_cosmetic(tmp_path, monkeypatch):
+    s, plan, pdir = _setup(tmp_path, monkeypatch, n=4, pier=["West", "West", "East", "East"])
+    FakePI.calls = []
+    monkeypatch.setattr(pi.system, "pixinsight_processes", lambda: [])
+    lines = []
+    st = pi.run_plan(plan, s, log=lines.append, runner_factory=FakePILocked)
+    assert st.state == "done", st.error
+    wbpp = [c for c in FakePI.calls if c[0] != "split.js"]
+    assert len(wbpp) == 2
+    assert "hotPixelFilterRadius=3" in wbpp[1][1] and "noiseReductionFilterRadius=2" in wbpp[1][1]
+    assert any("am Sensor" in l or "Hotpixeln" in l for l in lines)
+    assert st.runs["HaO3"]["lights"] == 4                    # niemand ausgelassen, nur neu ausgerichtet
+
+
+def test_sensor_lock_twice_fails_clearly(tmp_path, monkeypatch):
+    s, plan, pdir = _setup(tmp_path, monkeypatch, n=4, pier=["West", "West", "East", "East"])
+
+    class AlwaysLocked(FakePILocked):
+        def start(self, script, items):
+            cmd = FakePI.start(self, script, items)
+            out = dict(i.split("=", 1) for i in items if i.startswith("outputDirectory="))["outputDirectory"]
+            os.makedirs(os.path.join(out, "logs"), exist_ok=True)
+            ref = "[2026-11-01 17:49:55] Reference image: G:/w/debayered/L_0000_c_d.xisf\n"
+            frames = "".join(SA_FRAME % ("L_%04d" % i, 900, 0.6, 0.9, 1.0) for i in range(4))
+            open(os.path.join(out, "logs", "r%d.log" % len(os.listdir(os.path.join(out, "logs")))), "w").write(
+                SA_BLOCK % (ref + frames))
+            return cmd
+    monkeypatch.setattr(pi.system, "pixinsight_processes", lambda: [])
+    st = pi.run_plan(plan, s, log=lambda *a: None, runner_factory=AlwaysLocked)
+    assert st.state == "failed" and "Darks" in st.error
+
+
+def test_hotpixels_removed_stars_kept():
+    import numpy as np
+    from astrostack import hotpix
+    rng = np.random.default_rng(1)
+    img = rng.normal(1000, 20, (400, 600)).astype(np.float32)
+    yy, xx = np.mgrid[0:400, 0:600]
+    stars = [(50 + 37 * i % 350, 40 + 53 * i % 560, 3000 + 800 * (i % 7)) for i in range(40)]
+    for y, x, a in stars:
+        img += a * np.exp(-((yy - y) ** 2 + (xx - x) ** 2) / (2 * 1.8 ** 2))
+    hot = [(rng.integers(5, 395), rng.integers(5, 595)) for _ in range(300)]
+    clean = img.copy()
+    for y, x in hot:
+        img[y, x] += 5000
+    mask, rep = hotpix.detect(img, is_cfa=True)
+    found = sum(mask[y, x] for y, x in hot)
+    assert found >= 0.9 * len(hot)
+    star_px = np.zeros_like(mask)
+    for y, x, a in stars:
+        star_px |= (yy - y) ** 2 + (xx - x) ** 2 <= 9
+    hot_px = np.zeros_like(mask)
+    for y, x in hot:
+        hot_px[y, x] = True
+    assert (mask & star_px & ~hot_px).sum() <= 3          # Sterne bleiben unangetastet

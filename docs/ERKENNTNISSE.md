@@ -106,3 +106,25 @@
   (`registration_check`). Frames mit niedriger, aber plausibler Qualität (0,42, Maßstab 0,999) bleiben drin.
 - Nebenbefunde: Local Normalization wurde übersprungen (2 Frames ohne Skalenschätzung → „Unable to determine
   the LN reference frame“); Flats mit ROTATOR 0 vs. Lights 92,6°.
+
+## Nachtrag 2026-11-01 (2): Die eigentliche Ursache – Ausrichtung an Hotpixeln (NGC 1999)
+
+- 0.5.1 hat den falsch registrierten Frame weggelassen – der Geist blieb identisch. Der eine Frame war ein Nebenschauplatz.
+- Wirkliche Ursache: keine Darks, kein Dithering → ~23 000 Hot-/Warmpixel pro 600-s-Bild, rund die Hälfte an
+  identischen Sensor-Stellen. StarAlignment nimmt die 2000 hellsten „Sterne“; nach dem Debayern sind ~300 davon
+  Hotpixel an festen Positionen. Ergebnis: fast alle Bilder „passen“ mit 0,00 px / 0,00° auf die Referenz – auch die
+  Bilder nach dem Meridian-Flip (in Wahrheit 180° gedreht) und die der zweiten Nacht (in Wahrheit ~20 px versetzt).
+  Die 180°-gedrehten Ost-Bilder erzeugen die gedrehte Geisterkopie der Plejaden-Ecke oben links.
+- Nachweis: Kreuzkorrelation Rohbild West (0000) gegen Ost (0016): Spitze bei 180° (96 σ) statt 0° (24 σ);
+  WBPP meldet für 0016 aber Verschiebung 0,04 px, Drehung 0,00°.
+- Lösungen (0.5.2):
+  1. `hotpix.py`: ohne Darks werden Hot-/Kaltpixel vor WBPP ersetzt (Bayer-bewusst: Abweichung vom Median der
+     gleichfarbigen Nachbarn > 6 σ und alle direkten Nachbarn unauffällig → Sterne bleiben unberührt; Sternfluss
+     99,9 %). Plus `hotPixelFilterRadius=2` für StarAlignment (über die WBPP-Automation setzbar).
+     Simulation: Top-2000-Detektionen an identischer Sensorposition 301 → 1.
+  2. `wbpplog.judge(…, info)`: Bilder aus anderer Nacht oder von anderer Meridianseite mit < 0,5 px und < 1° zur
+     Referenz = „am Sensor ausgerichtet“ (lock). Dann einmal neu mit Hotpixel-Entfernung (auch mit Darks) und
+     `hotPixelFilterRadius=3`, `noiseReductionFilterRadius=2`; klappt es wieder nicht → Fehler statt Geister-Stack.
+- WBPP-Automation: beliebige Engine-Parameter per `name=wert` (Parameters.set → importParameters), u. a.
+  hotPixelFilterRadius, noiseReductionFilterRadius, minStructureSize, sensitivity, rigidTransformations, maxStars.
+  CosmeticCorrection geht in WBPP nur über ein Prozess-Icon – in der Automation nicht nutzbar.

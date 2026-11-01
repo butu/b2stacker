@@ -28,6 +28,7 @@ _PATTERNS = {
     "ty": re.compile(r"translation_y\s*:\s*" + _NUM),
 }
 _LOAD = re.compile(r"\* Loading target file: (.+?)\s*$")
+_REF = re.compile(r"^Reference image: (.+?)\s*$")
 _FAIL = re.compile(r"(Unable to find an initial set of putative star pair matches|Registration failed|"
                    r"\*\*\* Error.*StarAlignment)", re.I)
 
@@ -48,6 +49,10 @@ def registrations(text: str) -> list[dict]:
             in_sa = True
             continue
         if not in_sa:
+            continue
+        m = _REF.search(line)
+        if m and not any(r.get("reference") for r in out):
+            out.append({"reference": m.group(1).strip()})
             continue
         if "===== StarAlignment:" in line or "End registration of light frames" in line:
             break
@@ -73,14 +78,45 @@ def registrations(text: str) -> list[dict]:
             cur["failed"] = True
         if "Registration successful" in line:
             cur["ok"] = True
-    return [r for r in out if "scale" in r or r.get("failed")]
+    return [r for r in out if r.get("reference") or "scale" in r or r.get("failed")]
 
 
-def judge(regs: list[dict]) -> list[dict]:
-    """Verdächtige Registrierungen mit Begründung (deutsch). Leere Liste = alles plausibel."""
-    bad = []
+def reference_of(regs: list[dict]) -> str | None:
     for r in regs:
+        if r.get("reference"):
+            return r["reference"]
+    return None
+
+
+LOCK_PX = 0.5          # Verschiebung unter 0,5 px zwischen verschiedenen Nächten/Meridianseiten ist unmöglich
+
+
+def judge(regs: list[dict], info: dict | None = None) -> list[dict]:
+    """Verdächtige Registrierungen mit Begründung (deutsch). Leere Liste = alles plausibel.
+
+    info: {stem (klein): {"night": …, "pier": …}} der Original-Lights – damit wird erkannt, wenn StarAlignment die
+    Bilder am Sensor (Hotpixel) statt am Himmel ausgerichtet hat: Bilder aus anderer Nacht oder von der anderen
+    Meridianseite liegen dann „perfekt“ (0,0 px, 0,0°) auf der Referenz. → lock=True."""
+    bad = []
+    ref = reference_of(regs)
+    rinfo = (info or {}).get(stem(ref).lower()) if ref else None
+    for r in regs:
+        if r.get("reference"):
+            continue
         why = []
+        lock = False
+        fi = (info or {}).get(stem(r["file"]).lower())
+        if rinfo and fi and stem(r["file"]).lower() != stem(ref).lower() and r.get("scale") is not None:
+            t = ((r.get("tx") or 0) ** 2 + (r.get("ty") or 0) ** 2) ** 0.5
+            other = []
+            if fi.get("night") and rinfo.get("night") and fi["night"] != rinfo["night"]:
+                other.append("andere Nacht")
+            if fi.get("pier") and rinfo.get("pier") and fi["pier"] != rinfo["pier"]:
+                other.append("andere Meridianseite")
+            if other and t < LOCK_PX and abs(r.get("rotation") or 0) < 1:
+                lock = True
+                why.append("am Sensor statt an den Sternen ausgerichtet (%s, trotzdem %.2f px / %.2f°)" % (
+                    " + ".join(other), t, r.get("rotation") or 0))
         if r.get("failed") and not r.get("ok"):
             why.append("nicht registriert")
         sc = r.get("scale")
@@ -91,11 +127,11 @@ def judge(regs: list[dict]) -> list[dict]:
         if r.get("quality") is not None and r["quality"] < MIN_QUALITY:
             why.append("Qualität %.2f" % r["quality"])
         if why:
-            bad.append(dict(r, why=why))
+            bad.append(dict(r, why=why, lock=lock))
     return bad
 
 
-def check_registration(outdir: str) -> dict:
+def check_registration(outdir: str, info: dict | None = None) -> dict:
     """Protokoll des letzten WBPP-Laufs in <outdir>/logs prüfen."""
     log = newest_log(os.path.join(outdir, "logs"))
     if not log:
@@ -105,7 +141,8 @@ def check_registration(outdir: str) -> dict:
     except OSError:
         return {"log": log, "frames": 0, "bad": []}
     regs = registrations(text)
-    return {"log": log, "frames": len(regs), "bad": judge(regs), "regs": regs}
+    frames = [r for r in regs if not r.get("reference")]
+    return {"log": log, "frames": len(frames), "bad": judge(regs, info), "regs": frames, "reference": reference_of(regs)}
 
 
 _SUFFIX = re.compile(r"(_(c|cc|d|r|a|n|cfa))+$", re.I)
@@ -115,6 +152,20 @@ def stem(path: str) -> str:
     """Name eines Zwischenprodukts → Name des Original-Lights (…_0034_c_d_r.xisf → …_0034)."""
     b = os.path.splitext(os.path.basename(path.replace("\\", "/")))[0]
     return _SUFFIX.sub("", b)
+
+
+def light_info(lights: list[str]) -> dict:
+    """{stem: {night, pier}} aus den FITS-Headern der Original-Lights (nur Header, schnell)."""
+    from .fitsmeta import read_meta
+    out = {}
+    for p in lights:
+        try:
+            m = read_meta(p)
+        except Exception:  # noqa: BLE001
+            continue
+        pier = (m.pier_side or "").strip().lower() or None
+        out[stem(p).lower()] = {"night": m.night, "pier": pier}
+    return out
 
 
 def map_to_lights(bad: list[dict], lights: list[str]) -> list[str]:

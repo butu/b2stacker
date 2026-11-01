@@ -289,7 +289,8 @@ def match_calibration(inv, flat_checks: dict | None = None, th: Thresholds | Non
                                            "Flats können nicht sauber kalibriert werden.").to_dict())
         if not any(d["usable"] for d in res["darks"]):
             res["findings"].append(Finding("info", "Keine passenden Darks",
-                                           "Ohne Darks entfernt die Rejection Hotpixel nur bei Dithering.").to_dict())
+                                           "b2stacker entfernt die Hotpixel vor dem Stacken selbst. Besser: Darks mit gleicher "
+                                           "Belichtungszeit, Gain und Temperatur aufnehmen und beim Aufnehmen dithern.").to_dict())
         best = next((c for c in cands if c["usable"]), None)
         if best and best["set"]["frames"] < th.flat_min_frames and not best["set"].get("is_master"):
             res["findings"].append(Finding("warning", "Sehr wenige Flats (%d)" % best["set"]["frames"],

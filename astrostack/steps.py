@@ -30,8 +30,9 @@ STACK = [
          what="Bias wird abgezogen und durch das Master-Flat geteilt.",
          why="Entfernt Ausleserauschen-Muster, Vignettierung und Staubschatten."),
     dict(key="cosmetic", title="Hotpixel", icon="sparkle",
-         what="Einzelne heiße und kalte Pixel werden ersetzt.",
-         why="Sonst entstehen beim Ausrichten Würmer und farbige Punkte."),
+         what="Keine Darks vorhanden: einzelne heiße und kalte Pixel werden vor dem Kalibrieren ersetzt.",
+         why="Sonst richtet PixInsight die Bilder an den Hotpixeln statt an den Sternen aus (Geistersterne), "
+             "und ohne Dithering bleiben sie als farbige Punkte im Stack."),
     dict(key="debayer", title="Debayern", icon="grid",
          what="Aus dem Farbmosaik der Kamera wird ein Farbbild.",
          why="Nötig, damit die Farbkanäle gemeinsam ausgerichtet werden können."),
@@ -53,8 +54,8 @@ STACK = [
 BY_KEY = {s["key"]: s for s in ANALYZE + STACK}
 
 
-def stack_steps(mode: str, osc: bool = True) -> list[str]:
-    keys = ["check", "calibrate"]          # (Hotpixel: übernimmt die Rejection, WBPP-Kosmetik ist aus)
+def stack_steps(mode: str, osc: bool = True, cosmetic: bool = False) -> list[str]:
+    keys = ["check"] + (["cosmetic"] if cosmetic else []) + ["calibrate"]   # cosmetic: eigene Hotpixel-Entfernung
     if osc and mode in ("debayer", "extract"):
         keys.append("debayer")
     keys += ["register", "integrate", "finalize", "quality"]

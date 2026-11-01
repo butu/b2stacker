@@ -92,7 +92,8 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
     samp = (fw / scale) if (fw and scale) else None
     has_darks = any(r["darks"] for r in runs)
     settings += [("Kalibrierung", "Bias%s + Flats je Filter%s" % (" / Dark-Flats" if any(r["darkflats"] for r in runs) else "", " + Darks" if has_darks else ""),
-                  "Darks gefunden und zugeordnet." if has_darks else "Keine passenden Darks – Hotpixel entfernt die Rejection dank Dithering.")]
+                  "Darks gefunden und zugeordnet." if has_darks else "Keine passenden Darks – b2stacker entfernt Hotpixel vor dem Stacken selbst (sonst kann PixInsight "
+                  "die Bilder an Hotpixeln statt an Sternen ausrichten).")]
     settings += [("Verarbeitung " + r["name"], {"debayer": "Farbbild", "extract": "Kanäle " + " + ".join(r["outputs"]), "mono": "Mono"}[r["mode"]], r["why"]) for r in runs]
     settings += [
         ("Registrierung", "Verzerrungskorrektur an", "Großes Bildfeld: Sterne am Rand leicht verzerrt."),
@@ -122,7 +123,7 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
         pixscale=round(scale, 4) if scale else None,
         options=dict(fix_fringes=True, local_normalization=nn > 1, drizzle=bool(samp and samp <= 3), autocrop=False,
                      weighting="psf_signal", rejection="auto", large_scale_rejection=True, distortion_correction=True,
-                     cleanup=True))
+                     hot_pixels=True, cleanup=True))
     return plan
 
 
