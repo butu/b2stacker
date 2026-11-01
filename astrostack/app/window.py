@@ -49,6 +49,24 @@ def pick_folder(initial: str = "") -> str | None | bool:
     return os.path.normpath(p)
 
 
+def pick_file(initial: str = "", file_types=("Programme (*.exe)", "Alle Dateien (*.*)")) -> str | None | bool:
+    """Nativer Datei-Dialog im Programmfenster. False = kein Fenster."""
+    w = STATE["window"]
+    if w is None:
+        return False
+    import webview
+    kind = getattr(getattr(webview, "FileDialog", None), "OPEN", None)
+    if kind is None:
+        kind = webview.OPEN_DIALOG
+    d = initial if os.path.isdir(initial or "") else os.path.dirname(initial or "")
+    res = w.create_file_dialog(kind, directory=d if d and os.path.isdir(d) else "", allow_multiple=False,
+                               file_types=tuple(file_types))
+    if not res:
+        return None
+    p = res[0] if isinstance(res, (list, tuple)) else res
+    return os.path.normpath(p)
+
+
 def focus() -> bool:
     w = STATE["window"]
     if w is None:

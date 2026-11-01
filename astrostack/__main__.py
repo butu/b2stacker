@@ -50,6 +50,10 @@ def run():
             stream.reconfigure(errors="replace")
         except Exception:  # noqa: BLE001
             pass
+    if len(sys.argv) >= 2 and sys.argv[1] == "_pick-file":
+        from .app.server import _pick_file_dialog
+        _pick_file_dialog(sys.argv[2] if len(sys.argv) > 2 else "")
+        return
     if len(sys.argv) >= 2 and sys.argv[1] == "_pick-folder":
         from .app.server import _pick_folder_dialog
         _pick_folder_dialog(sys.argv[2] if len(sys.argv) > 2 else "")

@@ -75,3 +75,22 @@ def test_unknown_future_fields_are_kept(tmp_path):
     json.dump(m, open(os.path.join(pdir, "project.json"), "w"))
     project.save_meta(pdir, description="neu")
     assert project.meta(pdir)["kuenftig"] == {"x": 1}
+
+
+def test_check_pixinsight(tmp_path):
+    from astrostack.app.server import check_pixinsight
+    base = tmp_path / "PixInsight"
+    (base / "bin").mkdir(parents=True)
+    exe = base / "bin" / "PixInsight.exe"
+    exe.write_bytes(b"")
+    r = check_pixinsight(str(exe))
+    assert r["exists"] and not r["wbpp"] and not r["ok"]
+    wb = base / "src" / "scripts" / "BatchPreprocessing"
+    wb.mkdir(parents=True)
+    (wb / "WBPP.js").write_text("")
+    assert check_pixinsight(str(exe))["ok"]
+    r = check_pixinsight(str(base))                 # Ordner gewählt → exe wird gefunden
+    assert r["ok"] and r["path"].endswith("PixInsight.exe")
+    other = tmp_path / "notepad.exe"
+    other.write_bytes(b"")
+    assert not check_pixinsight(str(other))["ok"]

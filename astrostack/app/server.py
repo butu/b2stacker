@@ -123,6 +123,62 @@ def _pick_folder_dialog(initial: str = ""):
     sys.stdout.flush()
 
 
+def _pick_file_dialog(initial: str = ""):
+    import tkinter as tk
+    from tkinter import filedialog
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    d = initial if os.path.isdir(initial) else os.path.dirname(initial)
+    p = filedialog.askopenfilename(initialdir=d or None, title="PixInsight.exe wählen",
+                                   filetypes=[("Programme", "*.exe"), ("Alle Dateien", "*.*")])
+    sys.stdout.write(p or "")
+    sys.stdout.flush()
+
+
+def pick_file(initial: str = "") -> str | None:
+    """Datei wählen (z. B. PixInsight.exe): im Programmfenster direkt, sonst über einen Hilfsprozess."""
+    from . import window
+    r = window.pick_file(initial)
+    if r is not False:
+        return r
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable, "_pick-file", initial or ""]
+    else:
+        cmd = [sys.executable, "-m", "astrostack", "_pick-file", initial or ""]
+    out = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900,
+                         env=dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1"),
+                         creationflags=0x08000000 if sys.platform == "win32" else 0)
+    if out.returncode != 0:
+        raise RuntimeError("Datei-Dialog nicht verfügbar – Pfad bitte eintippen.")
+    p = out.stdout.strip()
+    return os.path.normpath(p) if p else None
+
+
+def check_pixinsight(path: str) -> dict:
+    """Ist das wirklich PixInsight? Ordner statt Datei gewählt → PixInsight.exe darin suchen."""
+    p = (path or "").strip().strip('"')
+    if p and os.path.isdir(p):
+        for cand in (os.path.join(p, "PixInsight.exe"), os.path.join(p, "bin", "PixInsight.exe"),
+                     os.path.join(p, "PixInsight"), os.path.join(p, "bin", "PixInsight")):
+            if os.path.isfile(cand):
+                p = cand
+                break
+    s = Settings(pixinsight=p)
+    exists = os.path.isfile(p)
+    name_ok = os.path.basename(p).lower().startswith("pixinsight")
+    wbpp = os.path.exists(s.wbpp_script)
+    if not exists:
+        msg = "Datei nicht gefunden."
+    elif not name_ok:
+        msg = "Das scheint nicht PixInsight zu sein (erwartet: PixInsight.exe im Ordner …\\PixInsight\\bin)."
+    elif not wbpp:
+        msg = "PixInsight gefunden, aber das WBPP-Skript fehlt daneben – PixInsight-Installation prüfen."
+    else:
+        msg = "PixInsight und WBPP gefunden."
+    return dict(path=p, ok=exists and name_ok and wbpp, exists=exists, wbpp=wbpp, message=msg)
+
+
 def _pick_folder_powershell(initial: str):
     """Ersatz unter Windows: der Ordner-Dialog des Systems."""
     ps = ("Add-Type -AssemblyName System.Windows.Forms;"
@@ -390,6 +446,10 @@ class Handler(BaseHTTPRequestHandler):
             b = self._body()
             if parts == ["api", "settings"]:
                 return self._json(save_settings(b))
+            if parts == ["api", "pick-file"]:
+                return self._json({"path": pick_file(b.get("initial", ""))})
+            if parts == ["api", "check-pixinsight"]:
+                return self._json(check_pixinsight(b.get("path", "")))
             if parts == ["api", "pick-folder"]:
                 return self._json({"path": pick_folder(b.get("initial", ""))})
             if parts == ["api", "analyze"]:
