@@ -1,0 +1,35 @@
+# PyInstaller-Spezifikation für AstroStack.exe (eine Datei, mit Konsole)
+# Bauen: pyinstaller packaging/astrostack.spec --noconfirm
+import os
+import sys
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+
+root = os.path.abspath(os.path.join(SPECPATH, ".."))
+datas = [
+    (os.path.join(root, "astrostack", "app", "index.html"), "astrostack/app"),
+    (os.path.join(root, "astrostack", "report", "template.html"), "astrostack/report"),
+    (os.path.join(root, "astrostack", "report", "vendor"), "astrostack/report/vendor"),
+    (os.path.join(root, "astrostack", "pjsr", "split.js"), "astrostack/pjsr"),
+]
+datas += collect_data_files("astropy", excludes=["**/tests/**", "**/*.c", "**/*.h"])
+datas += collect_data_files("astropy_iers_data")
+hidden = collect_submodules("astropy.coordinates") + collect_submodules("astropy.io.fits") + ["erfa"]
+if sys.platform == "win32":
+    hidden += ["tkinter", "tkinter.filedialog"]
+
+a = Analysis(
+    [os.path.join(SPECPATH, "entry.py")],
+    pathex=[root],
+    datas=datas,
+    hiddenimports=hidden,
+    excludes=["matplotlib", "IPython", "pytest", "pandas", "PyQt5", "PySide6", "notebook", "sphinx"],
+    noarchive=False,
+)
+pyz = PYZ(a.pure)
+exe = EXE(
+    pyz, a.scripts, a.binaries, a.datas, [],
+    name="AstroStack",
+    console=True,
+    icon=os.path.join(SPECPATH, "astrostack.ico"),
+    upx=False,
+)

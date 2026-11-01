@@ -8,15 +8,18 @@ per Klick oder per KI.
 
 ## Starten (Windows)
 
-Voraussetzungen: Python 3.10+ und PixInsight.
+**Einfach:** Unter [Releases](https://github.com/butu/b2stacker/releases/latest) die Datei
+**`AstroStack.exe`** herunterladen und doppelklicken. Keine Installation, kein Python nötig.
+Die Oberfläche öffnet sich im Browser. Das schwarze Konsolenfenster offen lassen – Schließen beendet das Programm.
+Ein zweiter Doppelklick öffnet nur wieder den Browser.
 
-1. Repository herunterladen (oder `git clone https://github.com/butu/b2stacker.git`).
-2. **`AstroStack starten.cmd`** doppelklicken. Beim ersten Mal wird das Programm installiert,
-   danach öffnet sich die Oberfläche im Browser.
-3. In den Einstellungen das **Arbeitsverzeichnis** wählen (große, schnelle Platte – nicht OneDrive)
-   und den Pfad zu PixInsight prüfen.
+Windows SmartScreen kann beim ersten Start warnen („Unbekannter Herausgeber“):
+„Weitere Informationen“ → „Trotzdem ausführen“.
 
-Das Fenster mit der schwarzen Konsole muss offen bleiben, solange man das Programm benutzt.
+Beim ersten Start: in den Einstellungen das **Arbeitsverzeichnis** wählen
+(große, schnelle Platte – nicht OneDrive) und den Pfad zu PixInsight prüfen.
+
+**Aus dem Quellcode:** Python 3.10+ installieren, Repository klonen, `AstroStack starten.cmd` doppelklicken.
 
 ## Ablauf
 
@@ -58,7 +61,11 @@ py -m venv .venv
 .venv\Scripts\activate
 pip install -e .[dev]
 pytest
+pip install pyinstaller
+pyinstaller packaging/astrostack.spec --noconfirm   # → dist/AstroStack.exe
 ```
+
+Jeder Push auf `main` baut die exe auf GitHub (Windows) und testet sie; ein Tag `v*` veröffentlicht sie als Release.
 
 Chart.js (MIT) liegt eingebettet unter `astrostack/report/vendor/`, damit der Bericht auch ohne
 Internet funktioniert.

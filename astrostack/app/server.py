@@ -77,16 +77,44 @@ def save_settings(data: dict) -> dict:
     return state()
 
 
+def _pick_folder_dialog(initial: str = ""):
+    """Läuft in einem eigenen Prozess (tkinter verträgt sich nicht mit Server-Threads)."""
+    import tkinter as tk
+    from tkinter import filedialog
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    p = filedialog.askdirectory(initialdir=initial or None, title="Ordner wählen")
+    sys.stdout.write(p or "")
+    sys.stdout.flush()
+
+
+def _pick_folder_powershell(initial: str):
+    """Ersatz unter Windows: der Ordner-Dialog des Systems."""
+    ps = ("Add-Type -AssemblyName System.Windows.Forms;"
+          "$d=New-Object System.Windows.Forms.FolderBrowserDialog;$d.Description='Ordner wählen';"
+          "$d.SelectedPath=$env:AS_INITIAL;"
+          "if($d.ShowDialog((New-Object System.Windows.Forms.Form -Property @{TopMost=$true})) -eq 'OK'){[Console]::Out.Write($d.SelectedPath)}")
+    env = dict(os.environ, AS_INITIAL=initial or "")
+    return subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", ps], capture_output=True, text=True,
+                          timeout=900, env=env, creationflags=0x08000000)
+
+
 def pick_folder(initial: str = "") -> str | None:
-    """Nativer Ordner-Dialog (eigener Prozess, damit tkinter nicht mit dem Server-Thread kollidiert)."""
-    code = ("import tkinter as tk, tkinter.filedialog as fd, sys\n"
-            "r=tk.Tk(); r.withdraw(); r.attributes('-topmost', True)\n"
-            "p=fd.askdirectory(initialdir=sys.argv[1] or None, title='Ordner mit Aufnahmen wählen')\n"
-            "sys.stdout.write(p or '')\n")
+    """Nativer Ordner-Dialog. In der exe ruft sich das Programm selbst auf, sonst python -m astrostack."""
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable, "_pick-folder", initial or ""]
+    else:
+        cmd = [sys.executable, "-m", "astrostack", "_pick-folder", initial or ""]
     try:
-        out = subprocess.run([sys.executable, "-c", code, initial or ""], capture_output=True, text=True, timeout=600)
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=900,
+                             creationflags=0x08000000 if sys.platform == "win32" else 0)
     except Exception as e:  # noqa: BLE001
         raise RuntimeError("Ordner-Dialog nicht verfügbar (%s) – Pfad bitte eintippen." % e)
+    if out.returncode != 0 and sys.platform == "win32":
+        out = _pick_folder_powershell(initial)
+    if out.returncode != 0:
+        raise RuntimeError("Ordner-Dialog nicht verfügbar – Pfad bitte eintippen.")
     p = out.stdout.strip()
     return os.path.normpath(p) if p else None
 
@@ -271,13 +299,32 @@ def serve(port: int = 8765, open_browser: bool = True) -> ThreadingHTTPServer:
     else:
         raise RuntimeError("Kein freier Port ab %d" % port)
     url = "http://127.0.0.1:%d/" % httpd.server_address[1]
-    print("astrostack läuft: " + url + "  (Fenster offen lassen, Strg+C beendet)")
+    print("astrostack läuft: " + url + "  (dieses Fenster offen lassen – Schließen beendet das Programm)", flush=True)
     if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     return httpd
 
 
+def already_running(port: int) -> str | None:
+    """Läuft schon eine Instanz? Dann nur den Browser öffnen statt einen zweiten Server zu starten."""
+    import urllib.request
+    url = "http://127.0.0.1:%d/" % port
+    try:
+        with urllib.request.urlopen(url + "api/state", timeout=1.5) as r:
+            if json.loads(r.read()).get("version"):
+                return url
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 def main(port: int = 8765, open_browser: bool = True):
+    url = already_running(port)
+    if url:
+        print("astrostack läuft bereits: " + url, flush=True)
+        if open_browser:
+            webbrowser.open(url)
+        return
     httpd = serve(port, open_browser)
     try:
         httpd.serve_forever()
