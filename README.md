@@ -14,6 +14,10 @@ b2stacker öffnet sich als eigenes Programmfenster (WebView2, in Windows 10/11 e
 keine Konsole. Fenster schließen beendet das Programm (bei laufendem Stacking mit Rückfrage).
 Ein zweiter Doppelklick holt das offene Fenster nach vorne.
 
+**Updates:** Gibt es eine neue Version, erscheint oben rechts ein grüner Knopf „Update x.y.z“. Klick → Änderungen
+ansehen → „Jetzt aktualisieren & neu starten“. b2stacker lädt die neue exe, schließt sich, tauscht die Datei aus und
+startet neu (nicht während eines Stackings). Die exe muss dafür in einem Ordner mit Schreibrechten liegen.
+
 Windows SmartScreen kann beim ersten Start warnen („Unbekannter Herausgeber“):
 „Weitere Informationen“ → „Trotzdem ausführen“.
 

@@ -63,3 +63,6 @@ def mixed_tree(tmp_path):
     # Snapshot-Ordner wird übersprungen
     make_fits(f"{r}/Snapshot/2026-04-14/RGB/x.fits", NINA_LIGHT)
     return r
+
+
+os.environ.setdefault("B2_NO_UPDATE_CHECK", "1")   # Tests nie gegen GitHub prüfen

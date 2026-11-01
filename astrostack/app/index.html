@@ -36,6 +36,11 @@ header{display:flex;align-items:center;gap:14px;padding:8px 16px;border-bottom:1
 .logo{font-weight:700;font-size:17px;letter-spacing:-.01em;display:flex;align-items:center;gap:8px}
 .logo svg.i{width:22px;height:22px;color:var(--accent)}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto;align-items:center}
+.btn.upd{background:var(--good);color:#fff;border-color:transparent;font-weight:600;animation:updpulse 2.4s ease-in-out 3}
+@keyframes updpulse{50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--good) 30%,transparent)}}
+#updDlg .notes{white-space:pre-wrap;max-height:260px;overflow:auto;background:var(--surface-2);border-radius:8px;padding:10px 12px;font-size:13px}
+#updDlg .bar{height:8px;border-radius:4px;background:var(--surface-2);overflow:hidden;margin-top:10px}
+#updDlg .bar>div{height:100%;background:var(--good);width:0;transition:width .3s}
 .chip{display:inline-flex;align-items:center;gap:7px;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12.5px;color:var(--text-secondary);white-space:nowrap}
 .chip b{color:var(--text-primary);font-weight:600}
 .chip svg.spark{width:56px;height:18px;display:block}
@@ -267,6 +272,7 @@ dialog img.full{width:100%;display:block;background:#000}
 <header>
   <div class="logo" id="logo" style="cursor:pointer" onclick="go('home')"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l2.5 2.5M16.5 16.5 19 19M5 19l2.5-2.5M16.5 7.5 19 5"/></svg>b2stacker</div>
   <div class="chips" id="chips"></div>
+  <button class="btn upd" id="updBtn" hidden onclick="openUpdate()" title="Neue Version verfügbar – klicken zum Aktualisieren"><svg class="i" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg><span id="updTxt">Update</span></button>
   <div class="zoom" role="group" aria-label="Ansicht vergrößern/verkleinern">
     <button type="button" id="zOut" title="Verkleinern (Strg −)" aria-label="Verkleinern">−</button>
     <span id="zVal" title="Zurück auf 100 % (Strg 0)">100 %</span>
@@ -285,6 +291,8 @@ dialog img.full{width:100%;display:block;background:#000}
   <section class="view"><div class="wrap" id="view"></div></section>
 </div>
 
+<dialog id="updDlg"><div class="hd"><h2 style="margin:0" id="updTitle">Update</h2><button class="btn icon" onclick="updDlg.close()">✕</button></div>
+  <div id="updBody"></div></dialog>
 <dialog id="setDlg">
   <div class="hd"><h2 style="margin:0">Einstellungen</h2><button class="btn icon" onclick="setDlg.close()">✕</button></div>
   <div class="bd" id="setBody"></div>
@@ -423,6 +431,44 @@ async function pollSys(){
   setTimeout(pollSys,2500);
 }
 setInterval(refresh,15000);
+
+// ------------------------------------------------------------ Update
+let UPD=null;
+async function pollUpdate(){
+  try{UPD=await api('/api/update');}catch(e){UPD=null;}
+  const b=document.getElementById('updBtn');
+  if(UPD&&UPD.newer){b.hidden=false;document.getElementById('updTxt').textContent='Update '+UPD.latest;}else b.hidden=true;
+  if(UPD&&UPD.updated_from&&!pollUpdate.told){pollUpdate.told=true;toast('Aktualisiert: '+UPD.updated_from+' → '+UPD.current);}
+  if(UPD&&UPD.download&&['download','restart'].includes(UPD.download.state)){renderUpdate();setTimeout(pollUpdate,700);return;}
+  if(updDlg.open)renderUpdate();
+  setTimeout(pollUpdate,UPD&&UPD.latest?30*60000:60000);
+}
+function openUpdate(){renderUpdate();updDlg.showModal();}
+function renderUpdate(){
+  const u=UPD||{}, d=u.download, busy=S&&S.job&&['queued','running'].includes(S.job.state);
+  document.getElementById('updTitle').textContent=u.newer?`Version ${u.latest} ist da`:'b2stacker ist aktuell';
+  let h=`<p class="muted">Installiert: <b>${esc(u.current||'?')}</b>${u.latest?` · neueste: <b>${esc(u.latest)}</b>`:''}${u.published?' · '+dt(u.published):''}</p>`;
+  if(u.notes)h+=`<div class="notes">${esc(u.notes)}</div>`;
+  if(d&&d.state==='download'){const pc=d.total?Math.round(100*d.done/d.total):0;
+    h+=`<p>Lade neue Version … ${pc} % (${fmt(d.done/1048576,0)} von ${fmt((d.total||0)/1048576,0)} MB)</p><div class="bar"><div style="width:${pc}%"></div></div>`;}
+  else if(d&&d.state==='restart')h+=`<p><b>Starte neu …</b> b2stacker schließt sich und öffnet sich gleich in der neuen Version.</p>`;
+  else{
+    if(d&&d.state==='error')h+=`<p style="color:var(--critical)">Update fehlgeschlagen: ${esc(d.error||'')}</p>`;
+    if(u.newer&&!u.can_install)h+=`<p class="muted">Aus dem Quellcode gestartet – bitte mit <code>git pull</code> aktualisieren.</p>`;
+    else if(u.newer&&busy)h+=`<p class="muted">Gerade läuft ein Auftrag – das Update geht, sobald er fertig ist.</p>`;
+    h+=`<div class="row" style="margin-top:14px;gap:8px">${u.newer&&u.can_install?`<button class="btn primary" ${busy?'disabled':''} onclick="doUpdate()">Jetzt aktualisieren &amp; neu starten</button>`:''}
+      <button class="btn" onclick="checkUpdate()">Erneut prüfen</button>${u.page?`<button class="btn" onclick='openDir(${JSON.stringify(u.page)})'>Seite auf GitHub</button>`:''}</div>`;
+    if(u.error)h+=`<p class="muted small">Prüfung nicht möglich: ${esc(u.error)}</p>`;
+  }
+  document.getElementById('updBody').innerHTML=h;
+}
+async function checkUpdate(){try{UPD=await api('/api/update/check',{});}catch(e){toast(e.message,true);}
+  pollUpdate.told=true;const b=document.getElementById('updBtn');b.hidden=!(UPD&&UPD.newer);if(UPD&&UPD.newer)document.getElementById('updTxt').textContent='Update '+UPD.latest;renderUpdate();}
+async function doUpdate(){
+  try{const d=await api('/api/update/install',{});UPD=Object.assign(UPD||{},{download:d});renderUpdate();setTimeout(pollUpdate,700);}
+  catch(e){toast(e.message,true);}
+}
+setTimeout(pollUpdate,1500);
 
 function spark(vals,max){
   if(vals.length<2)return '';

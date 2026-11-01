@@ -18,7 +18,7 @@ import webbrowser
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from .. import __version__, checklist, logbook, project, stackqa, steps, system
+from .. import __version__, checklist, logbook, project, stackqa, steps, system, updater
 from ..engines import pixinsight as pi
 from ..jobs import JobManager
 from ..settings import Settings
@@ -366,6 +366,9 @@ def quit_app() -> dict:
 
 
 def open_path(path: str):
+    if path.startswith("https://github.com/%s" % updater.REPO):        # nur die eigene Release-Seite
+        webbrowser.open(path)
+        return
     if not os.path.exists(path):
         raise FileNotFoundError(path)
     if sys.platform == "win32":
@@ -436,6 +439,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(j.as_dict(int(q.get("tail", ["300"])[0])) if j else {"error": "unbekannt"}, 200 if j else 404)
             if parts == ["api", "sys"]:
                 return self._json(sysinfo())
+            if parts == ["api", "update"]:
+                return self._json(updater.status())
             if parts == ["api", "steps"]:
                 return self._json(dict(analyze=steps.ANALYZE, stack=steps.STACK))
             if parts[:2] == ["api", "project"] and len(parts) == 3:
@@ -506,6 +511,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": window.focus()})
             if parts == ["api", "quit"]:
                 return self._json(quit_app())
+            if parts == ["api", "update", "check"]:
+                return self._json(updater.check(force=True))
+            if parts == ["api", "update", "install"]:
+                return self._json(updater.start_install(quit_app, busy_fn=JOBS.active))
             if parts == ["api", "open-pixinsight"]:
                 open_in_pixinsight(b["paths"])
                 return self._json({"ok": True})
@@ -559,6 +568,12 @@ def serve(port: int = 8765, open_browser: bool = True) -> ThreadingHTTPServer:
     logbook.setup(s.workdir)
     logbook.event("app_start", workdir=s.workdir, pixinsight=s.pixinsight, pixinsight_ok=os.path.exists(s.pixinsight),
                   frozen=bool(getattr(sys, "frozen", False)), python=sys.version.split()[0], platform=sys.platform)
+    try:
+        updater.cleanup_after_update()
+    except Exception:  # noqa: BLE001
+        pass
+    if not os.environ.get("B2_NO_UPDATE_CHECK"):
+        updater.status()                      # Prüfung im Hintergrund anstoßen
     for p in range(port, port + 20):
         try:
             httpd = ThreadingHTTPServer(("127.0.0.1", p), Handler)
