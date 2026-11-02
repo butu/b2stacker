@@ -22,15 +22,16 @@ jobs:
       - name: Abhängigkeiten
         run: |
           python -m pip install --upgrade pip
-          pip install -e .[dev] pyinstaller
+          pip install -e .[dev] pyinstaller pytest-timeout
 
       - name: Tests
-        run: pytest -q -p no:warnings
+        run: pytest -v -p no:warnings --timeout=240 --timeout-method=thread
+        timeout-minutes: 15
 
       - name: exe bauen
         # pytest muss weg: sonst bricht der astropy-Hook von PyInstaller (importorskip in wcsaxes)
         run: |
-          pip uninstall -y pytest
+          pip uninstall -y pytest pytest-timeout
           pyinstaller packaging/astrostack.spec --noconfirm
 
       - name: Selbsttest der exe
