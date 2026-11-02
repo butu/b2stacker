@@ -45,7 +45,7 @@ def test_zenity_returns_selected_folder_without_tk(tmp_path, monkeypatch):
     assert len(calls) == 1
     cmd, kw = calls[0]
     assert cmd == ["zenity", "--file-selection", "--directory", "--title=Ordner wählen",
-                   "--filename=%s/" % start]
+                   "--filename=%s" % os.path.join(str(start), "")]
     assert kw.get("shell") in (None, False)
     assert kw.get("timeout") == 900
     assert kw.get("encoding") == "utf-8"
@@ -58,11 +58,12 @@ def test_initial_dir_prefers_existing_parent_and_home(tmp_path, monkeypatch):
     existing.mkdir()
     calls = _run(monkeypatch, lambda cmd, kw: _result(cmd, 1))
     server.pick_folder(str(existing / "fehlt" / "tiefer"))
-    assert calls[0][0][-1] == "--filename=%s/" % existing
+    assert calls[0][0][-1] == "--filename=%s" % os.path.join(str(existing), "")
 
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     assert server._linux_initial_dir("") == str(home)
     assert server._linux_initial_dir("   ") == str(home)
 

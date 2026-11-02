@@ -191,13 +191,14 @@ def test_two_projects_same_content_reuse_catalog(tmp_path):
     _light(f"{r1}/a.fits", 7)
     logs1, _ = _run([r1], str(tmp_path / "out1"), cat)
     assert _counts(logs1)["new"] == 1
-    os.makedirs(f"{r2}/copy", exist_ok=True)
-    shutil.copy(f"{r1}/a.fits", f"{r2}/copy/a.fits")
+    copied_path = os.path.join(r2, "copy", "a.fits")
+    os.makedirs(os.path.dirname(copied_path), exist_ok=True)
+    shutil.copy(os.path.join(r1, "a.fits"), copied_path)
     out2 = str(tmp_path / "out2")
     logs2, _ = _run([r2], out2, cat)
     c = _counts(logs2)
     assert c["cat"] == 1 and c["new"] == 0
-    assert os.path.exists(os.path.join(out2, "thumbs", analyze.thumb_name(f"{r2}/copy/a.fits")))
+    assert os.path.exists(os.path.join(out2, "thumbs", analyze.thumb_name(copied_path)))
     assert _rows(out2)["a.fits"]["nstars"] == _rows(str(tmp_path / "out1"))["a.fits"]["nstars"]
 
 
