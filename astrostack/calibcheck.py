@@ -316,15 +316,69 @@ def _sess_label(s: dict) -> str:
     return "%s%s × %d%s" % ((t + " ") if t else "", exp, s["frames"], " Himmelsflats" if s.get("sky") else "")
 
 
-def check_all(inv, th: Thresholds | None = None, progress=None) -> dict:
-    """Alle Flat-Sätze vermessen und alle Light-Gruppen zuordnen."""
+class _FlatStatsCache:
+    """Dict-like view on the catalog; stats are keyed by content hash, the path is set per run."""
+
+    def __init__(self, cat, bayer_by_path: dict):
+        self._cat = cat
+        self._bayer = bayer_by_path
+        self._mem = {}
+        self._pending = {}      # path -> (sha, stat-sig) taken before measuring
+
+    def __contains__(self, path) -> bool:
+        if path in self._mem:
+            return True
+        try:
+            sha, sig = self._cat.resolve(path)
+        except OSError:
+            return False
+        if not sha:
+            return False
+        hit = self._cat.flat_get(sha, self._bayer.get(path))
+        if hit is None:
+            self._pending[path] = (sha, sig)
+            return False
+        self._mem[path] = dict(hit, path=path)
+        return True
+
+    def __getitem__(self, path):
+        return self._mem[path]
+
+    def __setitem__(self, path, stats: dict) -> None:
+        self._mem[path] = stats
+        pending = self._pending.pop(path, None)
+        if not pending or "error" in stats:
+            return
+        sha, sig = pending
+        # Store only if the file still matches the hashed content; otherwise the stats may belong to newer bytes.
+        if _stat_sig(path) != sig:
+            return
+        self._cat.flat_put(sha, self._bayer.get(path), {k: v for k, v in stats.items() if k != "path"})
+
+
+def _stat_sig(path: str):
+    from .catalog import file_sig
+    try:
+        return file_sig(path)
+    except OSError:
+        return None
+
+
+def check_all(inv, th: Thresholds | None = None, progress=None, catalog_dir=None) -> dict:
+    """Measure all flat sets and match light groups. With ``catalog_dir``, flat stats are reused per content;
+    verdicts and light matching are always recomputed."""
+    from .catalog import open_catalog
     th = th or Thresholds()
-    checks, cache = {}, {}
     flats = [c for c in inv.calib if c.type == fm.FLAT]
+    cat = open_catalog(catalog_dir) if catalog_dir else None
+    cache = _FlatStatsCache(cat, {f.path: f.bayer for c in flats for f in c.frames}) if cat else {}
+    checks = {}
     for i, c in enumerate(flats):
         checks[c.id] = check_flat_set(c, th, cache)
         if progress:
             progress(i + 1, len(flats), c.folder)
+    if cat:
+        cat.flush()
     matches = match_calibration(inv, checks, th)
     return dict(flat_checks={k: {kk: vv for kk, vv in v.items() if kk != "frames"} | {"frames": v.get("frames", [])}
                              for k, v in checks.items()}, matches=matches)

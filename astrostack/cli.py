@@ -72,6 +72,7 @@ def cmd_gui(args, s: Settings):
 def cmd_stack(args, s: Settings):
     from .engines import pixinsight as pi
     pdir = project.pdir_of(s, args.project)
+    project.assert_stack_ready(pdir)
     plan = project.apply_edits(pdir)
     plan["workdir"] = pdir
     if args.only:

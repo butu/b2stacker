@@ -120,11 +120,18 @@ def build(target: str, groups, inv, calib: dict, analysis_dir: str, workdir: str
     ovp = os.path.join(pdir, "overrides.json")
     overrides = json.load(open(ovp, encoding="utf-8")) if os.path.exists(ovp) else {}
     filters, ntab = A.assess(rows, overrides=overrides)
+    # Automatische Bewertung ohne manuelle Entscheidung – damit die Oberfläche "selected" ohne Neuberechnung zeigt.
+    # auto = ohne manuelle Entscheidung; status/flags = so wie gestackt (inkl. Overrides zum Berichtszeitpunkt).
+    with open(os.path.join(analysis_dir, "assessment.json"), "w", encoding="utf-8") as fh:
+        json.dump({r["path"]: dict(auto=r["auto_status"], status=r["status"], flags=r["flags"])
+                   for r in rows}, fh, ensure_ascii=False)
     rec = A.recommendations(rows, ntab, filters)
     matches = [m for m in calib["matches"] if m["group"]["target"] == target]
     checks = calib_checks(matches)
     flat_groups = night_flat_groups(groups, rows, inv, calib, analysis_dir)
-    plan = build_plan(target, groups, rows, ntab, matches, workdir, flat_groups=flat_groups)
+    measured = {r["path"] for r in rows}
+    unmeasured = {f.path for g in groups for f in g.frames} - measured
+    plan = build_plan(target, groups, rows, ntab, matches, workdir, flat_groups=flat_groups, unmeasured=unmeasured)
     scale = st.median([r["pixscale"] for r in rows if r["pixscale"]]) if any(r["pixscale"] for r in rows) else None
     try:
         diag = rig_diagnostics(rows, scale, analysis_dir)

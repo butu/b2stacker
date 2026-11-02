@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -18,7 +19,7 @@ import webbrowser
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from .. import __version__, checklist, logbook, project, stackqa, steps, system, updater
+from .. import __version__, assets, checklist, logbook, project, stackqa, steps, system, updater
 from ..engines import pixinsight as pi
 from ..jobs import JobManager
 from ..settings import Settings
@@ -191,12 +192,62 @@ def _pick_folder_powershell(initial: str):
                           encoding="utf-8", errors="replace", timeout=900, env=env, creationflags=0x08000000)
 
 
+def _linux_initial_dir(initial: str) -> str:
+    """Existing folder for a Linux dialog; empty input starts at home, never at the file system root."""
+    raw = (initial or "").strip().strip('"')
+    if not raw:
+        return os.path.expanduser("~")
+    path = os.path.abspath(os.path.expanduser(raw))
+    while not os.path.isdir(path):
+        parent = os.path.dirname(path)
+        if parent == path:
+            break
+        path = parent
+    return path if os.path.isdir(path) else os.path.expanduser("~")
+
+
+def _linux_folder_command(initial: str):
+    start = _linux_initial_dir(initial)
+    if shutil.which("zenity"):
+        folder = start if start.endswith(os.sep) else start + os.sep
+        return ["zenity", "--file-selection", "--directory", "--title=Ordner wählen",
+                "--filename=%s" % folder]
+    if shutil.which("kdialog"):
+        return ["kdialog", "--getexistingdirectory", start, "--title", "Ordner wählen"]
+    return None
+
+
+def _linux_pick_folder(initial: str):
+    """Native Linux folder dialog; False lets the caller use the Tk helper when no tool is installed."""
+    cmd = _linux_folder_command(initial)
+    if not cmd:
+        return False
+    name = os.path.basename(cmd[0])
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900)
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError("Ordner-Dialog nicht gestartet (%s): Zeitüberschreitung." % name) from e
+    except OSError as e:
+        raise RuntimeError("Ordner-Dialog nicht gestartet (%s): %s" % (name, e)) from e
+    if out.returncode == 1:                    # cancel: no second dialog, no implicit path
+        return None
+    if out.returncode != 0:
+        detail = (out.stderr or "").strip() or ("Exit-Code %d" % out.returncode)
+        raise RuntimeError("Ordner-Dialog nicht gestartet (%s): %s" % (name, detail))
+    selected = (out.stdout or "").strip()
+    return os.path.normpath(selected) if selected else None
+
+
 def pick_folder(initial: str = "") -> str | None:
     """Nativer Ordner-Dialog: im Programmfenster direkt, sonst über einen Hilfsprozess."""
     from . import window
     r = window.pick_folder(initial)
     if r is not False:
         return r
+    if sys.platform.startswith("linux"):
+        native = _linux_pick_folder(initial)
+        if native is not False:
+            return native
     if getattr(sys, "frozen", False):
         cmd = [sys.executable, "_pick-folder", initial or ""]
     else:
@@ -210,6 +261,8 @@ def pick_folder(initial: str = "") -> str | None:
     if out.returncode != 0 and sys.platform == "win32":
         out = _pick_folder_powershell(initial)
     if out.returncode != 0:
+        if sys.platform.startswith("linux"):
+            raise RuntimeError("Ordner-Dialog nicht verfügbar – bitte zenity oder kdialog installieren.")
         raise RuntimeError("Ordner-Dialog nicht verfügbar – Pfad bitte eintippen.")
     p = out.stdout.strip()
     return os.path.normpath(p) if p else None
@@ -249,7 +302,8 @@ def _resolve_assign(assign: dict | None) -> dict | None:
     return {k: (by_title.get(v.strip().lower(), v.strip()) if v and v.strip() else None) for k, v in assign.items()}
 
 
-def start_analysis(folders: list[str], target: str | None, assign: dict | None = None, title: str | None = None) -> dict:
+def start_analysis(folders: list[str], target: str | None, assign: dict | None = None, title: str | None = None,
+                   into: str | None = None) -> dict:
     folders = _check_folders(folders)
     s = settings()
     s.sources = list(dict.fromkeys(folders + s.sources))[:8]
@@ -260,7 +314,7 @@ def start_analysis(folders: list[str], target: str | None, assign: dict | None =
     def fn(job):
         return project.run_report(folders, target or None, s, log=job.write,
                                   progress=lambda **kw: job.set_progress(**kw), cancel=job.cancel,
-                                  assign=assign, title=(title or None))
+                                  assign=assign, title=(title or None), into=into)
     job = JOBS.submit("analyze", "Analyse " + (", ".join(names) if names else target or ", ".join(
         os.path.basename(f) or f for f in folders)), s.workdir, fn)
     return job.as_dict()
@@ -270,13 +324,15 @@ def reanalyze(name: str) -> dict:
     pdir = project.pdir_of(settings(), name)
     src = project.sources(pdir)
     if not src.get("roots"):
-        raise ValueError("Für dieses Projekt sind keine Quellordner gespeichert – bitte neu analysieren.")
-    return start_analysis(src["roots"], src.get("target"))
+        raise ValueError("Für dieses Projekt sind keine Quellordner gespeichert – bitte Ordner wählen.")
+    # Projektschlüssel bleibt der Titel; die Lights-Objektnamen dürfen davon abweichen.
+    return start_analysis(src["roots"], project.meta(pdir)["target"], into=project.meta(pdir)["target"])
 
 
 def start_stack(name: str) -> dict:
     s = settings()
     pdir = project.pdir_of(s, name)
+    project.assert_stack_ready(pdir)
     plan = project.apply_edits(pdir)
     plan["workdir"] = pdir
 
@@ -293,7 +349,8 @@ def start_stack(name: str) -> dict:
 
 def project_detail(name: str) -> dict:
     pdir = project.pdir_of(settings(), name)
-    plan = project.load_plan(pdir)
+    ex = project.detail_extras(pdir)
+    plan = ex["plan"]
     hist = project.stacks(pdir)
     outs = sorted({o["name"] for r in hist for o in r.get("outputs", [])}) or \
         [o for r in plan.get("runs", []) if r.get("enabled", True) for o in r.get("outputs", [])]
@@ -302,20 +359,61 @@ def project_detail(name: str) -> dict:
             if o.get("preview"):
                 o["preview_url"] = "/api/stack-preview/%s?file=%s" % (
                     urllib.parse.quote(name), urllib.parse.quote(os.path.relpath(o["preview"], pdir).replace("\\", "/")))
+    assets = []
+    for a in ex["assets"]:
+        a = dict(a)
+        if a["exists"]:
+            a["preview_url"] = "/api/asset-preview/%s?id=%s" % (urllib.parse.quote(name), urllib.parse.quote(a["id"]))
+        else:
+            a["preview_error"] = "Datei fehlt"
+        assets.append(a)
     return dict(name=name, meta=project.meta(pdir), plan=plan, sources=project.sources(pdir),
+                analysis_required=ex["analysis_required"], assets=assets,
+                asset_scan_locations=ex["asset_scan_locations"],
                 facts=project.project_facts(pdir, plan, hist),
                 overrides=project._read(os.path.join(pdir, "overrides.json"), {}), stacks=hist,
                 checklist=checklist.items(outs), pdir=pdir)
 
 
+MUTATING_ACTIONS = {"override", "sources", "delete", "stack-meta", "stack-delete", "asset-link", "stack", "plan"}
+
+
+def check_idle(action: str) -> None:
+    """Projektänderungen warten, bis der laufende Auftrag fertig ist: Analyse und Stacking lesen
+    Overrides, Quellen und Plan. Lesen bleibt jederzeit erlaubt."""
+    if action in MUTATING_ACTIONS and JOBS.active() is not None:
+        raise RuntimeError("Ein Auftrag läuft – diese Änderung bitte danach wiederholen.")
+
+
+def _analysis_running() -> bool:
+    j = JOBS.active()
+    return bool(j and j.kind == "analyze")
+
+
 def _known_frame(pdir: str, path: str) -> bool:
-    """Nur Dateien ausliefern, die zum Projekt gehören (Schutz vor beliebigen Pfaden)."""
-    import csv
-    try:
-        with open(os.path.join(pdir, "analysis", "metrics.csv"), encoding="utf-8") as fh:
-            return any(r.get("path") == path for r in csv.DictReader(fh))
-    except OSError:
-        return False
+    """Nur Dateien ausliefern, die zum Projekt gehören (Schutz vor beliebigen Pfaden).
+    Mitgliedschaft im Frameindex genügt; die Bewertung wird nicht geladen."""
+    return bool(path) and path in project.indexed_frame_paths(pdir)
+
+
+def frame_thumb(pdir: str, path: str) -> str:
+    """Kachel-Vorschau eines Projektframes. Raster nutzt nur diese Kacheln, nie das Original."""
+    if not _known_frame(pdir, path):
+        raise PermissionError("unbekannte Datei")
+    from .. import previews
+    return previews.frame_thumbnail(path, os.path.join(pdir, "analysis"))
+
+
+def project_frames(name: str) -> dict:
+    """Frameliste inkl. thumb_url je Frame (lazy im Raster)."""
+    pdir = project.pdir_of(settings(), name)
+    fr = project.frames(pdir)
+    q = urllib.parse.quote(name)
+    for f in fr:
+        f["thumb_url"] = "/api/frame-thumb/%s?path=%s" % (q, urllib.parse.quote(f["path"]))
+        f["preview_url"] = "/api/frame-preview/%s?path=%s" % (q, urllib.parse.quote(f["path"]))
+    return dict(frames=fr, summary=project.frames_summary(fr),
+                plan_stale=bool(project.sources(pdir).get("plan_stale")))
 
 
 def start_requality(name: str, stack_id: str) -> dict:
@@ -443,6 +541,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(updater.status())
             if parts == ["api", "steps"]:
                 return self._json(dict(analyze=steps.ANALYZE, stack=steps.STACK))
+            if parts[:2] == ["api", "project"] and len(parts) == 4 and parts[3] == "frames":
+                return self._json(project_frames(parts[2]))
+            if parts[:2] == ["api", "frame-thumb"] and len(parts) == 3:
+                pdir = project.pdir_of(settings(), parts[2])
+                try:
+                    out = frame_thumb(pdir, q.get("path", [""])[0])
+                except PermissionError as e:
+                    return self._json({"error": str(e)}, 403)
+                except Exception as e:  # noqa: BLE001 – Kachel-Fehler sichtbar machen, Original bleibt unberührt
+                    return self._json({"error": "Vorschau nicht möglich: %s" % e}, 422)
+                return self._file(out, "image/jpeg")
             if parts[:2] == ["api", "project"] and len(parts) == 3:
                 return self._json(project_detail(parts[2]))
             if parts[:2] == ["api", "frame-preview"] and len(parts) == 3:
@@ -458,6 +567,13 @@ class Handler(BaseHTTPRequestHandler):
                 if not f.startswith(os.path.join(pdir, "stacks")) or not f.lower().endswith(".jpg"):
                     return self._json({"error": "verboten"}, 403)
                 return self._file(f, "image/jpeg")
+            if parts[:2] == ["api", "asset-preview"] and len(parts) == 3:
+                # nur registrierte Assets (per id), nie ein beliebiger Pfad über GET
+                pdir = project.pdir_of(settings(), parts[2])
+                path, err = assets.preview(pdir, q.get("id", [""])[0])
+                if err:
+                    return self._json({"error": err}, 422)
+                return self._file(path, "image/jpeg")
             if parts[:2] == ["api", "project-thumb"] and len(parts) == 3:
                 pdir = project.pdir_of(settings(), parts[2])
                 t = project.thumbnail(pdir)
@@ -518,9 +634,26 @@ class Handler(BaseHTTPRequestHandler):
             if parts == ["api", "open-pixinsight"]:
                 open_in_pixinsight(b["paths"])
                 return self._json({"ok": True})
+            if parts == ["api", "project-create"]:
+                pdir = project.create_project(settings(), b.get("title", ""), b.get("roots") or [])
+                return self._json(project_detail(os.path.basename(pdir)))
             if parts[:2] == ["api", "project"] and len(parts) == 4:
                 name, action = parts[2], parts[3]
+                check_idle(action)
                 pdir = project.pdir_of(settings(), name)
+                if action == "delete":                  # nur Archiv-Flag – kein Ordner wird angefasst
+                    project.archive_project(pdir)
+                    logbook.event("project_archived", project=name)
+                    return self._json({"ok": True})
+                if action == "stack-meta":
+                    project.update_stack_meta(pdir, b.get("stack_id", ""), name=b.get("name"))
+                    return self._json(project_detail(name))
+                if action == "stack-delete":
+                    project.remove_stack(pdir, b.get("stack_id", ""))
+                    return self._json(project_detail(name))
+                if action == "asset-link":
+                    assets.link(pdir, b.get("path", ""))
+                    return self._json(project_detail(name))
                 if action == "plan":
                     if any("calib" in (v or {}) for v in (b.get("runs") or {}).values()):
                         logbook.event("calib_choice", project=name, change=b.get("runs"))
@@ -543,6 +676,8 @@ class Handler(BaseHTTPRequestHandler):
                     project.set_thumbnail(pdir, stack_preview=rel, frame=b.get("frame"))
                     return self._json(project_detail(name))
                 if action == "sources":
+                    if _analysis_running():             # kein Quellwechsel mitten in einer Analyse
+                        raise RuntimeError("Eine Analyse läuft – Quellordner bitte danach ändern.")
                     project.set_sources(pdir, b.get("roots", []))
                     return self._json(project_detail(name))
                 if action == "calib-inspect":

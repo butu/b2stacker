@@ -18,8 +18,9 @@ def _med(vals):
 
 
 def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: str = "pixinsight",
-               low_alt: float = 30.0, flat_groups: dict | None = None) -> dict:
-    """groups: LightGroups des Ziels; rows: bewertete Frames; matches: calibcheck.match_calibration-Ergebnis."""
+               low_alt: float = 30.0, flat_groups: dict | None = None, unmeasured: set | None = None) -> dict:
+    """groups: LightGroups des Ziels; rows: bewertete Frames; matches: calibcheck.match_calibration-Ergebnis.
+    unmeasured: Lights ohne Messung (fehlgeschlagen). None = Aufrufer ohne Messinfo (alte Semantik)."""
     status = {r["path"]: r["status"] for r in rows}
     runs, settings = [], []
     first_debayer = None
@@ -27,8 +28,7 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
     peak_disk = peak_ram = 0.0
     order = sorted(groups, key=lambda g: flt.is_narrowband(g.filter_kind))
     for g in order:
-        frames = [f for f in g.frames
-                  if ((status[f.path] not in ("rejected", "suggest")) if f.path in status else not f.excluded)]
+        frames = [f for f in g.frames if _uses_frame(f, status, unmeasured, rows)]
         if not frames:
             continue
         proc = flt.processing_for(g.filter_kind, g.is_osc)
@@ -125,6 +125,15 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
                      weighting="psf_signal", rejection="auto", large_scale_rejection=True, distortion_correction=True,
                      hot_pixels=True, cleanup=True))
     return plan
+
+
+def _uses_frame(f, status: dict, unmeasured: set | None, rows: list) -> bool:
+    if f.path in status:
+        return status[f.path] not in ("rejected", "suggest")
+    # Fail closed: a light with no measurement is never stacked silently.
+    if unmeasured is not None or rows:
+        return False
+    return not f.excluded
 
 
 def _merge_flat_groups(run: dict) -> dict:

@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from . import fitsmeta as fm
+from .catalog import canonical, open_catalog
 
 DEFAULT_SKIP_DIRS = ("work", "final", "_claude", "$recycle.bin", ".git", "__pycache__")
 # NINA-Snapshot-Ordner: Test-Lights ignorieren, Kalibrierframes (z. B. Bias) aber verwenden
@@ -24,6 +25,7 @@ class ScanOptions:
     custom_filters: dict[str, str] = field(default_factory=dict)
     workers: int = 8
     target_map: dict[str, str] = field(default_factory=dict)   # Ziel-Schlüssel → Projekt (vom Benutzer bestätigt)
+    catalog_dir: str | None = None
 
 
 # Katalog-Präfixe: verschiedene Schreibweisen → ein Schlüssel ("Sh2-82", "Sh 2-82", "SH2_82" → "sh2-82")
@@ -54,11 +56,25 @@ def _norm_target(name: str | None) -> str:
     return target_key(name)
 
 
+def normalize_roots(roots) -> list[str]:
+    """Canonical roots (realpath, no trailing separator); duplicates removed."""
+    out, seen = [], set()
+    for r in roots or []:
+        if not r:
+            continue
+        c = os.path.realpath(os.path.expanduser(str(r)))
+        k = os.path.normcase(c)
+        if k not in seen:
+            seen.add(k)
+            out.append(c)
+    return out
+
+
 def find_files(roots: list[str], opt: ScanOptions) -> list[tuple[str, bool]]:
-    """→ [(pfad, ausgeschlossen)]"""
+    """→ [(path, excluded)]. Files reached via overlapping roots are kept once, keyed by canonical path."""
     out = []
     seen = set()
-    for root in roots:
+    for root in normalize_roots(roots):
         for dirpath, dirnames, filenames in os.walk(root):
             low = os.path.basename(dirpath).lower()
             dirnames[:] = [d for d in dirnames if d.lower() not in opt.skip_dirs and not d.startswith(".")]
@@ -68,8 +84,9 @@ def find_files(roots: list[str], opt: ScanOptions) -> list[tuple[str, bool]]:
             for fn in filenames:
                 if fn.lower().endswith(fm.FITS_EXT + fm.XISF_EXT):
                     p = os.path.abspath(os.path.join(dirpath, fn))
-                    if p not in seen:
-                        seen.add(p)
+                    ck = canonical(p)
+                    if ck not in seen:
+                        seen.add(ck)
                         out.append((p, excluded))
     return sorted(out)
 
@@ -97,6 +114,7 @@ class LightGroup:
                     binning=self.settings[4], size=[self.settings[5], self.settings[6]],
                     frames=len(self.frames), excluded=len(self.frames) - len(used),
                     hours=round(sum(f.exposure or 0 for f in used) / 3600, 2),
+                     hours_total=round(sum(f.exposure or 0 for f in self.frames) / 3600, 2),
                     nights={n: len(v) for n, v in self.nights().items()})
 
 
@@ -147,13 +165,17 @@ class Inventory:
 
 def scan(roots: list[str], opt: ScanOptions | None = None, progress=None) -> Inventory:
     opt = opt or ScanOptions()
+    roots = normalize_roots(roots)
     files = find_files(roots, opt)
     metas, errors = [], []
+    cat = open_catalog(opt.catalog_dir) if opt.catalog_dir else None
 
     def work(item):
         path, excl = item
         try:
-            m = fm.read_meta(path, opt.custom_filters)
+            # Raw header may come from cache; type/filter/folder are translated fresh (context-dependent).
+            raw = cat.header(path) if cat else fm.read_header(path)
+            m = fm.finalize(fm.from_header(raw, path), opt.custom_filters)
             m.excluded = excl
             return m, None
         except Exception as e:  # defekte Dateien nicht abbrechen lassen
@@ -167,6 +189,8 @@ def scan(roots: list[str], opt: ScanOptions | None = None, progress=None) -> Inv
                 errors.append(err)
             if progress:
                 progress(i + 1, len(files))
+    if cat:
+        cat.flush()
 
     lights: dict[tuple, LightGroup] = {}
     calib: dict[tuple, CalibSet] = {}

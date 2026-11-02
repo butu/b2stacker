@@ -16,7 +16,7 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 from scipy import ndimage as ndi
 
-from . import imageio
+from . import catalog, imageio
 
 warnings.filterwarnings("ignore")
 
@@ -24,7 +24,13 @@ COLS = ["path", "night", "excluded", "filter", "filter_kind", "date_obs", "exp",
         "settemp", "alt", "airmass", "hum", "ambtemp", "dewpoint", "wind", "focpos", "foctemp", "rot", "pier",
         "pixscale", "hfr_name", "moon_illum", "moon_alt",
         "bg", "noise", "snr_proxy", "nstars", "fwhm", "ecc", "grad", "r_g", "b_g", "p001", "sat_frac",
-        "fwhm_c", "fwhm_corner", "tiles_fwhm", "tiles_ecc", "tiles_ang", "tiles_n", "coherence", "coh_angle", "radial"]
+        "fwhm_c", "fwhm_corner", "tiles_fwhm", "tiles_ecc", "tiles_ang", "tiles_n", "coherence", "coh_angle", "radial",
+        "file_sig", "sha256", "metrics_ver"]
+# Only these pixel-derived columns are cached; context columns are always rebuilt from the current meta.
+METRIC_COLS = ["bg", "noise", "snr_proxy", "nstars", "fwhm", "ecc", "grad", "r_g", "b_g", "p001", "sat_frac",
+               "fwhm_c", "fwhm_corner", "tiles_fwhm", "tiles_ecc", "tiles_ang", "tiles_n", "coherence", "coh_angle",
+               "radial", "moon_illum", "moon_alt"]
+ERRORS_FILE = "measure_errors.json"
 
 
 def moon_info(meta) -> tuple:
@@ -86,6 +92,16 @@ def _stars(L, bg, noise, maxn=1500):
     return nstars, (np.array(out) if out else np.zeros((0, 5)))
 
 
+def context_row(meta) -> dict:
+    """Context columns; always rebuilt, never cached (folder/project dependent)."""
+    return dict(
+        path=meta.path, night=meta.night, excluded=int(meta.excluded), filter=meta.filter, filter_kind=meta.filter_kind,
+        date_obs=meta.date_obs, exp=meta.exposure, gain=meta.gain, offset=meta.offset, readout=meta.readout,
+        temp=meta.ccd_temp, settemp=meta.set_temp, alt=meta.alt, airmass=meta.airmass, hum=meta.humidity,
+        ambtemp=meta.ambient_temp, dewpoint=meta.dew_point, wind=meta.wind, focpos=meta.focus_pos, foctemp=meta.focus_temp,
+        rot=meta.rotator, pier=meta.pier_side, pixscale=meta.pixel_scale, hfr_name=meta.hfr_from_name)
+
+
 def measure(meta) -> tuple[dict, np.ndarray]:
     """Ein Light vermessen. → (Zeile, Thumbnail 1/8-Auflösung der Luminanz)"""
     raw = imageio.load(meta.path)
@@ -133,11 +149,7 @@ def measure(meta) -> tuple[dict, np.ndarray]:
     corners = [tf[k] for k in (0, 2, 6, 8) if tf[k]]
     mi, ma = moon_info(meta)
     row = dict(
-        path=meta.path, night=meta.night, excluded=int(meta.excluded), filter=meta.filter, filter_kind=meta.filter_kind,
-        date_obs=meta.date_obs, exp=meta.exposure, gain=meta.gain, offset=meta.offset, readout=meta.readout,
-        temp=meta.ccd_temp, settemp=meta.set_temp, alt=meta.alt, airmass=meta.airmass, hum=meta.humidity,
-        ambtemp=meta.ambient_temp, dewpoint=meta.dew_point, wind=meta.wind, focpos=meta.focus_pos, foctemp=meta.focus_temp,
-        rot=meta.rotator, pier=meta.pier_side, pixscale=meta.pixel_scale, hfr_name=meta.hfr_from_name,
+        context_row(meta),
         moon_illum=mi, moon_alt=ma,
         bg=round(bg, 2), noise=round(noise, 3), snr_proxy=round(bg / max(noise, 1e-3), 2), nstars=nstars,
         fwhm=round(float(np.median(S[:, 2])) * scale_px, 3) if len(S) else None,
@@ -166,26 +178,115 @@ def _work(meta):
         return None, (meta.path, str(e))
 
 
-def analyze_group(frames, outdir: str, workers: int = 2, progress=None) -> str:
-    """Alle Frames einer Light-Gruppe vermessen (fortsetzbar). Schreibt metrics.csv + thumbs/."""
+def _read_csv_rows(p: str) -> dict:
+    """Existing metrics.csv keyed by path; a broken file counts as empty so frames are re-measured."""
+    if not os.path.exists(p) or os.path.getsize(p) == 0:
+        return {}
+    try:
+        with open(p, encoding="utf-8", newline="") as fh:
+            return {r["path"]: r for r in csv.DictReader(fh) if r.get("path")}
+    except (OSError, ValueError, csv.Error, UnicodeDecodeError):
+        return {}
+
+
+def analyze_group(frames, outdir: str, workers: int = 2, progress=None, catalog_dir=None, log=None) -> str:
+    """Measure all frames of a light group; writes metrics.csv, thumbs/ and measure_errors.json.
+
+    Reuse order: CSV row with the same stat signature, then catalog (same content), else measure.
+    The CSV is rebuilt from current frames, so removed files drop out. Errors are replaced per run;
+    ``kind`` is stat | measure | changed.
+    """
     os.makedirs(os.path.join(outdir, "thumbs"), exist_ok=True)
     p = os.path.join(outdir, "metrics.csv")
-    done = set()
-    if os.path.exists(p) and os.path.getsize(p) > 0:
-        done = {r["path"] for r in csv.DictReader(open(p, encoding="utf-8"))}
-    todo = [f for f in frames if f.path not in done]
-    new = not done
-    with open(p, "a", newline="", encoding="utf-8") as fh:
-        w = csv.DictWriter(fh, fieldnames=COLS)
-        if new:
-            w.writeheader()
+    old = _read_csv_rows(p)
+    cat = catalog.open_catalog(catalog_dir) if catalog_dir else None
+    ver = str(catalog.LIGHT_VERSION)
+    rows: dict[str, dict] = {}
+    errors: list[dict] = []
+    todo = []
+    n_csv = n_cat = 0
+    for f in frames:
+        try:
+            sha, sig = cat.resolve(f.path) if cat else (None, catalog.file_sig(f.path))
+        except OSError as e:
+            _emit(log, "Nicht lesbar, übersprungen: %s (%s)" % (os.path.basename(f.path), e))
+            errors.append(_error(f.path, "stat", e))
+            continue
+        thumb_file = os.path.join(outdir, "thumbs", thumb_name(f.path))
+        o = old.get(f.path)
+        if o and o.get("file_sig") == sig and o.get("metrics_ver") == ver and os.path.exists(thumb_file):
+            rows[f.path] = dict(context_row(f), **{k: o.get(k) for k in METRIC_COLS},
+                                file_sig=sig, sha256=o.get("sha256", ""), metrics_ver=ver)
+            n_csv += 1
+            continue
+        hit = cat.light_get(sha, f.bayer) if (cat and sha) else None
+        if hit:
+            metrics, thumb = hit
+            np.save(thumb_file, thumb)
+            rows[f.path] = dict(context_row(f), **metrics, file_sig=sig, sha256=sha, metrics_ver=ver)
+            n_cat += 1
+            continue
+        todo.append((f, sig, sha, "geändert" if f.path in old else "neu"))
+    n_new = sum(1 for t in todo if t[3] == "neu")
+    n_changed = len(todo) - n_new
+    if todo:
         with ProcessPoolExecutor(max_workers=workers) as ex:
-            for i, (res, err) in enumerate(ex.map(_work, todo)):
+            for i, ((f, sig, sha, _why), (res, err)) in enumerate(zip(todo, ex.map(_work, [t[0] for t in todo]))):
+                kind = "measure"
+                if res and _sig_or_none(f.path) != sig:
+                    err = (f.path, "während der Messung geändert")
+                    res, kind = None, "changed"
                 if res:
                     row, thumb = res
-                    np.save(os.path.join(outdir, "thumbs", thumb_name(row["path"])), thumb)
-                    w.writerow(row)
-                    fh.flush()
+                    np.save(os.path.join(outdir, "thumbs", thumb_name(f.path)), thumb)
+                    if cat and sha:
+                        cat.light_put(sha, f.bayer, {k: row[k] for k in METRIC_COLS}, thumb)
+                    rows[f.path] = dict(row, file_sig=sig, sha256=sha or "", metrics_ver=ver)
+                    _emit(log, "  %s  FWHM %s  Sterne %s  Rauschen %s" % (
+                        os.path.basename(f.path), row.get("fwhm"), row.get("nstars"), row.get("noise")))
+                elif err:
+                    _emit(log, "Messung fehlgeschlagen: %s (%s)" % (os.path.basename(err[0]), err[1]))
+                    errors.append(_error(f.path, kind, err[1]))
                 if progress:
                     progress(i + 1, len(todo), err)
+    _emit(log, "Katalog: %d aus Projekt-CSV, %d aus Katalog, %d neu, %d geändert" % (n_csv, n_cat, n_new, n_changed))
+    tmp = p + ".tmp"
+    with open(tmp, "w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=COLS, extrasaction="ignore")
+        w.writeheader()
+        for f in frames:
+            if f.path in rows:
+                w.writerow(rows[f.path])
+    os.replace(tmp, p)
+    _write_errors(outdir, errors)
+    if cat:
+        cat.flush()
+        if cat.write_failures:
+            _emit(log, "Katalog-Schreibfehler: %d (Analyse fortgesetzt; einzelne Einträge nicht gespeichert)"
+                  % cat.write_failures)
     return p
+
+
+def _error(path: str, kind: str, reason) -> dict:
+    return {"path": path, "kind": kind, "reason": str(reason)}
+
+
+def _write_errors(outdir: str, errors: list[dict]) -> None:
+    """Replace measure_errors.json fully, so fixed files disappear on the next run."""
+    p = os.path.join(outdir, ERRORS_FILE)
+    tmp = p + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(sorted(errors, key=lambda e: e["path"]), fh, ensure_ascii=False, indent=1)
+    os.replace(tmp, p)
+
+
+def _emit(log, msg: str) -> None:
+    if log:
+        log(msg)
+
+
+def _sig_or_none(path: str):
+    try:
+        return catalog.file_sig(path)
+    except OSError:
+        return None

@@ -37,6 +37,7 @@ header{display:flex;align-items:center;gap:14px;padding:8px 16px;border-bottom:1
 .logo svg.i{width:22px;height:22px;color:var(--accent)}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto;align-items:center}
 .btn.upd{background:var(--good);color:#fff;border-color:transparent;font-weight:600;animation:updpulse 2.4s ease-in-out 3}
+#updBtn[hidden]{display:none}
 @keyframes updpulse{50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--good) 30%,transparent)}}
 #updDlg .notes{white-space:pre-wrap;max-height:260px;overflow:auto;background:var(--surface-2);border-radius:8px;padding:10px 12px;font-size:13px}
 #updDlg .bar{height:8px;border-radius:4px;background:var(--surface-2);overflow:hidden;margin-top:10px}
@@ -125,6 +126,7 @@ pre.log{background:var(--surface-2);border:1px solid var(--line);border-radius:8
 .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-top:18px;overflow-x:auto}
 .tabs button{background:none;border:none;border-bottom:2px solid transparent;padding:8px 12px;cursor:pointer;color:var(--text-secondary);font-weight:500;display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
 .tabs button.on{border-color:var(--accent);color:var(--text-primary)}
+.tabs button:disabled{opacity:.45;cursor:not-allowed}
 .runs{display:grid;gap:12px;margin-top:14px}
 .run{background:var(--surface-1);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:start}
 .run.off{opacity:.55}
@@ -190,6 +192,17 @@ svg.i.tiny{width:12px;height:12px;opacity:.7}
 .copt.bad{opacity:.7}
 .copt input{margin-top:3px;accent-color:var(--accent)}
 .copt .r{font-size:12.5px;color:var(--text-muted)}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-top:12px}
+.ftile{content-visibility:auto;contain-intrinsic-size:auto 220px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}
+.ftile .ph{aspect-ratio:3/2;background:#000;border:0;padding:0;width:100%;cursor:zoom-in;display:grid;place-items:center;color:var(--text-muted);font-size:12px;overflow:hidden}
+.ftile .ph img{width:100%;height:100%;object-fit:cover;display:block}
+.ftile.off .ph img{opacity:.4}
+.ftile .fx{padding:6px 8px 8px;font-size:12px;display:grid;gap:2px;min-width:0}
+.ftile .fx .muted{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ftile .fx .fmet{display:flex;flex-wrap:wrap;gap:0 8px;color:var(--text-muted)}
+.ftile .ph .nopv{padding:0 8px;text-align:center}
+.fuse{display:inline-flex;gap:6px;align-items:center;font-weight:600;cursor:pointer}
+.fuse input{width:16px;height:16px;accent-color:var(--accent);margin:0}
 .calres{border-radius:8px;padding:10px 12px;background:var(--surface-2);border:1px solid var(--line);font-size:13px}
 /* Startseite / Kacheln */
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px;margin-top:18px}
@@ -230,6 +243,7 @@ iframe.report{width:100%;border:0;display:block;background:transparent;margin-to
 #frameDlg{width:min(1500px,96vw)}
 #frameDlg .fimg{position:relative;background:#000;display:grid;place-items:center;min-height:300px}
 #frameDlg .fimg img{max-width:100%;max-height:68vh;display:block;cursor:zoom-in}
+#frameDlg .fimg img[hidden]{display:none}
 #frameDlg .fimg img.zoom{max-width:none;max-height:none;cursor:zoom-out}
 #frameDlg .fimg.zoomed{overflow:auto;max-height:72vh;display:block}
 #frameDlg .nav{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.55);color:#fff;border:none;width:42px;height:64px;font-size:26px;cursor:pointer;border-radius:8px}
@@ -373,7 +387,11 @@ async function api(path,body){
 }
 function toast(msg,err){const t=document.createElement('div');t.className='toast'+(err?' err':'');t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),err?7000:3000);}
 const openDir=p=>api('/api/open',{path:p}).catch(e=>toast(e.message,true));
-const dirLink=(p,label)=>`<button class="lnk" title="${esc(p)} – im Explorer öffnen" onclick='openDir(${JSON.stringify(p)})'>${ic('folder')}${esc(label||p.split(/[\\/]/).slice(-2).join('/'))}</button>`;
+const normPath=p=>String(p||'').trim().replace(/\\/g,'/').replace(/\/+$/,'').toLowerCase();
+const hasPath=(list,p)=>(list||[]).some(x=>normPath(x)===normPath(p));
+// JSON inside an HTML attribute: esc also encodes ' so file names cannot break out of onclick='…'
+const jsArg=v=>esc(JSON.stringify(v));
+const dirLink=(p,label)=>`<button class="lnk" title="${esc(p)} – im Explorer öffnen" onclick='openDir(${jsArg(p)})'>${ic('folder')}${esc(label||p.split(/[\\/]/).slice(-2).join('/'))}</button>`;
 
 // ---------- UI-Zoom (Knöpfe, Strg +/−/0, Strg + Mausrad)
 const ZSTEPS=[0.67,0.75,0.8,0.9,1,1.1,1.25,1.4,1.6,1.8,2];
@@ -410,7 +428,9 @@ window.astrostack={
 async function refresh(){
   try{S=await api('/api/state');}catch(e){$('#chips').innerHTML=`<span class="chip"><span class="dot critical"></span>Programm nicht erreichbar – läuft das schwarze Fenster noch?</span>`;return;}
   if(!STEPS){try{STEPS=await api('/api/steps')}catch(e){STEPS={analyze:[],stack:[]}}}
-  renderChips();renderProjects();
+  renderChips();
+  if(cur.view==='project'&&cur.project&&!S.projects.some(p=>p.name===cur.project)){cur={view:'home',project:null,tab:'overview'};P=null;render();}
+  else renderProjects();
   const j=S.job, active=j&&['queued','running'].includes(j.state);
   if(j&&lastJobState&&['queued','running'].includes(lastJobState)&&!active) onJobFinished(j);
   lastJobState=j?j.state:null;
@@ -457,7 +477,7 @@ function renderUpdate(){
     if(u.newer&&!u.can_install)h+=`<p class="muted">Aus dem Quellcode gestartet – bitte mit <code>git pull</code> aktualisieren.</p>`;
     else if(u.newer&&busy)h+=`<p class="muted">Gerade läuft ein Auftrag – das Update geht, sobald er fertig ist.</p>`;
     h+=`<div class="row" style="margin-top:14px;gap:8px">${u.newer&&u.can_install?`<button class="btn primary" ${busy?'disabled':''} onclick="doUpdate()">Jetzt aktualisieren &amp; neu starten</button>`:''}
-      <button class="btn" onclick="checkUpdate()">Erneut prüfen</button>${u.page?`<button class="btn" onclick='openDir(${JSON.stringify(u.page)})'>Seite auf GitHub</button>`:''}</div>`;
+      <button class="btn" onclick="checkUpdate()">Erneut prüfen</button>${u.page?`<button class="btn" onclick='openDir(${jsArg(u.page)})'>Seite auf GitHub</button>`:''}</div>`;
     if(u.error)h+=`<p class="muted small">Prüfung nicht möglich: ${esc(u.error)}</p>`;
   }
   document.getElementById('updBody').innerHTML=h;
@@ -500,7 +520,7 @@ function sortedProjects(){
 function renderProjects(){
   const L=sortedProjects();
   $('#projList').innerHTML=L.length?L.map(p=>`<button class="proj ${cur.project===p.name&&cur.view==='project'?'on':''}" data-n="${esc(p.name)}"><b>${esc(p.title)}</b>
-    <span>${p.stacks?`<span>${ic('layers')} ${p.stacks} Stack${p.stacks>1?'s':''}</span>`:'<span>noch nicht gestackt</span>'}${p.last_stack?`<span>${dshort(p.last_stack)}</span>`:''}</span></button>`).join(''):`<div class="muted small" style="padding:4px 8px">${S.projects.length?'Nichts gefunden.':'Noch keine. Starte mit „Neues Projekt“.'}</div>`;
+    <span>${p.stacks?`<span>${ic('layers')} ${p.stacks} Stack${p.stacks>1?'s':''}</span>`:'<span>noch nicht gestackt</span>'}${p.hours?`<span>${ic('clock','tiny')} ${fmt(p.hours,1)} h</span>`:''}${p.last_stack?`<span>${dshort(p.last_stack)}</span>`:''}</span></button>`).join(''):`<div class="muted small" style="padding:4px 8px">${S.projects.length?'Nichts gefunden.':'Noch keine. Starte mit „Neues Projekt“.'}</div>`;
   document.querySelectorAll('.proj').forEach(b=>b.onclick=()=>openProject(b.dataset.n));
 }
 function go(v){cur.view=v;render();}
@@ -518,7 +538,7 @@ function renderHome(){
   const L=sortedProjects();
   $('#view').innerHTML=`<div class="row"><h1 class="grow">Projekte</h1><span class="muted small">${S.projects.length} Projekt${S.projects.length===1?'':'e'}</span></div>
     <div class="tiles">
-      <button class="tile new" onclick="go('new')">${ic('folder')}<span>Neues Projekt</span><span class="muted small" style="font-weight:400">Ordner wählen, analysieren, stacken</span></button>
+      <button class="tile new" onclick="go('new')">${ic('folder')}<span>Neues Projekt</span><span class="muted small" style="font-weight:400">Ordner wählen, analysieren, stacken – oder Planungsprojekt</span></button>
       ${L.map(p=>`<button class="tile" data-n="${esc(p.name)}">
         <div class="ph" style="background-image:url('/api/project-thumb/${encodeURIComponent(p.name)}?v=${encodeURIComponent(p.thumb_v||'')}')"></div>
         <div class="tx"><b title="${esc(p.title)}">${esc(p.title)}</b>
@@ -582,14 +602,24 @@ function renderNew(){
       <div class="muted small" style="margin-top:4px">Lights, Flats, Bias und Darks werden anhand der Kopfdaten zusammengesucht. Werden mehrere Objekte gefunden, fragt das Programm nach.</div></div></div>
     <div class="step"><div class="num">3</div><div><button class="btn primary big" id="anBtn">${ic('play')} Analysieren</button>
       <div class="muted small" style="margin-top:6px">Liest nur – an den Originaldateien wird nichts verändert. Dauert je nach Menge einige Minuten.</div></div></div>
-  </div>`;
+  </div>
+  <div class="card"><h2>${ic('target')} Oder: Planungsprojekt ohne Aufnahmen</h2>
+    <div class="muted small">Für ein Objekt, das du erst noch fotografieren willst – ganz ohne Ordner und Lights. Quellordner kannst du später im Projekt ergänzen und dann analysieren.</div>
+    <div class="row" style="margin-top:10px"><input type="text" id="planTitle" placeholder="Projektname, z. B. Andromeda-Galaxie" style="width:min(420px,100%)"><button class="btn" id="planBtn">＋ Planungsprojekt anlegen</button></div></div>`;
   document.querySelectorAll('#fl input').forEach(i=>i.oninput=()=>folders[+i.dataset.i]=i.value);
-  document.querySelectorAll('[data-pick]').forEach(b=>b.onclick=async()=>{b.disabled=true;try{const r=await api('/api/pick-folder',{initial:folders[+b.dataset.pick]||folders.find(x=>x)||''});if(r.path){folders[+b.dataset.pick]=r.path;renderNew();}}catch(e){toast(e.message,true)}b.disabled=false;});
+  document.querySelectorAll('[data-pick]').forEach(b=>b.onclick=async()=>{b.disabled=true;try{const r=await api('/api/pick-folder',{initial:folders[+b.dataset.pick]||folders.find(x=>x)||''});if(r.path){if(hasPath(folders.filter((_,k)=>k!==+b.dataset.pick),r.path))toast('Dieser Ordner ist schon ausgewählt',true);else{folders[+b.dataset.pick]=r.path;renderNew();}}}catch(e){toast(e.message,true)}b.disabled=false;});
   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{folders.splice(+b.dataset.del,1);renderNew();});
-  document.querySelectorAll('[data-rec]').forEach(b=>b.onclick=()=>{const e=folders.findIndex(x=>!x.trim());if(e>=0)folders[e]=b.dataset.rec;else folders.push(b.dataset.rec);renderNew();});
+  document.querySelectorAll('[data-rec]').forEach(b=>b.onclick=()=>{if(hasPath(folders,b.dataset.rec))return toast('Dieser Ordner ist schon ausgewählt',true);const e=folders.findIndex(x=>!x.trim());if(e>=0)folders[e]=b.dataset.rec;else folders.push(b.dataset.rec);renderNew();});
   $('#addF').onclick=()=>{folders.push('');renderNew();};
   $('#tgt').oninput=e=>newTitle=e.target.value;
-  $('#anBtn').onclick=async()=>{newTitle=$('#tgt').value.trim();try{await api('/api/scan-preview',{folders:folders.filter(x=>x.trim())});cur.view='job';await refresh();}catch(e){toast(e.message,true)}};
+  $('#planBtn').onclick=async()=>{const t=$('#planTitle').value.trim();if(!t)return toast('Bitte einen Projektnamen eingeben',true);
+    $('#planBtn').disabled=true;
+    try{P=await api('/api/project-create',{title:t,roots:[]});cur={view:'project',project:P.name,tab:'overview'};await refresh();render();toast('Planungsprojekt angelegt');}
+    catch(e){toast(e.message,true);$('#planBtn').disabled=false;}};
+  $('#anBtn').onclick=async()=>{newTitle=$('#tgt').value.trim();
+    const sel=folders.filter(x=>x.trim()),uniq=sel.filter((x,i)=>!hasPath(sel.slice(0,i),x));
+    if(uniq.length<sel.length){folders=uniq.length?uniq:[''];toast('Doppelte Ordner wurden zusammengefasst');}
+    try{await api('/api/scan-preview',{folders:uniq});cur.view='job';await refresh();}catch(e){toast(e.message,true)}};
 }
 
 // ---------- Auftrag (Ablauf, aktueller Schritt, Restzeit)
@@ -628,10 +658,10 @@ function renderJob(){
   const openDet=$('#jobCard details')?.open;
   if(cur.view==='job'){
     $('#view').innerHTML=`<h1>${j.kind==='stack'?'Stacking':j.kind==='analyze'?'Analyse':j.kind==='scan'?'Ordner durchsuchen':'Kennzahlen'}</h1><div class="sub" style="margin-top:4px">${active?'Du kannst das Fenster offen lassen und nebenbei etwas anderes machen.':''}</div>`+jobCard(j)+
-      (!active&&j.kind==='analyze'&&Array.isArray(j.result)&&j.result.length?`<div class="card"><h2>Ergebnis</h2>${j.result.map(r=>`<button class="btn primary" onclick="openProject('${esc(r.project)}')">${esc(r.target)} öffnen →</button> `).join('')}</div>`:'');
+      (!active&&j.kind==='analyze'&&Array.isArray(j.result)&&j.result.length?`<div class="card"><h2>Ergebnis</h2>${j.result.map(r=>`<button class="btn primary" onclick='openProject(${jsArg(r.project)})'>${esc(r.target)} öffnen →</button> `).join('')}</div>`:'');
   }else{
     const slot=$('#jobSlot'); if(!slot)return;
-    const mine=P&&(j.title||'').endsWith(P.plan.target);
+    const mine=P&&P.plan&&P.plan.target&&(j.title||'').endsWith(P.plan.target);
     slot.innerHTML=(active&&mine)||(!active&&mine&&j.state==='failed')?jobCard(j):'';
   }
   if(openDet&&$('#jobCard details'))$('#jobCard details').open=true;
@@ -658,7 +688,8 @@ function onJobFinished(j){
 async function openProject(name){
   const keepTab=cur.project===name?cur.tab:null;
   try{P=await api('/api/project/'+encodeURIComponent(name));}catch(e){toast(e.message,true);return;}
-  cur={view:'project',project:name,tab:keepTab||(P.stacks.length?'overview':'plan')};
+  FV.list=null;
+  cur={view:'project',project:name,tab:keepTab||(P.stacks.length||!hasData()?'overview':'plan')};
   render();
 }
 const OPTS=[
@@ -669,33 +700,45 @@ const OPTS=[
   ['large_scale_rejection','Satelliten-/Flugzeugspuren entfernen','Erkennt lange, helle Spuren und lässt sie beim Mitteln weg.'],
   ['autocrop','Ränder automatisch beschneiden','Aus lassen, wenn mehrere Filter später kombiniert werden – sonst passen die Bilder nicht mehr genau aufeinander.'],
 ];
+// Planning projects and freshly created ones have no lights yet: plan/report would be empty or missing
+const hasData=()=>!!(P&&((P.plan&&(P.plan.total_frames||(P.plan.runs||[]).length))||(P.facts&&P.facts.lights_total)));
+const needsAnalysis=()=>!!(P&&(P.analysis_required||(P.sources||{}).analysis_required||(P.sources||{}).plan_stale));
+const stackName=s=>s.name||s.run||dt(s.date);
 function renderProject(){
-  const m=P.meta, plan=P.plan;
+  const m=P.meta, plan=P.plan||{}, data=hasData(), roots=(P.sources||{}).roots||[];
+  if(!data&&['plan','report','frames'].includes(cur.tab))cur.tab='overview';
+  const noData='Noch keine Aufnahmen analysiert – erst Quellordner hinzufügen und „Neu analysieren“.';
   $('#view').innerHTML=`
   <div class="row" style="align-items:flex-start">
     <div class="grow">
       <div class="ptitle" id="ptitle"><h1>${esc(m.name)}</h1><button class="btn icon ghost" id="renBtn" title="Umbenennen">${ic('edit')}</button></div>
-      <div class="muted small">${m.name!==m.target?'Objekt: '+esc(m.target)+' · ':''}angelegt ${dshort(m.created)} · ${P.stacks.length} Stack${P.stacks.length===1?'':'s'} · Analyse vom ${dt(plan.created)}</div>
+      <div class="muted small">${data&&m.target&&m.name!==m.target?'Objekt: '+esc(m.target)+' · ':''}angelegt ${dshort(m.created)} · ${P.stacks.length} Stack${P.stacks.length===1?'':'s'} · ${data&&plan.created?'Analyse vom '+dt(plan.created):data?'analysiert':'Planungsprojekt · noch nicht analysiert'}</div>
       <div class="desc"><textarea id="desc" placeholder="Beschreibung – z. B. Ziel, Ausrüstung, Besonderheiten, Ideen für die nächste Nacht …">${esc(m.description||'')}</textarea></div>
-      <div class="srcs"><span class="muted small">${ic('folder')} Quellordner:</span>${(P.sources.roots||[]).map((r,i)=>`<span class="src">${dirLink(r,r)}<button title="entfernen" data-delsrc="${i}">✕</button></span>`).join('')}<button class="btn sm" id="addSrc">＋ Ordner</button></div>
+      <div class="srcs"><span class="muted small">${ic('folder')} Quellordner:</span>${roots.length?'':'<span class="muted small">noch keine</span>'}${roots.map((r,i)=>`<span class="src">${dirLink(r,r)}<button title="entfernen" data-delsrc="${i}">✕</button></span>`).join('')}<input type="text" id="srcPath" placeholder="Ordnerpfad eingeben" aria-label="Quellordnerpfad"><button class="btn sm" id="addSrc" title="Eingegebenen Pfad hinzufügen oder einen Ordner auswählen">＋ Ordner</button></div>
     </div>
-    <div class="row"><button class="btn" id="reBtn" title="Ordner neu einlesen – neue Nächte und Flats werden gefunden, Messwerte bleiben erhalten">${ic('refresh')} Neu analysieren</button>
-      <button class="btn" id="dirBtn">${ic('folder')} Projektordner</button></div>
+    <div class="row"><button class="btn" id="reBtn" ${roots.length?'':'disabled'} title="${roots.length?'Ordner neu einlesen – neue Nächte und Flats werden gefunden, Messwerte bleiben erhalten':'Erst einen Quellordner hinzufügen'}">${ic('refresh')} Neu analysieren</button>
+      <button class="btn" id="dirBtn">${ic('folder')} Projektordner</button>
+      <button class="btn danger" id="delProjBtn" title="Projekt aus der Liste entfernen – es werden keine Dateien gelöscht">Aus Verwaltung entfernen</button></div>
   </div>
   <div id="dirtySlot"></div>
   <div id="jobSlot"></div>
   <div class="tabs">
     <button data-t="overview" class="${cur.tab==='overview'?'on':''}">${ic('chart')} Übersicht &amp; Stacks</button>
-    <button data-t="plan" class="${cur.tab==='plan'?'on':''}">${ic('sliders')} Stacking-Plan</button>
-    <button data-t="report" class="${cur.tab==='report'?'on':''}">${ic('image')} Bericht &amp; Frames</button>
+    <button data-t="frames" class="${cur.tab==='frames'?'on':''}" ${data?'':`disabled title="${esc(noData)}"`}>${ic('grid')} Frames</button>
+    <button data-t="plan" class="${cur.tab==='plan'?'on':''}" ${data?'':`disabled title="${esc(noData)}"`}>${ic('sliders')} Stacking-Plan</button>
+    <button data-t="report" class="${cur.tab==='report'?'on':''}" ${data?'':`disabled title="${esc(noData)}"`}>${ic('image')} Bericht</button>
     <button data-t="check" class="${cur.tab==='check'?'on':''}">${ic('list')} Spickzettel Bearbeitung</button>
   </div>
   <div id="tabBody"></div>`;
   document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{cur.tab=b.dataset.t;renderTab();document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));});
   $('#renBtn').onclick=startRename;
   $('#desc').onchange=()=>saveMeta({description:$('#desc').value});
-  document.querySelectorAll('[data-delsrc]').forEach(b=>b.onclick=()=>{const r=[...P.sources.roots];r.splice(+b.dataset.delsrc,1);if(!r.length)return toast('Mindestens ein Ordner nötig',true);saveSources(r)});
-  $('#addSrc').onclick=async()=>{try{const r=await api('/api/pick-folder',{initial:(P.sources.roots||[])[0]||''});if(r.path)saveSources([...(P.sources.roots||[]),r.path]);}catch(e){toast(e.message,true)}};
+  document.querySelectorAll('[data-delsrc]').forEach(b=>b.onclick=()=>{const r=[...roots];r.splice(+b.dataset.delsrc,1);saveSources(r)});
+  $('#addSrc').onclick=async()=>{try{let path=$('#srcPath').value.trim();
+    if(!path){const r=await api('/api/pick-folder',{initial:roots[0]||''});path=r.path;}if(!path)return;
+    if(hasPath(roots,path))return toast('Dieser Ordner ist schon Quellordner dieses Projekts',true);
+    saveSources([...roots,path]);}catch(e){toast(e.message,true)}};
+  $('#delProjBtn').onclick=deleteProject;
   $('#reBtn').onclick=async()=>{try{await api('/api/project/'+encodeURIComponent(cur.project)+'/reanalyze',{});dirty=false;cur.view='job';await refresh();}catch(e){toast(e.message,true)}};
   $('#dirBtn').onclick=()=>openDir(P.pdir);
   renderTab(); renderDirty(); renderJob();
@@ -707,10 +750,16 @@ function startRename(){
   $('#renOk').onclick=ok;$('#renNo').onclick=renderProject;inp.onkeydown=e=>{if(e.key==='Enter')ok();if(e.key==='Escape')renderProject();};
 }
 async function saveMeta(ch){try{P=await api('/api/project/'+encodeURIComponent(cur.project)+'/meta',ch);if(ch.name)renderProject();toast('Gespeichert');}catch(e){toast(e.message,true)}}
-async function saveSources(r){try{P=await api('/api/project/'+encodeURIComponent(cur.project)+'/sources',{roots:r});renderProject();toast('Quellordner gespeichert – „Neu analysieren“ übernimmt sie');}catch(e){toast(e.message,true)}}
+async function saveSources(r){try{P=await api('/api/project/'+encodeURIComponent(cur.project)+'/sources',{roots:r});renderProject();toast(r.length?'Quellordner gespeichert – bitte „Neu analysieren“, erst danach kann gestackt werden':'Quellordner entfernt');}catch(e){toast(e.message,true)}}
+async function deleteProject(){
+  if(!confirm(`Projekt „${P.meta.name}“ aus der Verwaltung entfernen?\n\nAlle Dateien bleiben erhalten: Aufnahmen, Projektordner, Stacks und Berichte werden nicht gelöscht – nur der Eintrag in b2stacker verschwindet.`))return;
+  try{await api('/api/project/'+encodeURIComponent(cur.project)+'/delete',{});P=null;cur={view:'home',project:null,tab:'overview'};await refresh();render();toast('Projekt aus der Verwaltung entfernt – Dateien bleiben erhalten');}
+  catch(e){toast(e.message,true)}
+}
 function renderTab(){
   const b=$('#tabBody');
-  if(cur.tab==='report'){b.innerHTML=`<div class="muted small" style="margin-top:10px">${ic('info')} In der Galerie ein Foto anklicken → große Ansicht (← → blättern, Klick ins Bild = 100 %), ausschließen oder als Projektbild setzen.</div>
+  if(cur.tab==='frames')return renderFrames(b);
+  if(cur.tab==='report'){b.innerHTML=`<div class="muted small" style="margin-top:10px">${ic('info')} Diagramme und Messwerte aller Lights. Fotos verwenden oder weglassen geht im Reiter <b>Frames</b>.</div>
     <iframe class="report" id="reportFrame" scrolling="no" title="Bericht" src="/p/${encodeURIComponent(cur.project)}/report.html?embed=1&theme=${effTheme()}"></iframe>`;return;}
   if(cur.tab==='check')return renderChecklist(b);
   if(cur.tab==='overview')return renderOverview(b);
@@ -746,24 +795,45 @@ function renderOverview(b){
     ${(F.filters||[]).length?`<div class="fbars">${F.filters.map((f,i)=>`<div class="fbar">${ftag(f.name)}
       <div class="tr" title="${fmt(f.used_hours,1)} h verwendet von ${fmt(f.hours,1)} h"><div style="width:${100*f.hours/maxH}%;background:var(${pal[i%5]});opacity:.35"></div><div style="width:${100*f.used_hours/maxH}%;background:var(${pal[i%5]})"></div></div>
       <span class="muted small">${fmt(f.used_hours,1)} von ${fmt(f.hours,1)} h · ${f.used}/${f.lights}</span></div>`).join('')}
-      <div class="muted small">Kräftig = wird gestackt, blass = aussortiert oder nicht gewählt.</div></div>`:''}
+      <div class="muted small">Kräftig = wird gestackt, blass = automatisch oder manuell/über Ordner ausgeschlossen bzw. Lauf abgewählt.</div></div>`:''}
   </div>`;
+  const AS=P.assets||[];
+  const assets=`<div class="card"><h2>${ic('image')} Verknüpfte Bilder <span class="muted" style="font-weight:400">· PSD, TIFF, JPEG oder fertige Stacks</span></h2>
+    <div class="muted small">Nur verknüpft und angezeigt – die Dateien werden weder kopiert, verändert noch gelöscht. Bilder im Projektordner und in <code>final</code> erscheinen automatisch.</div>
+    ${AS.length?`<div class="stiles">${AS.map(a=>`<div class="stile">
+      <div class="ph" style="${a.preview_url?`background-image:url('${esc(a.preview_url)}')`:''}" ${a.preview_url?`onclick='showImg(${jsArg(a.preview_url)},${jsArg(a.name||'')})'`:''}>
+        ${a.preview_url?'':`<div class="empty small">${esc(a.preview_error?'Keine Vorschau: '+a.preview_error:'keine Vorschau')}</div>`}</div>
+      <div class="tx"><b style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(a.name)}">${esc(a.name)}</b>
+        <div class="muted small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(a.path)}">${a.exists?'':'⚠ fehlt: '}${esc(a.path)}</div></div>
+      <div class="acts">${a.exists?`<button class="btn sm" onclick='openPi([${jsArg(a.path)}])'>${ic('pi')} PixInsight</button>
+        <button class="btn sm" onclick='openDir(${jsArg(String(a.path).replace(/[\\/][^\\/]+$/,''))})'>${ic('folder')} Ordner</button>`:''}</div></div>`).join('')}</div>`:''}
+    <div class="frow" style="margin-top:12px"><input type="text" id="assetPath" placeholder="Pfad zur Bilddatei, z. B. D:\\Astro\\M31_final.psd" aria-label="Pfad zur Bilddatei"><button class="btn" id="assetBtn">Verknüpfen</button></div></div>`;
+  const bindAssets=()=>{const bt=$('#assetBtn'),inp=$('#assetPath');if(!bt)return;
+    const go=async()=>{const v=inp.value.trim();if(!v)return toast('Bitte einen Dateipfad eingeben',true);
+      if(hasPath(AS.map(a=>a.path),v))return toast('Diese Datei ist schon verknüpft',true);
+      bt.disabled=true;try{P=await api('/api/project/'+encodeURIComponent(cur.project)+'/asset-link',{path:v});toast('Bild verknüpft');renderTab();}catch(e){toast(e.message,true);bt.disabled=false}};
+    bt.onclick=go;inp.onkeydown=e=>{if(e.key==='Enter')go()};};
   if(!H.length){
-    b.innerHTML=html+`<div class="card empty">${ic('layers')}<div style="margin-top:6px">Noch kein Stack. Im Reiter <b>Stacking-Plan</b> auf „Los – stacken“ klicken.</div></div>`;return;}
+    const msg=hasData()?`Noch kein Stack. Im Reiter <b>Stacking-Plan</b> auf „Los – stacken“ klicken.`
+      :`Noch keine Aufnahmen. Oben mit <b>＋ Ordner</b> einen Quellordner hinzufügen und <b>Neu analysieren</b> – danach gibt es Plan, Bericht und Stacks.`;
+    b.innerHTML=html+`<div class="card empty">${ic('layers')}<div style="margin-top:6px">${msg}</div></div>`+assets;bindAssets();return;}
   // Stacks als Kacheln (neueste zuerst)
   html+=`<div class="card"><h2>${ic('layers')} Stacks <span class="muted" style="font-weight:400">· ${H.length} · zusammen ${fmt(F.stacked_hours,1)} h</span></h2>
     <div class="stiles">${[...H].reverse().flatMap(s=>s.outputs.map(o=>`<div class="stile">
-      <div class="ph" style="${o.preview_url?`background-image:url('${o.preview_url}')`:''}" ${o.preview_url?`onclick='showImg(${JSON.stringify(o.preview_url)},${JSON.stringify(o.name+' · '+dt(s.date))})'`:''}>
+      <div class="ph" style="${o.preview_url?`background-image:url('${esc(o.preview_url)}')`:''}" ${o.preview_url?`onclick='showImg(${jsArg(o.preview_url)},${jsArg(o.name+' · '+dt(s.date))})'`:''}>
         <span class="tag">${ftag(o.name)}</span>${o.preview_url?'':'<div class="empty small">keine Vorschau</div>'}</div>
-      <div class="tx"><div><b>${dt(s.date)}</b>${s.legacy?' <span class="badge neutral">ältere Version</span>':''}</div>
+      <div class="tx"><div><b>${esc(stackName(s))}</b>${s.legacy?' <span class="badge neutral">ältere Version</span>':''}</div>
+        <div class="muted small">${dt(s.date)}</div>
         <div class="muted">${fmt(s.hours,1)} h · ${s.lights??'?'} Lights · ${(s.nights||[]).length} Nächte${s.minutes?' · '+dur(s.minutes*60):''}</div>
         ${o.kpi?`<div class="muted">σ ${fmt(o.kpi.noise,2)} · ${o.kpi.fwhm_as!=null?fmt(o.kpi.fwhm_as,2)+'"':fmt(o.kpi.fwhm_px,2)+' px'} · ${o.kpi.stars} ★ · Form ${fmt(o.kpi.ecc,2)}</div>`:''}
         ${(s.notes||[]).map(n=>`<div class="small" style="color:var(--warn,#d9a400)">⚠ ${esc(n)}</div>`).join('')}
         <div class="muted small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.file)}">${o.exists?'':'⚠ fehlt: '}${esc(o.file.split(/[\\/]/).pop())}</div></div>
-      <div class="acts">${o.exists?`<button class="btn sm" onclick='openPi([${JSON.stringify(o.file)}])'>${ic('pi')} PixInsight</button>
-        <button class="btn sm" onclick='openDir(${JSON.stringify(o.file.replace(/[\\/][^\\/]+$/,''))})'>${ic('folder')} Ordner</button>`:''}
-        ${o.exists&&!o.kpi?`<button class="btn sm" onclick="requality('${esc(s.id)}')">${ic('gauge')} messen</button>`:''}
-        ${o.preview?(isThumb(o.preview)?`<span class="badge good">${ic('image','tiny')} Projektbild</span>`:`<button class="btn sm" title="Als Vorschaubild für das Projekt verwenden" onclick='setThumb(${JSON.stringify(o.preview)})'>${ic('image')} Projektbild</button>`):''}</div></div>`)).join('')}</div>
+      <div class="acts">${o.exists?`<button class="btn sm" onclick='openPi([${jsArg(o.file)}])'>${ic('pi')} PixInsight</button>
+        <button class="btn sm" onclick='openDir(${jsArg(o.file.replace(/[\\/][^\\/]+$/,''))})'>${ic('folder')} Ordner</button>`:''}
+        ${o.exists&&!o.kpi?`<button class="btn sm" onclick='requality(${jsArg(s.id)})'>${ic('gauge')} messen</button>`:''}
+        ${o.preview?(isThumb(o.preview)?`<span class="badge good">${ic('image','tiny')} Projektbild</span>`:`<button class="btn sm" title="Als Vorschaubild für das Projekt verwenden" onclick='setThumb(${jsArg(o.preview)})'>${ic('image')} Projektbild</button>`):''}
+        <button class="btn sm ghost" data-sren="${esc(s.id)}" title="Anzeigename ändern">${ic('edit')} Name</button>
+        <button class="btn sm ghost danger" data-sdel="${esc(s.id)}" title="Stack aus der Verwaltung entfernen – Dateien bleiben erhalten">Entfernen</button></div></div>`)).join('')}</div>
     ${P.meta.thumb?`<div class="muted small" style="margin-top:8px">Projektbild selbst gewählt · <button class="lnk" onclick="setThumb(null)">wieder automatisch (neuester Stack)</button></div>`:''}</div>`;
   // Stand + Vergleich
   const byOut={};H.forEach(s=>s.outputs.forEach(o=>{(byOut[o.name]=byOut[o.name]||[]).push({s,o})}));
@@ -777,7 +847,7 @@ function renderOverview(b){
     <div style="overflow-x:auto"><table class="kt"><thead><tr><th>Ergebnis</th><th>Belichtung</th>${cols.map(([key,l,u,d,dir,h])=>`<th title="${esc(h)}">${esc(l)} ${ic('info','tiny')}</th>`).join('')}</tr></thead>
     <tbody>${latest.map(L=>`<tr><td>${ftag(L.name)}<div class="muted small">${dshort(L.cur.s.date)} · Stack ${L.count}</div></td>
       <td><b>${fmt(L.cur.s.hours,1)}</b> <span class="muted small">h</span><div class="muted small">${L.cur.s.lights??'?'} Lights</div></td>
-      ${L.cur.o.kpi?cols.map(c=>cell(L,c)).join(''):`<td colspan="${cols.length}"><button class="btn primary sm" onclick="requality('${esc(L.cur.s.id)}')">${ic('gauge')} Kennzahlen jetzt messen</button></td>`}</tr>`).join('')}</tbody></table></div>
+      ${L.cur.o.kpi?cols.map(c=>cell(L,c)).join(''):`<td colspan="${cols.length}"><button class="btn primary sm" onclick='requality(${jsArg(L.cur.s.id)})'>${ic('gauge')} Kennzahlen jetzt messen</button></td>`}</tr>`).join('')}</tbody></table></div>
     <details style="margin-top:8px"><summary class="muted small" style="cursor:pointer">${ic('info')} Was bedeuten die Werte?</summary>
       <table class="why">${KPIS.map(([key,l,u,d,dir,h])=>`<tr><td>${esc(l)}</td><td>${dir<0?'kleiner = besser':'größer = besser'}</td><td>${esc(h)}</td></tr>`).join('')}</table></details>
   </div>
@@ -785,18 +855,32 @@ function renderOverview(b){
     <div class="seg" id="metricSeg">${[['noise','Rauschen'],['fwhm_as','Schärfe'],['stars','Sterne'],['hours','Stunden']].map(([k,l])=>`<button data-m="${k}" class="${(cur.metric||'noise')===k?'on':''}">${l}</button>`).join('')}</div></div>
     <div class="muted small" style="margin-top:4px" id="metricHelp"></div>
     <div class="chartbox"><canvas id="histChart" role="img" aria-label="Verlauf der Stack-Qualität"></canvas></div></div>`;
-  b.innerHTML=html;
+  b.innerHTML=html+assets;
+  bindAssets();
+  b.querySelectorAll('[data-sren]').forEach(x=>x.onclick=()=>renameStack(x.dataset.sren));
+  b.querySelectorAll('[data-sdel]').forEach(x=>x.onclick=()=>removeStack(x.dataset.sdel));
   document.querySelectorAll('#metricSeg button').forEach(x=>x.onclick=()=>{cur.metric=x.dataset.m;document.querySelectorAll('#metricSeg button').forEach(y=>y.classList.toggle('on',y===x));drawHistory();});
   drawHistory();
 }
+async function renameStack(id){
+  const s=P.stacks.find(x=>x.id===id);if(!s)return;
+  const n=prompt('Anzeigename für diesen Stack (leer = automatisch):',s.name||'');if(n===null)return;
+  try{P=await api('/api/project/'+encodeURIComponent(cur.project)+'/stack-meta',{stack_id:id,name:n.trim()});toast('Name gespeichert');renderTab();}catch(e){toast(e.message,true)}
+}
+async function removeStack(id){
+  const s=P.stacks.find(x=>x.id===id);if(!s)return;
+  if(!confirm(`Stack „${stackName(s)}“ (${dt(s.date)}) aus der Verwaltung entfernen?\n\nAlle Dateien bleiben erhalten – die Ergebnis-Dateien im Ordner final werden nicht gelöscht. Betrifft alle ${s.outputs.length} Ergebnis(se) dieses Stacks.`))return;
+  try{P=await api('/api/project/'+encodeURIComponent(cur.project)+'/stack-delete',{stack_id:id});toast('Stack aus der Verwaltung entfernt – Dateien bleiben erhalten');renderTab();refresh();}catch(e){toast(e.message,true)}
+}
 const openPi=paths=>api('/api/open-pixinsight',{paths}).then(()=>toast('Wird in PixInsight geöffnet …')).catch(e=>toast(e.message,true));
 let FR=null;
-function showFrame(frames,i,onChange){FR={frames,i,onChange};renderFrame();if(!frameDlg.open)frameDlg.showModal();}
-const STXT={ok:['OK','good'],warn:['Hinweis','warning'],suggest:['Aussortieren?','warning'],rejected:['Aussortiert','neutral']};
+let FMODE='legacy';
+function showFrame(frames,i,onChange){FMODE='legacy';FV.shown=null;FR={frames,i,onChange};renderFrame();if(!frameDlg.open)frameDlg.showModal();}
+const STXT={ok:['OK','good'],warn:['Hinweis','warning'],suggest:['Automatisch ausgeschlossen','warning'],rejected:['Manuell/über Ordner ausgeschlossen','neutral'],error:['Messung fehlgeschlagen','critical']};
 function renderFrame(){
   const f=FR.frames[FR.i], off=['rejected','suggest'].includes(f.status);
   $('#fTitle').innerHTML=`${ftag(f.filter)} <span class="muted">${esc(f.night)} · #${esc(f.frame)} · ${FR.i+1} / ${FR.frames.length}</span> <span class="badge ${STXT[f.status][1]}">${STXT[f.status][0]}</span>`;
-  const im=$('#fImg');im.classList.remove('zoom');$('#fImgBox').classList.remove('zoomed');im.src=f.img;
+  const im=$('#fImg');im.classList.remove('zoom');$('#fImgBox').classList.remove('zoomed');im.onerror=null;im.hidden=false;im.src=f.img;
   const hi=new Image(),want=FR.i;hi.onload=()=>{if(FR&&FR.i===want)im.src=hi.src};hi.src=window.astrostack.previewUrl(f.path);
   im.onclick=()=>{im.classList.toggle('zoom');$('#fImgBox').classList.toggle('zoomed')};
   const isThumb=P&&P.meta.thumb_frame===f.path;
@@ -810,8 +894,206 @@ function renderFrame(){
   $('#fMeta').innerHTML=m.map(([k,v])=>`<div><span>${k}</span>${esc(v)}</div>`).join('');
   $('#fPrev').style.visibility=FR.i>0?'visible':'hidden';$('#fNext').style.visibility=FR.i<FR.frames.length-1?'visible':'hidden';
 }
-$('#fPrev').onclick=()=>{if(FR.i>0){FR.i--;renderFrame()}};$('#fNext').onclick=()=>{if(FR.i<FR.frames.length-1){FR.i++;renderFrame()}};
-window.addEventListener('keydown',e=>{if(!frameDlg.open)return;if(e.key==='ArrowLeft'){e.preventDefault();$('#fPrev').click()}else if(e.key==='ArrowRight'){e.preventDefault();$('#fNext').click()}});
+$('#fPrev').onclick=()=>{if(FMODE==='fv')return fvStep(-1);if(FR.i>0){FR.i--;renderFrame()}};
+$('#fNext').onclick=()=>{if(FMODE==='fv')return fvStep(1);if(FR.i<FR.frames.length-1){FR.i++;renderFrame()}};
+// Shortcuts only while the lightbox is open; typing in text fields must stay untouched (Esc is native to <dialog>)
+function fvKey(e){
+  if(!frameDlg.open||e.ctrlKey||e.metaKey||e.altKey)return;
+  const t=e.target, tag=t&&t.tagName;
+  if(tag==='TEXTAREA'||tag==='SELECT'||(t&&t.isContentEditable)||(tag==='INPUT'&&!['checkbox','radio'].includes(t.type)))return;
+  if(e.key==='ArrowLeft'){e.preventDefault();$('#fPrev').click()}
+  else if(e.key==='ArrowRight'){e.preventDefault();$('#fNext').click()}
+  else if(e.key===' '&&FMODE==='fv'){
+    if(e.repeat){e.preventDefault();return;}   // holding Space must not flip the choice back and forth
+    if(tag==='INPUT')return;              // focused checkbox toggles natively
+    if(tag==='BUTTON')t.blur();           // otherwise Space would also click the focused button
+    e.preventDefault();fvToggleCur();}
+}
+window.addEventListener('keydown',fvKey);
+// closing (Esc) invalidates pending full previews, so a reopen never shows a stale image
+frameDlg.addEventListener('close',()=>{FV.tok++;FV.shown=null;clearTimeout(FV.imgT);});
+// ---------- Frames: alle Lights und Kalibrierdaten, je Foto verwenden ja/nein
+const FTYPES=[['light','Lights'],['dark','Darks'],['flat','Flats'],['bias','Bias'],['darkflat','Dark-Flats']];
+const ftype=t=>{const x=String(t||'').toLowerCase().replace(/[\s_\-]+/g,'').replace(/^(light|dark|flat|darkflat|flatdark)s$/,'$1');return x==='flatdark'?'darkflat':x;};
+const ftypeLabel=t=>(FTYPES.find(x=>x[0]===ftype(t))||[0,t||'?'])[1];
+const SELSRC={auto:'Automatik',manual:'von dir gewählt',override:'von dir gewählt',folder:'über Ordner'};
+const fvManual=f=>['manual','override'].includes(f.selection_source);
+// auto_status carries the analysis rating; status may only say whether the choice is already planned
+const fvRating=f=>STXT[f.auto_status]?STXT[f.auto_status][0]:STXT[f.status]?STXT[f.status][0]:'–';
+const METL={fwhm_as:['FWHM','"',2],fwhm:['FWHM (gemessen)',' px',2],hfr_name:['HFR (Aufnahme, aus Dateiname)',' px',2],snr_proxy:['SNR (Schätzung)','',1],ecc:['Sternform','',2],nstars:['Sterne','',0],bg:['Hintergrund',' ADU',0],noise:['Rauschen',' ADU',1],
+  weight:['Gewicht','',2],alt:['Höhe','°',0],moon_illum:['Mond',' %',0],temp:['Sensor',' °C',1],exptime:['Belichtung',' s',1],gain:['Gain','',0]};
+const FV_PAGE=240;
+let FV={list:null,project:null,type:'Alle',filter:'Alle',use:'Alle',att:'Alle',sort:'night',dir:1,view:[],pos:0,limit:FV_PAGE,imgT:null,
+  q:Promise.resolve(),want:new Map(),tok:0,shown:null};
+// Pure sort helpers without DOM access so tests can run them in node.
+// Missing values (not measured) always sort last, whatever the direction; 0 is a real value.
+const QRANK={error:0,suggest:1,warn:2,ok:3};
+const fvBad=f=>(f.flags||[]).filter(x=>x&&typeof x==='object'?['warn','warning','error','critical'].includes(x.level):true).length;
+function fvSortVal(f,key){
+  if(key==='night')return f.night?String(f.night)+'|'+String(f.t||f.path||''):null;
+  // quality is only the existing rating (status) plus its number of findings, never an invented percentage
+  if(key==='quality'){const q=QRANK[f.auto_status||f.status];return q==null?null:q*1000-fvBad(f);}
+  const v=(f.metrics||{})[key];return v==null||v===''||isNaN(v)?null:Number(v);
+}
+function fvSortIdx(list,idx,key,dir){
+  return [...idx].sort((a,b)=>{const x=fvSortVal(list[a],key),y=fvSortVal(list[b],key);
+    if(x==null||y==null)return x==null&&y==null?a-b:x==null?1:-1;
+    if(x<y)return -dir;if(x>y)return dir;return a-b;});
+}
+const FVSORT=[['night','Nacht'],['quality','Qualität (Bewertung)'],['nstars','Sterne'],['ecc','Exzentrizität'],['hfr_name','HFR (Aufnahme)'],['fwhm','FWHM (gemessen)']];
+const fvAttn=f=>f.attention||(['error','suggest','warn'].includes(f.status)?f.status:null);
+const flagText=x=>x&&typeof x==='object'?x.text:x;
+function fvReasons(f){
+  const p=[],r=fvRating(f);if(r!=='OK'&&r!=='–')p.push(r);
+  if(f.stale||f.status==='stale')p.push('wirkt nach Neu-Analyse');
+  if(f.excluded&&f.selection_source!=='override')p.push('liegt in einem Ausschluss-Ordner');
+  if(f.selection_source)p.push(SELSRC[f.selection_source]||f.selection_source);
+  return p.concat((f.flags||[]).map(flagText).filter(Boolean));
+}
+function fvFiltered(){const idx=FV.list.map((f,k)=>k).filter(k=>{const f=FV.list[k],a=fvAttn(f);
+  return (FV.type==='Alle'||ftype(f.type)===FV.type)&&(FV.filter==='Alle'||f.filter===FV.filter)&&(FV.use==='Alle'||(FV.use==='in')===!!f.selected)
+    &&(FV.att==='Alle'||(FV.att==='error'?a==='error':!!a))});
+  return fvSortIdx(FV.list,idx,FV.sort,FV.dir);}
+const FVMET=[['nstars','Sterne','Sterne',0],['ecc','Exz.','Exzentrizität',2],['fwhm','FWHM','FWHM (gemessen, px)',2],['hfr_name','HFR','HFR (Aufnahme, aus Dateiname)',2]];
+const fvMissing=v=>v==null||v===''||isNaN(v);
+function fvMetricLine(f){if(ftype(f.type)!=='light')return '';const m=f.metrics||{};
+  if(FVMET.every(([k])=>fvMissing(m[k])))return `<div class="fmet" title="Für dieses Foto liegen keine Messwerte vor">Messwerte: nicht gemessen</div>`;
+  return `<div class="fmet">${FVMET.map(([k,s,l,d])=>fvMissing(m[k])?`<span title="${esc(l)}: nicht gemessen">${s} nicht gemessen</span>`
+    :`<span title="${esc(l)}: ${esc(fmt(m[k],d))}">${s} ${esc(fmt(m[k],d))}</span>`).join('')}</div>`;}
+function fvTile(k){const f=FV.list[k],why=fvReasons(f);
+  return `<div class="ftile ${f.selected?'':'off'}" data-fi="${k}">
+    <button type="button" class="ph" data-fopen="${k}" aria-label="Foto groß ansehen">${f.thumb_url?`<img loading="lazy" decoding="async" src="${esc(f.thumb_url)}" alt="" onerror="this.outerHTML='&lt;span class=&quot;nopv&quot;&gt;Vorschau nicht lesbar&lt;/span&gt;'">`:'<span class="nopv">Kein Vorschaubild</span>'}</button>
+    <div class="fx"><label class="fuse" data-fsel-l><input type="checkbox" data-fsel="${k}" ${f.selected?'checked':''}> verwenden</label>
+      <div class="muted">${esc(ftypeLabel(f.type))}${f.filter?' · '+esc(f.filter):''}${f.night?' · '+esc(f.night):''}</div>
+      ${fvMetricLine(f)}
+      <div class="fwhy ${fvAttn(f)==='error'?'':'muted'}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap${fvAttn(f)==='error'?';color:var(--critical)':''}" title="${esc(why.join(' · '))}">${esc(why.join(' · ')||'–')}</div></div></div>`;}
+async function renderFrames(b){
+  if(!FV.list||FV.project!==cur.project){
+    b.innerHTML=`<div class="card empty">Frames werden geladen …</div>`;
+    try{const r=await api('/api/project/'+encodeURIComponent(cur.project)+'/frames');FV.list=r.frames||[];FV.project=cur.project;
+      if((r.plan_stale||r.analysis_required)&&P&&P.sources){P.sources.plan_stale=true;renderDirty();}}
+    catch(e){b.innerHTML=`<div class="banner err"><div class="grow">Frames konnten nicht geladen werden: ${esc(e.message)}</div></div>`;return;}
+    if(cur.tab!=='frames'||$('#tabBody')!==b)return;
+  }
+  drawFrames(b);
+}
+function drawFrames(b){
+  b=b||$('#tabBody'); if(!b||cur.tab!=='frames')return;
+  const L=FV.list, types=FTYPES.filter(([k])=>L.some(f=>ftype(f.type)===k));
+  const filters=[...new Set(L.filter(f=>FV.type==='Alle'||ftype(f.type)===FV.type).map(f=>f.filter).filter(Boolean))];
+  if(FV.filter!=='Alle'&&!filters.includes(FV.filter))FV.filter='Alle';
+  const segH=(key,opts)=>`<div class="seg" data-seg="${key}">${opts.map(([v,l])=>`<button type="button" data-v="${esc(v)}" class="${FV[key]===v?'on':''}">${esc(l)}</button>`).join('')}</div>`;
+  const view=fvFiltered(), used=view.filter(k=>L[k].selected).length;
+  b.innerHTML=`<div class="card"><div class="row">
+      ${segH('type',[['Alle','Alle Typen'],...types])}
+      ${filters.length?segH('filter',[['Alle','Alle Filter'],...filters.map(f=>[f,f])]):''}
+      ${segH('use',[['Alle','Alle'],['in','verwendet'],['out','nicht verwendet']])}
+      ${segH('att',[['Alle','Alle Bewertungen'],['any',`Auffällig (${L.filter(f=>fvAttn(f)).length})`],['error',`Fehlerhaft (${L.filter(f=>fvAttn(f)==='error').length})`]])}</div>
+    <div class="row" style="margin-top:8px"><label class="muted small" for="fvSort">Sortieren</label>
+      <select id="fvSort">${FVSORT.map(([k,l])=>`<option value="${k}" ${FV.sort===k?'selected':''}>${esc(l)}</option>`).join('')}</select>
+      <button type="button" class="btn sm" id="fvDir" title="Richtung umkehren – nicht gemessene Werte stehen immer am Ende">${FV.dir>0?'▲ aufsteigend':'▼ absteigend'}</button>
+      <span class="muted small grow" id="fvCount">${used} von ${view.length} verwendet</span></div>
+    ${FV.sort==='quality'?'<div class="muted small" style="margin-top:4px">Qualität = vorhandene Bewertung: aufsteigend zuerst Messung fehlgeschlagen, dann automatisch ausgeschlossen, Hinweis, OK – bei Gleichstand mehr Befunde zuerst. Frames ohne Bewertung stehen am Ende.</div>':''}
+    <div class="muted small" style="margin-top:8px">${ic('info','tiny')} Häkchen = Foto wird beim Stacken verwendet. Geht für Lights und Kalibrierdaten; danach „Neu analysieren“, damit der Plan die Auswahl übernimmt.
+      Foto anklicken = große Ansicht (← → blättern, Leertaste = verwenden an/aus, Esc schließt).</div>
+    ${view.length?`<div class="fgrid" id="fvGrid">${view.slice(0,FV.limit).map(fvTile).join('')}</div>`:'<div class="empty">Keine Frames für diese Auswahl.</div>'}
+    ${view.length>FV.limit?`<div class="row" style="justify-content:center;margin-top:12px"><button type="button" class="btn" id="fvMore">Weitere ${Math.min(FV_PAGE,view.length-FV.limit)} anzeigen <span class="muted">(${view.length-FV.limit} übrig)</span></button></div>`:''}</div>`;
+  const reset=()=>{FV.limit=FV_PAGE;drawFrames(b)};
+  b.querySelectorAll('[data-seg] button').forEach(x=>x.onclick=()=>{FV[x.parentNode.dataset.seg]=x.dataset.v;reset()});
+  $('#fvSort').onchange=e=>{FV.sort=e.target.value;reset()};
+  $('#fvDir').onclick=()=>{FV.dir=-FV.dir;reset()};
+  const more=$('#fvMore'); if(more)more.onclick=()=>{FV.limit+=FV_PAGE;fvRedraw()};
+  const g=$('#fvGrid'); if(!g)return;
+  g.addEventListener('click',e=>{if(e.target.closest('[data-fsel-l]')){e.stopPropagation();return;}
+    const o=e.target.closest('[data-fopen]');if(o)openFV(+o.dataset.fopen);});
+  g.addEventListener('change',e=>{const c=e.target.closest('[data-fsel]');if(!c)return;e.stopPropagation();setFrameUse(+c.dataset.fsel,c.checked?'in':'out');});
+}
+function fvRedraw(){const sv=document.querySelector('section.view'),y=sv?sv.scrollTop:0;drawFrames();if(sv)sv.scrollTop=y;}
+function fvUpdateTile(k){
+  const t=document.querySelector(`.ftile[data-fi="${k}"]`), f=FV.list[k];
+  if(t&&f){t.classList.toggle('off',!f.selected);const c=t.querySelector('[data-fsel]');if(c)c.checked=!!f.selected;
+    const w=t.querySelector('.fwhy');if(w){const why=fvReasons(f).join(' · ');w.textContent=why||'–';w.title=why;}}
+  const c=$('#fvCount'); if(c){const v=fvFiltered();c.textContent=v.filter(i=>FV.list[i].selected).length+' von '+v.length+' verwendet';}
+}
+function setFrameUse(k,val){
+  const f=FV.list&&FV.list[k]; if(!f)return FV.q;
+  const path=f.path, proj=cur.project, w=FV.want.get(path);
+  // lock stacking and show the choice at once; the server state replaces it once the queue has run
+  if(P&&P.sources)P.sources.plan_stale=true; renderDirty();
+  FV.want.set(path,{val,n:(w?w.n:0)+1});
+  if(val!==null){f.selected=val==='in';f.selection_source='override';f.stale=true;fvUpdateTile(k);}
+  if(frameDlg.open&&FMODE==='fv')renderFV();
+  // one request at a time, so answers can never overtake each other
+  FV.q=FV.q.then(async()=>{
+    if(cur.project!==proj)return;
+    const base='/api/project/'+encodeURIComponent(proj);
+    try{await api(base+'/override',{path,value:val});}catch(e){toast(e.message,true);}
+    const ww=FV.want.get(path); if(ww&&--ww.n<=0)FV.want.delete(path);
+    try{const r=await api(base+'/frames');if(cur.project===proj)fvApply(r);}catch(e){toast(e.message,true);}
+    try{const d=await api(base);if(cur.project===d.name){P=d;renderDirty();}}catch(e){}
+  });
+  return FV.q;
+}
+function fvApply(r){
+  const list=r.frames||[], old=FV.list||[];
+  // choices still waiting in the queue stay visible until their own answer arrives
+  list.forEach(f=>{const w=FV.want.get(f.path);if(w&&w.val!==null){f.selected=w.val==='in';f.selection_source='override';f.stale=true;}});
+  const cp=frameDlg.open&&FMODE==='fv'?(old[FV.view[FV.pos]]||{}).path:null;
+  const same=old.length===list.length&&old.every((f,i)=>f.path===list[i].path);
+  FV.list=list;
+  if((r.plan_stale||r.analysis_required)&&P&&P.sources)P.sources.plan_stale=true;
+  const v=fvFiltered(), shown=new Set(v.slice(0,FV.limit));
+  const tiles=[...document.querySelectorAll('.ftile[data-fi]')];
+  if(same&&[...shown].every(k=>tiles.some(t=>+t.dataset.fi===k))){
+    tiles.forEach(t=>{const k=+t.dataset.fi;if(shown.has(k))fvUpdateTile(k);else t.remove();});
+    fvUpdateTile(-1);
+  }else fvRedraw();
+  if(frameDlg.open&&FMODE==='fv'){
+    const at=list.findIndex(f=>f.path===cp), keep=v.indexOf(at);
+    FV.view=v;
+    if(!v.length){frameDlg.close();return;}
+    // a frame that no longer matches the filter drops out; the next one slides into its place
+    FV.pos=keep>=0?keep:Math.min(FV.pos,v.length-1);
+    renderFV();
+  }
+}
+function openFV(k){FMODE='fv';FV.view=fvFiltered();FV.pos=Math.max(0,FV.view.indexOf(k));renderFV();
+  if(!frameDlg.open)frameDlg.showModal();
+  if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();}
+function fvStep(d){const n=FV.pos+d;if(n<0||n>=FV.view.length)return;FV.pos=n;renderFV();}
+function fvToggleCur(){const k=FV.view[FV.pos];if(k==null)return;setFrameUse(k,FV.list[k].selected?'out':'in');}
+function renderFV(){
+  const k=FV.view[FV.pos], f=FV.list[k]; if(!f)return;
+  $('#fTitle').innerHTML=`${esc(ftypeLabel(f.type))}${f.filter?' · '+ftag(f.filter):''} <span class="muted">${esc(f.night||'')} · ${FV.pos+1} / ${FV.view.length}</span>`;
+  const im=$('#fImg');
+  // re-rendering the same frame (e.g. after Space) keeps the already loaded image
+  if(FV.shown!==f.path){
+    FV.shown=f.path; const tok=++FV.tok, path=f.path;
+    im.classList.remove('zoom');$('#fImgBox').classList.remove('zoomed');
+    im.onerror=()=>{im.hidden=true};
+    // only the frame the user stays on loads its full preview; fast arrow walking shows the thumbnail
+    clearTimeout(FV.imgT);
+    if(f.thumb_url){im.hidden=false;im.src=f.thumb_url;}else{im.hidden=true;im.removeAttribute('src');}
+    const live=()=>frameDlg.open&&FV.tok===tok&&(FV.list[FV.view[FV.pos]]||{}).path===path;
+    if(f.preview_url)FV.imgT=setTimeout(()=>{if(!live())return;
+      const hi=new Image();hi.onload=()=>{if(live()){im.hidden=false;im.src=hi.src;}};hi.src=f.preview_url;},250);
+  }
+  im.onclick=()=>{im.classList.toggle('zoom');$('#fImgBox').classList.toggle('zoomed')};
+  $('#fActs').innerHTML=`<label class="fuse"><input type="checkbox" id="fvUse" ${f.selected?'checked':''}> verwenden <span class="muted small" style="font-weight:400">(Leertaste)</span></label>
+    ${fvManual(f)?'<button class="btn sm" id="fvAuto" title="Eigene Wahl verwerfen, b2stacker entscheidet">Automatik</button>':''}`;
+  $('#fvUse').onchange=e=>setFrameUse(k,e.target.checked?'in':'out');
+  const fa=$('#fvAuto'); if(fa)fa.onclick=()=>setFrameUse(k,null);
+  const M=f.metrics||{};
+  const m=[['Datei',String(f.path||'').split(/[\\/]/).pop()],['Bewertung',fvRating(f)],
+    ['Auswahl',(f.selected?'verwendet':'nicht verwendet')+(f.selection_source?' · '+(SELSRC[f.selection_source]||f.selection_source):'')+(f.stale?' · wirkt nach Neu-Analyse':'')],
+    ['Hinweise',(f.flags||[]).map(flagText).filter(Boolean).join(', ')||'–'],
+    // lights list every metric so gaps read as "nicht gemessen"; calibration frames only what exists
+    ...Object.keys(M).filter(x=>ftype(f.type)==='light'||(M[x]!=null&&M[x]!=='')).map(x=>{const L=METL[x],v=M[x];
+      if(v==null||v==='')return [L?L[0]:x,'nicht gemessen'];
+      return [L?L[0]:x,typeof v==='number'?fmt(v,L?L[2]:2)+(L?L[1]:''):v];})];
+  $('#fMeta').innerHTML=m.map(([a,v])=>`<div><span>${esc(a)}</span>${esc(v)}</div>`).join('');
+  $('#fPrev').style.visibility=FV.pos>0?'visible':'hidden';$('#fNext').style.visibility=FV.pos<FV.view.length-1?'visible':'hidden';
+}
 async function setThumb(prev){try{P=await api('/api/project/'+encodeURIComponent(cur.project)+'/thumb',prev?{stack_preview:prev}:{});toast(prev?'Projektbild gesetzt':'Projektbild: automatisch');renderTab();refresh();}catch(e){toast(e.message,true)}}
 function showImg(src,title){$('#imgFull').src=src;$('#imgTitle').textContent=title;imgDlg.showModal();}
 async function requality(id){try{await api('/api/project/'+encodeURIComponent(cur.project)+'/requality',{stack_id:id});await refresh();renderJob();}catch(e){toast(e.message,true)}}
@@ -907,6 +1189,7 @@ function updateMeters(){
   else if(!S.wbpp_ok)bl.push('WBPP-Skript nicht gefunden – PixInsight-Installation prüfen.');
   if(S.pixinsight_running&&S.pixinsight_running.length)bl.push('PixInsight ist geöffnet – bitte schließen, sonst teilen sich zwei Instanzen den Arbeitsspeicher.');
   if(S.disk_free_gb!=null&&S.disk_free_gb<n.gb)bl.push(`Zu wenig Platz: ${fmt(n.gb,0)} GB nötig, ${fmt(S.disk_free_gb,0)} GB frei.`);
+  if(needsAnalysis())bl.push('Quellordner oder Frame-Auswahl geändert – erst „Neu analysieren“, danach kann gestackt werden.');
   if(!n.en.length)bl.push('Kein Lauf ausgewählt.');
   if(active)bl.push('Es läuft gerade ein Auftrag.');
   if(S.ram_free_gb!=null&&S.ram_free_gb<Math.min(n.ram,S.settings.min_free_ram_gb))wn.push(`Wenig freier Arbeitsspeicher (${fmt(S.ram_free_gb,1)} GB). Andere Programme schließen.`);
@@ -922,8 +1205,10 @@ function updateMeters(){
 }
 function renderDirty(){
   const s=$('#dirtySlot'); if(!s)return;
-  s.innerHTML=dirty?`<div class="banner"><div class="grow">Frame-Auswahl geändert. Plan neu berechnen, damit die Änderung beim Stacken zählt (Messwerte bleiben erhalten, geht schnell).</div><button class="btn primary" id="dirtyBtn">Plan aktualisieren</button></div>`:'';
+  const ra=needsAnalysis()?`<div class="banner"><div class="grow">Quellordner oder Frame-Auswahl geändert. Bitte <b>neu analysieren</b> – bis dahin ist Stacken gesperrt, weil der Plan noch den alten Stand kennt.</div>${((P.sources||{}).roots||[]).length?'<button class="btn primary" id="raBtn">Neu analysieren</button>':''}</div>`:'';
+  s.innerHTML=ra+(dirty?`<div class="banner"><div class="grow">Frame-Auswahl geändert. Plan neu berechnen, damit die Änderung beim Stacken zählt (Messwerte bleiben erhalten, geht schnell).</div><button class="btn primary" id="dirtyBtn">Plan aktualisieren</button></div>`:'');
   const b=$('#dirtyBtn'); if(b)b.onclick=()=>$('#reBtn').click();
+  const ra2=$('#raBtn'); if(ra2)ra2.onclick=()=>$('#reBtn').click();
 }
 async function savePlan(edits){
   try{const plan=await api('/api/project/'+encodeURIComponent(cur.project)+'/plan',edits);P.plan=plan;renderTab();}catch(e){toast(e.message,true)}
@@ -1002,7 +1287,7 @@ function renderChecklist(b){
     <div><div class="t">${esc(x.title)} <span class="tool">· ${esc(x.tool)}</span></div><div class="w">${esc(x.why)}</div></div></div>`).join('');
   b.innerHTML=`<div class="card"><h2>${ic('list')} Spickzettel: Reihenfolge der Bearbeitung in PixInsight</h2>
     <div class="muted small">Faustregel: Alles, was misst (Verläufe, Farbe, Schärfe, Rauschen), passiert <b>linear</b> – vor dem Strecken. Danach wird gestaltet.
-      Passend zu den Ergebnissen dieses Projekts (${esc([...new Set(P.stacks.flatMap(s=>s.outputs.map(o=>o.name)))].join(', ')||P.plan.runs.map(r=>r.name).join(', '))}).</div>
+      Passend zu den Ergebnissen dieses Projekts (${esc([...new Set(P.stacks.flatMap(s=>s.outputs.map(o=>o.name)))].join(', ')||((P.plan||{}).runs||[]).map(r=>r.name).join(', ')||'noch keine Daten')}).</div>
     <div class="phase">1 · Linear (vor dem Strecken)</div><div class="cl">${grp('linear')}</div>
     <div class="phase">2 · Nach dem Strecken</div><div class="cl">${grp('nonlinear')}</div></div>`;
 }
@@ -1024,7 +1309,9 @@ function openSettings(first){
     SETF.map(([k,l,t,d,pick])=>t==='bool'?`<label class="opt"><span class="switch"><input type="checkbox" data-k="${k}" ${s[k]?'checked':''}><span></span></span><span><div class="t">${l}</div><div class="d">${d}</div></span></label>`:
     `<div class="field"><label>${l}</label><div class="frow"><input type="${t}" data-k="${k}" value="${esc(s[k])}">${pick?`<button class="btn" data-pickset="${k}" data-kind="${pick===true?'folder':pick}">Durchsuchen …</button>`:''}</div>${d?`<div class="d">${d}</div>`:''}${pick==='file'?`<div class="d" id="piCheck"></div>`:''}</div>`).join('')+
     `<div class="row"><div class="muted small grow">Gespeichert in ${esc(S.settings_file)} · Version ${esc(S.version)}</div>
+      <button class="btn sm" id="updChk" title="Auf GitHub nach einer neuen Version suchen">${ic('refresh')} Nach Updates suchen</button>
       <button class="btn sm" id="quitBtn" title="Programm komplett beenden">⏻ b2stacker beenden</button></div>`;
+  $('#updChk').onclick=()=>{setDlg.close();openUpdate();checkUpdate();};
   $('#quitBtn').onclick=async()=>{const a=S.job&&['queued','running'].includes(S.job.state);
     if(!confirm(a?'Es läuft gerade ein Auftrag – er wird abgebrochen. b2stacker wirklich beenden?':'b2stacker beenden?'))return;
     try{await api('/api/quit',{})}catch(e){}
