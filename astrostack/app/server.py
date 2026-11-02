@@ -357,8 +357,9 @@ def project_detail(name: str) -> dict:
     for r in hist:
         for o in r["outputs"]:
             if o.get("preview"):
+                stored = project._rel(pdir, o["preview"])
                 o["preview_url"] = "/api/stack-preview/%s?file=%s" % (
-                    urllib.parse.quote(name), urllib.parse.quote(os.path.relpath(o["preview"], pdir).replace("\\", "/")))
+                    urllib.parse.quote(name), urllib.parse.quote(stored.replace("\\", "/")))
     assets = []
     for a in ex["assets"]:
         a = dict(a)
@@ -394,6 +395,19 @@ def _known_frame(pdir: str, path: str) -> bool:
     """Nur Dateien ausliefern, die zum Projekt gehören (Schutz vor beliebigen Pfaden).
     Mitgliedschaft im Frameindex genügt; die Bewertung wird nicht geladen."""
     return bool(path) and path in project.indexed_frame_paths(pdir)
+
+
+def _registered_stack_preview(pdir: str, file: str) -> str | None:
+    """Resolve only previews recorded in stack metadata, including external drives."""
+    if not file:
+        return None
+    candidate = file if os.path.isabs(file) else os.path.join(pdir, file)
+    candidate = os.path.realpath(candidate)
+    registered = {os.path.normcase(os.path.realpath(o["preview"]))
+                  for r in project.stacks(pdir) for o in r.get("outputs", []) if o.get("preview")}
+    if candidate.lower().endswith(".jpg") and os.path.normcase(candidate) in registered:
+        return candidate
+    return None
 
 
 def frame_thumb(pdir: str, path: str) -> str:
@@ -563,8 +577,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._file(previews.frame_preview(path, os.path.join(pdir, "analysis", "previews")), "image/jpeg")
             if parts[:2] == ["api", "stack-preview"] and len(parts) == 3:
                 pdir = project.pdir_of(settings(), parts[2])
-                f = os.path.normpath(os.path.join(pdir, q.get("file", [""])[0]))
-                if not f.startswith(os.path.join(pdir, "stacks")) or not f.lower().endswith(".jpg"):
+                f = _registered_stack_preview(pdir, q.get("file", [""])[0])
+                if not f:
                     return self._json({"error": "verboten"}, 403)
                 return self._file(f, "image/jpeg")
             if parts[:2] == ["api", "asset-preview"] and len(parts) == 3:
@@ -672,7 +686,7 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError("unbekannte Datei")
                     rel = None
                     if b.get("stack_preview"):
-                        rel = os.path.relpath(b["stack_preview"], pdir) if os.path.isabs(b["stack_preview"]) else b["stack_preview"]
+                        rel = project._rel(pdir, b["stack_preview"]) if os.path.isabs(b["stack_preview"]) else b["stack_preview"]
                     project.set_thumbnail(pdir, stack_preview=rel, frame=b.get("frame"))
                     return self._json(project_detail(name))
                 if action == "sources":

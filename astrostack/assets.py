@@ -17,7 +17,10 @@ def _key(path: str) -> str:
 
 def _stored(pdir: str, path: str) -> str:
     ap = os.path.abspath(path)
-    rel = os.path.relpath(ap, os.path.abspath(pdir))
+    try:
+        rel = os.path.relpath(ap, os.path.abspath(pdir))
+    except ValueError:                        # other drive/mount: keep the reference absolute
+        return ap
     return rel.replace("\\", "/") if not rel.startswith("..") else ap
 
 
