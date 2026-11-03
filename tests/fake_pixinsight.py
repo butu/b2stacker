@@ -7,7 +7,11 @@ Was nachgebildet wird (so wie es PixInsight 1.9.6 im Automationsmodus tut):
 * Bildtyp kommt **nur aus dem FITS-Header** (IMAGETYP), wie bei WBPP.
 * Grouping Keyword ``ASFLAT_<n>`` im Pfad: jede Light-Gruppe braucht Flats mit demselben Kennwort.
 * Nur 1–2 Roh-Bias/-Darks/-Flats ohne Master → WBPP bricht die Integration ab, kein Master entsteht.
-* Ausgabepfade über 260 Zeichen ohne LongPaths → Fehler beim Schreiben.
+* Ausgabepfade über 260 Zeichen ohne LongPaths → Fehler beim Schreiben; Vorab-Diagnose meldet LongPaths aus.
+* StarAlignment-Parameter außerhalb ihres Bereichs (z. B. hotPixelFilterRadius 0–2) → Registrierung scheitert,
+  „No active frames to be integrated“, kein Master (Bericht 2 §13).
+* Master wie WBPP mit Autocrop-Variante (``…_RGB.xisf`` und ``…_RGB_autocrop.xisf``).
+* ``FAKEPI_FAIL_REGISTRATION=1`` in der Umgebung: Registrierung scheitert (für Wiederholungs-Tests).
 
 Ergebnis: WBPP-artiges Protokoll in ``<out>/logs``, ``registered``/``master`` wie WBPP, und ``fakepi-input.json`` mit
 allem, was angekommen ist – damit Tests die Invarianten prüfen können (welche Dateien, welche Gruppen, welche Pfade).
@@ -121,6 +125,15 @@ def main(argv):
         by.setdefault(_kind(_imagetyp(f)), []).append(f)
     for f in missing:
         errors.append("*** Error: File not found: " + f)
+    ranges = {"hotPixelFilterRadius": (0, 2), "noiseReductionFilterRadius": (0, 50), "structureLayers": (1, 8),
+              "minStructureSize": (0, 999999), "sensitivity": (0, 1), "peakResponse": (0, 1), "maxStarDistortion": (0, 1)}
+    reg_fail = None
+    for k, (lo, hi) in ranges.items():
+        if k in opts and not lo <= float(opts[k]) <= hi:
+            reg_fail = ("!!! Error: Registration failed: StarAlignment.%s(): Numeric parameter value out of range: %s. "
+                        "Valid range is from %s to %s." % (k, opts[k], lo, hi))
+    if os.environ.get("FAKEPI_FAIL_REGISTRATION") == "1":
+        reg_fail = "!!! Error: Registration failed: no stars found"
     grouping = opts.get("groupingKeywordsEnabled") == "true"
     groups = {}
     if grouping:
@@ -147,8 +160,24 @@ def main(argv):
     lights = by.get("light", [])
     if not lights:
         errors.append("No frames to be measured")
-    ok = not [e for e in errors if e.startswith(("*** Error", "No frames", "** Canceled: Integration [Bias"))]
+    if reg_fail and lights:
+        errors += [reg_fail, "** Warning: %d frame(s) excluded from the rest of the execution." % len(lights),
+                   "!!! Error: No active frames to be integrated."]
+    ok = not [e for e in errors if e.startswith(("*** Error", "!!! Error", "No frames", "** Canceled: Integration [Bias"))]
     lines.append("%s WBPP fake for b2stacker tests" % now())
+    if not long_paths:
+        lines.append("%s ** Warning: Problems found before the execution:" % now())
+        lines.append("%s ** Warning: Diagnostics: Cannot create files with a path longer than 256 characters "
+                     "(LongPathsEnabled is off)" % now())
+    if by.get("bias"):
+        lines.append("%s * Begin integration of Bias frames" % now())
+        lines.append("%s * Writing master Bias frame" % now())
+    for i, f in enumerate(by.get("flat", [])):
+        lines.append("%s Calibration frame %d: %s ---> %s" % (now(), i, f, os.path.join(
+            out, "calibrated", "Flat_BIN-1_FILTER-RGB_CFA", os.path.basename(f) + "_c.xisf")))
+    for i, f in enumerate(lights):
+        lines.append("%s Calibration frame %d: %s ---> %s" % (now(), i, f, os.path.join(
+            out, "calibrated", "Light_BIN-1_FILTER-RGB_CFA", os.path.basename(f) + "_c.xisf")))
     lines.append("%s * Processing %d light frames" % (now(), len(lights)))
     lines += ["%s %s" % (now(), e) for e in warnings + errors]
     report = dict(script=script, options=opts, files={k: sorted(v) for k, v in by.items()}, missing=missing,
@@ -163,8 +192,9 @@ def main(argv):
         sys.path.insert(0, ROOT)
         from astrostack import xisf
         from tests.test_stackqa import synth_master
-        xisf.write_image(os.path.join(out, "master", "masterLight_BIN-1_FILTER-RGB_RGB.xisf"),
-                         synth_master(shape=(300, 450)), {"OBJECT": "fake"})
+        for suffix in ("", "_autocrop"):
+            xisf.write_image(os.path.join(out, "master", "masterLight_BIN-1_FILTER-RGB_RGB%s.xisf" % suffix),
+                             synth_master(shape=(300, 450)), {"OBJECT": "fake"})
         lines.append("%s * End of integration: %d frames" % (now(), len(lights)))
     else:
         lines.append("%s %d frame(s) excluded" % (now(), len(lights)))

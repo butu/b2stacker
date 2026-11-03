@@ -372,7 +372,7 @@ def save_meta(pdir: str, **changes) -> dict:
             v = (v or "").strip()
             if not v:
                 raise ValueError("Der Name darf nicht leer sein.")
-        if k in ("name", "description", "checklist", "thumb"):
+        if k in ("name", "description", "checklist", "thumb", "thumb_frame"):
             m[k] = v
     m["schema"] = SCHEMA
     _write(os.path.join(pdir, "project.json"), m)
@@ -784,12 +784,12 @@ def set_thumbnail(pdir: str, stack_preview: str | None = None, frame: str | None
         p = os.path.normpath(_abs(pdir, stack_preview))
         if not p.startswith(os.path.join(pdir, "stacks")) or not os.path.exists(p):
             raise ValueError("Vorschau nicht gefunden")
-        return save_meta(pdir, thumb=_rel(pdir, p))
+        return save_meta(pdir, thumb=_rel(pdir, p), thumb_frame=None)
     if frame:
         from .previews import frame_preview
         p = frame_preview(frame, os.path.join(pdir, "analysis", "previews"))
-        return save_meta(pdir, thumb=_rel(pdir, p))
-    return save_meta(pdir, thumb=None)
+        return save_meta(pdir, thumb=_rel(pdir, p), thumb_frame=frame)
+    return save_meta(pdir, thumb=None, thumb_frame=None)
 
 
 def pdir_of(settings: Settings, name: str) -> str:
@@ -918,8 +918,23 @@ def _apply_edits(pdir: str, overrides: dict | None = None, write: bool = True) -
         if ctx and ctx.get("ready"):
             plan = selection.reconcile(pdir, plan, ctx, ov)
             plan["selection_revision"] = int(ctx.get("revision") or 0)
+    _add_star_detection(pdir, plan)
+    if write:
         _write(os.path.join(pdir, "plan.json"), plan)
     return plan
+
+
+def _add_star_detection(pdir: str, plan: dict) -> None:
+    """Je Lauf: Kennzahlen der gewählten Lights und daraus abgeleitete StarAlignment-Parameter (Bericht 2 §14)."""
+    from . import plan as planmod
+    try:
+        frames = {f["path"]: f for f in (report_build.cached_data(pdir).get("frames") or []) if f.get("path")}
+    except (FileNotFoundError, OSError, ValueError):
+        frames = {}
+    for r in plan.get("runs", []):
+        stats = planmod.light_stats([frames[p] for p in r.get("lights") or [] if p in frames]) if frames else None
+        r["star_stats"] = stats
+        r["star_detection"] = planmod.star_detection(stats)
 
 
 def _apply_label(run: dict, label) -> None:

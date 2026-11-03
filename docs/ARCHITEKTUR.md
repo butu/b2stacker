@@ -40,7 +40,8 @@
 | `catalog.py` | Gemeinsamer Cache für Header, Messwerte, Flat-Statistik (`cache/catalog/`). |
 | `previews.py`, `assets.py` | Vorschauen von Rohbildern; verknüpfte bearbeitete Bilder (Originale bleiben, wo sie sind). |
 | `staging.py` | **Einzige Stelle**, an der Dateien für PixInsight bereitgestellt werden (siehe unten). |
-| `wbpplog.py` | WBPP-Protokoll auswerten: Registrierung je Frame, Fehlerursachen in Klartext (`diagnose`). |
+| `wbpplog.py` | WBPP-Protokoll auswerten: Registrierung je Frame, Fehlerursachen in Klartext (`diagnose`), Alarm vs. Hinweis (`classify`), Unterschritte des Kalibrierens (`CalibTracker`). |
+| `starmap.py` | Erkannte Sterne/Hotpixel eines Frames fürs Overlay im Frame-Browser (`/api/frame-stars`), gecacht in `analysis/stars/`. |
 | `stackqa.py` | Fertige Stacks: Farbsäume, Kanäle aufteilen, Qualität messen, Vorschau. |
 | `hotpix.py` | Hotpixel-Entfernung, wenn keine Darks da sind. |
 | `selftest.py` | Selbsttest auf dem echten Rechner: synthetischer Datensatz (Komma im Ordner, 2 Kamerastellungen) → Analyse → echtes WBPP → `selbsttest/bericht-*.json`. |
@@ -77,6 +78,19 @@
   und nutzt beim nächsten Mal den eigenen Weg (`hotpix.py`).
 - „Nur die besten X %“ je Lauf (`project.apply_top_percent`): kürzt nur den Plan dieses Auftrags, nicht die Auswahl.
   Die Oberfläche rechnet die Stunden mit `rank_exp` (Belichtung je Light in Güte-Reihenfolge) live nach.
+
+- **Versuche und Wiederholung:** Jeder Versuch eines Laufs bekommt einen leeren Ausgabeordner; ein früherer Versuch
+  wandert nach `<Lauf>.versuch-<n>/` (Protokolle bleiben). Der Master wird nur akzeptiert, wenn er nach dem Start
+  **dieses** Versuchs entstanden ist (`find_master(since=…)`); verworfene Ergebnisse werden in allen Varianten
+  (`_autocrop`, Drizzle, Kanäle) umbenannt. Lock-Prüfung (`_check_registration`) und FWHM-Plausibilität
+  (`fwhm_implausible`: Stack-FWHM < 50 % der Einzelbilder) führen zu genau einer Wiederholung, danach zu `failed`.
+- **Parametergrenzen:** `check_wbpp_params` begrenzt alle von b2stacker gesetzten StarAlignment-Werte auf ihren
+  gültigen Bereich (`WBPP_RANGES`, z. B. `hotPixelFilterRadius` 0–2), bevor PixInsight startet.
+- **Sternerkennung:** `plan.star_detection` leitet aus `plan.light_stats` (FWHM, Exzentrizität der gewählten Lights)
+  StarAlignment-Parameter ab; sie stehen je Lauf in `plan.json` (`star_detection`) und gehen vor eigenen
+  `wbpp`-Überschreibungen in die Kommandozeile.
+- **Lange Pfade:** `estimate_max_path` schätzt den längsten Zwischenpfad; ohne LongPaths und über 256 Zeichen stoppt
+  der Lauf vor dem Start. WBPPs Vorab-Diagnose ist nur ein Hinweis.
 
 ### Dateibereitstellung (`staging.py`)
 PixInsight bekommt Originalpfade direkt, solange es geht. Umgelegt wird nur, wenn

@@ -196,7 +196,14 @@ _CAUSES = [
     (re.compile(r"Canceled: Integration \[(Bias|Dark|Flat|Dark ?flat)[^\]]*frames = (\d+)", re.I), "error",
      "PixInsight konnte keinen Master-{kind} erstellen (nur {n} {kind}-Bild{pl}). Vermutlich ist die Datei schon ein fertiger "
      "Master (z. B. aus Astro Pixel Processor) oder es fehlen Kalibrierbilder – Kalibrierdaten prüfen."),
-    (re.compile(r"Cannot create files with a path longer than (\d+) characters", re.I), "error",
+    (re.compile(r"Numeric parameter value out of range: ([-\d.]+?)\.? Valid range", re.I), "error",
+     "PixInsight hat einen Parameterwert abgelehnt ({path} liegt außerhalb des gültigen Bereichs) – das ist ein Fehler "
+     "in b2stacker, bitte melden."),
+    (re.compile(r"Registration failed[: ]*(.*)$", re.I | re.M), "error",
+     "Die Ausrichtung (Registrierung) der Lights ist fehlgeschlagen."),
+    (re.compile(r"No active frames to be integrated", re.I), "error",
+     "Nach der Ausrichtung blieb kein Light für die Integration übrig – es entstand kein Stack."),
+    (re.compile(r"^(?:(?!Diagnostics).)*\*\*\* Error[^\n]*Cannot create files with a path longer than (\d+) characters", re.I | re.M), "error",
      "Windows erlaubt nur Pfade bis {n} Zeichen. Lange Pfade in Windows aktivieren (LongPathsEnabled) oder ein "
      "kürzeres Arbeitsverzeichnis wählen (z. B. D:\\b2)."),
     (re.compile(r"Pipeline builder script failed.*?(TypeError|Error)[: ]*(.*)$", re.I | re.M), "warning",
@@ -214,8 +221,21 @@ _CAUSES = [
     (re.compile(r"No frames to be measured|(\d+) frame\(s\) excluded", re.I), "error",
      "Kein Light blieb für die Integration übrig."),
 ]
-ALERT = re.compile(r"(\*\*\* Error|\*\*\* Failed|\*\* Canceled|Problems found before the execution|"
-                   r"Pipeline builder script failed|path longer than)", re.I)
+# Echte Fehler während des Laufs → rote Meldung. WBPPs Vorab-Diagnose („Problems found before the execution“,
+# „Diagnostics: …“) ist nur ein Hinweis: sie prüft z. B. die Windows-Einstellung für lange Pfade, nicht die Pfade
+# dieses Laufs (Bericht 2 §11).
+ALERT = re.compile(r"(!!! Error|\*\*\* Error|\*\*\* Failed|\*\* Canceled|Pipeline builder script failed)", re.I)
+HINT = re.compile(r"(Problems found before the execution|Diagnostics:)", re.I)
+LONGPATH_HINT = re.compile(r"Diagnostics:.*path longer than (\d+)", re.I)
+
+
+def classify(line: str) -> str | None:
+    """WBPP-Zeile → "alert" | "hint" | None. Diagnose-Zeilen sind nie ein Alarm."""
+    if HINT.search(line):
+        return "hint"
+    if ALERT.search(line):
+        return "alert"
+    return None
 
 
 def diagnose_text(text: str) -> list[dict]:
@@ -243,3 +263,84 @@ def diagnose(outdir: str) -> list[dict]:
         return diagnose_text(open(log, encoding="utf-8", errors="replace").read())
     except OSError:
         return []
+
+
+# ---------------------------------------------------------------- Live-Fortschritt aus dem WBPP-Protokoll (Bericht 2 §12)
+
+_BEGIN_INT = re.compile(r"\* Begin integration of (Bias|Dark|Flat|Dark ?flat|Light)[^\n]*frames", re.I)
+_WRITE_MASTER = re.compile(r"\* Writing master (Bias|Dark|Flat|Dark ?flat|Light)[^\n]*frame", re.I)
+_CAL_FRAME = re.compile(r"Calibration frame (\d+)\s*:\s*(.+?)\s*--->\s*(.+)$", re.I)
+_KIND_DE = {"bias": "Bias", "dark": "Dark", "flat": "Flat", "darkflat": "Dark-Flat", "light": "Light"}
+
+
+def _k(word: str) -> str:
+    return word.lower().replace(" ", "").replace("-", "")
+
+
+class CalibTracker:
+    """Liest die Zeilen, die b2stacker ohnehin mitliest, und macht daraus Unterschritte des Kalibrierens:
+    Master-Bias/-Dark/-Flat erstellen, Flats kalibrieren (n/N), Lights kalibrieren (n/N)."""
+
+    def __init__(self, n_lights: int, n_flats: int = 0):
+        self.n_lights, self.n_flats = n_lights, n_flats
+        self.subs: list[dict] = []
+        self._cal = {"flat": set(), "light": set()}
+
+    def _sub(self, key, title, total=0):
+        for s in self.subs:
+            if s["key"] == key:
+                return s
+        for s in self.subs:                       # ein neuer Unterschritt beendet den vorigen
+            if s["state"] == "now":
+                s["state"] = "done"
+        s = dict(key=key, title=title, state="now", done=0, total=total)
+        self.subs.append(s)
+        return s
+
+    def feed(self, line: str) -> None:
+        m = _BEGIN_INT.search(line)
+        if m and _k(m.group(1)) != "light":
+            k = _k(m.group(1))
+            self._sub("master_" + k, "Master-%s erstellen" % _KIND_DE.get(k, k))
+            return
+        m = _WRITE_MASTER.search(line)
+        if m and _k(m.group(1)) != "light":
+            s = self._sub("master_" + _k(m.group(1)), "Master-%s erstellen" % _KIND_DE.get(_k(m.group(1)), ""))
+            s["state"] = "done"
+            return
+        m = _CAL_FRAME.search(line)
+        if m:
+            src, dst = m.group(2), m.group(3)
+            low = (dst + " " + src).replace("\\", "/").lower()
+            kind = "flat" if ("/calibrated/flat" in low or "/flats_" in low or "/f/" in low or
+                              "/flat" in os.path.dirname(src.replace("\\", "/")).lower()) else "light"
+            if "/calibrated/light" in low:
+                kind = "light"
+            if kind == "flat":
+                s = self._sub("cal_flat", "Flats kalibrieren", self.n_flats)
+            else:
+                s = self._sub("cal_light", "Lights kalibrieren", self.n_lights)
+            self._cal[kind].add(m.group(1))
+            s["done"] = len(self._cal[kind])
+            if s["total"] and s["done"] >= s["total"]:
+                s["state"] = "done"
+
+    @property
+    def lights_done(self) -> int:
+        return len(self._cal["light"])
+
+    def as_list(self) -> list[dict]:
+        return [dict(s) for s in self.subs]
+
+
+def hint_text(line: str, max_path: int | None = None) -> str:
+    """WBPP-Vorab-Diagnose → kurzer deutscher Hinweis."""
+    m = LONGPATH_HINT.search(line)
+    if m:
+        lim = int(m.group(1))
+        if max_path:
+            return ("Windows-Einstellung „lange Pfade“ ist aus. Für diesen Lauf %s (längster Pfad ca. %d von %d Zeichen)."
+                    % ("unkritisch" if max_path < lim - 10 else "knapp", max_path, lim))
+        return "Windows-Einstellung „lange Pfade“ ist aus (Pfade bis %d Zeichen)." % lim
+    txt = re.sub(r"^\W*(\[[^\]]*\]\s*)?\**\s*Warning:\s*", "", line).strip()
+    return "Hinweis von PixInsight: " + txt

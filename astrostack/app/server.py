@@ -398,7 +398,8 @@ def start_stack(name: str) -> dict:
                          on_status=lambda x: job.set_progress(
                              stage=x.stage, step=x.step, run=x.run, run_index=x.run_index, runs_total=x.runs_total,
                              run_steps=x.run_steps, steps_done=x.steps_done, done=x.done, total=x.total,
-                             eta_s=x.eta_s, message=x.message, alert=x.alert, causes=x.causes,
+                             eta_s=x.eta_s, message=x.message, alert=x.alert, alert_raw=x.alert_raw, hints=x.hints, substeps=x.substeps,
+                             causes=x.causes,
                              failed_step=x.failed_step, logdir=x.logdir))
         return st.as_dict()
     job = JOBS.submit("stack", "Stacking " + target, s.workdir, fn, project=name)
@@ -905,6 +906,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(project_frames(parts[2]))
             if parts[:2] == ["api", "project"] and len(parts) == 4 and parts[3] == "insights":
                 return self._json(project_insights(parts[2]))
+            if parts[:2] == ["api", "frame-stars"] and len(parts) == 3:
+                pdir = project.pdir_of(settings(), parts[2])
+                path = q.get("path", [""])[0]
+                if not _known_frame(pdir, path):
+                    return self._json({"error": "unbekannte Datei"}, 403)
+                from .. import fitsmeta, starmap
+                try:
+                    bayer = fitsmeta.read_meta(path).bayer
+                    return self._json(starmap.frame_stars(path, os.path.join(_analysis_dir(pdir), "stars"), bayer,
+                                                          hot=q.get("hot", ["0"])[0] == "1"))
+                except (OSError, ValueError) as e:
+                    return self._json({"error": "Sterne nicht lesbar: %s" % e}, 404)
             if parts[:2] == ["api", "frame-thumb"] and len(parts) == 3:
                 pdir = project.pdir_of(settings(), parts[2])
                 try:
