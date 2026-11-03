@@ -69,7 +69,11 @@ def test_project_sources_accept_typed_path_without_native_dialog():
 
 def test_empty_projects_guard_tabs():
     assert "hasData" in APP
-    assert "Planungsprojekt" in APP
+    assert "noch nicht analysiert" in APP
+    # Ein Formular, ein Anlegen-Knopf – kein zweiter Planungs-Wizard.
+    assert 'id="projName"' in APP and 'id="createBtn"' in APP
+    assert "Planungsprojekt" not in APP
+    assert "planBtn" not in APP
 
 
 def test_frame_browser_wired_to_frames_api():
@@ -77,7 +81,7 @@ def test_frame_browser_wired_to_frames_api():
     for label in ("Lights", "Darks", "Flats", "Bias", "Dark-Flats"):
         assert label in APP
     # Häkchen schickt echte Auswahl an die Planung, kein reines Anzeige-Flag
-    assert re.search(r"/override',\{path,value:val\}", APP)
+    assert re.search(r"/override',\{path:p,value:next\}", APP)
 
 
 def test_frame_checkbox_does_not_open_lightbox():
@@ -135,6 +139,8 @@ def test_frame_filters_and_labels():
     assert "nicht gemessen" in APP
     assert "HFR (Aufnahme" in APP and "FWHM (gemessen" in APP
     assert "Auffällig" in APP and "Fehlerhaft" in APP
+    assert "Alle Lights:" in APP and "verwendet:" in APP       # Gesamtstunden getrennt von genutzten
+    assert "fvMissingMedia" in APP and "media_ready" in APP
 
 
 @pytest.mark.skipif(not shutil.which("node"), reason="node not installed")
@@ -161,15 +167,21 @@ def test_frame_tiles_never_load_full_previews():
     assert "outerHTML" not in _fn("fvUpdateTile")   # Häkchen lädt kein Bild neu
 
 
-def test_lightbox_preview_debounced_and_space_safe():
-    assert "clearTimeout" in _fn("renderFV")
+def test_lightbox_snapshot_and_space_safe():
+    assert "PhotoSwipe" in APP
+    assert "frames:view.map(i=>Object.assign" in APP and "state.frames.map(f=>fvPswpItem" in APP   # Sichtungsliste wird beim Öffnen eingefroren
     assert "e.repeat" in _fn("fvKey")
+    assert "fvToggleCur" in _fn("fvKey")
+    assert "autoNext" not in APP and "nextOnToggle" not in APP
 
 
-def test_selection_change_marks_plan_stale_immediately():
+def test_selection_change_uses_small_delta_without_stale_or_reload():
     m = re.search(r"const needsAnalysis=.*", APP)
     assert m and "??" not in m.group(0)
-    assert "plan_stale=true" in _fn("setFrameUse")
+    body = _fn("setFrameUse")
+    assert "/override" in body and "r.frame" in body and "r.facts" in body
+    assert "/frames" not in body and "api(base)" not in body
+    assert "plan_stale=true" not in body and "dirty=true" not in body
 
 
 TILE_CASES = r"""
@@ -237,39 +249,44 @@ const frameDlg={open:false,showModal(){this.open=true},close(){this.open=false}}
 let P={name:'p',sources:{roots:['r']}}, cur={project:'p',tab:'frames'}, dirty=0;
 const renderDirty=()=>{dirty++};
 const srv={ov:{}}, PATHS=['a','b','c'];
-const frames=()=>PATHS.map((p,i)=>({path:p,type:'light',night:'2026-01-0'+(i+1),status:'ok',auto_status:'ok',flags:[],metrics:{},
+const frames=()=>PATHS.map((p,i)=>({path:p,type:'light',exposure:60,night:'2026-01-0'+(i+1),status:'ok',auto_status:'ok',flags:[],metrics:{},
   selected:srv.ov[p]?srv.ov[p]==='in':true,selection_source:srv.ov[p]?'override':'auto'}));
-let inflight=0, maxInflight=0, n=0, detailCalls=0;
+let inflight=0, maxInflight=0, n=0, rev=0, calls=[];
 function api(path,body){
-  const delay=[60,5,40,1,30,2][n++%6];            // later calls would answer first if they overlapped
-  inflight++;maxInflight=Math.max(maxInflight,inflight);
+  const delay=[60,5,40,1,30,2][n++%6];
+  inflight++;maxInflight=Math.max(maxInflight,inflight);calls.push(path);
   return new Promise(res=>setTimeout(()=>{inflight--;
-    if(path.endsWith('/override')){if(body.value)srv.ov[body.path]=body.value;else delete srv.ov[body.path];res(srv.ov);}
-    else if(path.endsWith('/frames'))res({frames:frames(),plan_stale:true});
-    else{detailCalls++;res({name:'p',sources:{roots:['r'],plan_stale:true},analysis_required:true});}},delay));
+    if(path.endsWith('/override')){
+      if(body.value)srv.ov[body.path]=body.value;else delete srv.ov[body.path];
+      const row=frames().find(f=>f.path===body.path);
+      res({revision:++rev,frame:row,facts:{lights_total:3,lights_used:PATHS.filter(p=>srv.ov[p]!=='out').length,hours_used:2.5},
+        analysis_required:false,selection_ready:true});
+    } else res({frames:frames(),plan_stale:true});
+  },delay));
 }
 (async()=>{
-  FV.list=frames();FV.project='p';
-  setFrameUse(0,'out'); const dirtyNow=dirty;
-  setFrameUse(0,'in'); setFrameUse(0,'out'); await setFrameUse(1,'out');
-  const r1={max:maxInflight,dirtyNow,a:FV.list[0].selected,b:FV.list[1].selected,srvA:srv.ov.a,srvB:srv.ov.b,stale:!!P.analysis_required,detailCalls};
-  // only-used filter: deselected frame leaves the lightbox walk, which moves to the next frame
-  FV.use='in'; FV.view=fvFiltered(); frameDlg.open=true; FMODE='fv'; FV.pos=0;
-  const before=FV.list[FV.view[0]].path;
+  FV.list=frames();FV.project='p';FV.want.clear();FV._flush=false;
+  // three synchronous clicks on the same frame must collapse to the last intent
+  setFrameUse(0,'out'); setFrameUse(0,'in'); const p=setFrameUse(0,'out');
+  setFrameUse(1,'out'); await p;
+  const r1={max:maxInflight,a:FV.list[0].selected,b:FV.list[1].selected,srvA:srv.ov.a,srvB:srv.ov.b,
+    fullGets:calls.filter(x=>x.endsWith('/frames')||x==='/api/project/p').length,
+    overrideCalls:calls.filter(x=>x.endsWith('/override')).length,stale:!!P.analysis_required,
+    planStale:!!(P.sources||{}).plan_stale,dirtyCalls:dirty,facts:{...(P.facts||{})}};
+  // snapshot list: a toggle updates the frame and totals but never reorders the open walk
+  FV.use='in'; FV.view=fvFiltered(); const snap=[...FV.view], before=snap.map(i=>FV.list[i].path).join('');
   await setFrameUse(FV.view[0],'out');
-  const r2={before,now:frameDlg.open?FV.list[FV.view[FV.pos]].path:null,view:FV.view.map(i=>FV.list[i].path).join('')};
-  await setFrameUse(FV.view[0],'out');
-  const r3={open:frameDlg.open,view:FV.view.length};
-  console.log(JSON.stringify({r1,r2,r3,q:fvSortVal({status:'ok',auto_status:'error',flags:[]},'quality')}));
+  const r2={before,after:FV.view.map(i=>FV.list[i].path).join(''),snap:snap.map(i=>FV.list[i].path).join(''),count:FV.view.length};
+  console.log(JSON.stringify({r1,r2,q:fvSortVal({status:'ok',auto_status:'error',flags:[]},'quality')}));
 })();
 """
 
 
 @pytest.mark.skipif(not shutil.which("node"), reason="node nicht installiert")
-def test_frame_toggles_serialized_and_authoritative(tmp_path):
+def test_frame_toggles_delta_coalesced_without_full_reload(tmp_path):
     pick = lambda pat: re.search(pat, APP, re.S).group(0)
     js = "\n".join([pick(r"const esc=[^\n]*"), pick(r"const fmt=[^\n]*"), pick(r"const STXT=[^\n]*"),
-                    "let FMODE='fv';", pick(r"const FTYPES=.*?(?=async function setThumb)")]) + QUEUE_CASES
+                    "let FMODE='legacy';", pick(r"const FTYPES=.*?(?=async function setThumb)")]) + QUEUE_CASES
     f = tmp_path / "queue.js"
     f.write_text(js, encoding="utf-8")
     r = subprocess.run(["node", str(f)], capture_output=True, text=True, timeout=30)
@@ -277,20 +294,170 @@ def test_frame_toggles_serialized_and_authoritative(tmp_path):
     got = json.loads(r.stdout)
     r1 = got["r1"]
     assert r1["max"] == 1                                  # nie zwei Anfragen gleichzeitig
-    assert r1["dirtyNow"] >= 1                             # Sperr-Banner sofort, vor der Antwort
+    assert r1["overrideCalls"] == 2                        # 3 Klicks auf a werden zu einem Intent
     assert (r1["srvA"], r1["srvB"]) == ("out", "out")
-    assert (r1["a"], r1["b"]) == (False, False)            # Anzeige = Serverstand
-    assert r1["stale"] and r1["detailCalls"] >= 1          # Serverdetail bestätigt die Sperre
-    assert got["r2"] == {"before": "c", "now": None, "view": ""} or got["r2"]["now"] != got["r2"]["before"]
-    assert got["r2"]["before"] not in got["r2"]["view"]
-    assert got["r3"] == {"open": False, "view": 0}        # leer gefiltert: Lightbox schließt
-    assert got["q"] == 0                                  # Qualität nach automatischer Bewertung
+    assert (r1["a"], r1["b"]) == (False, False)            # Anzeige folgt dem Delta
+    assert r1["fullGets"] == 0                             # kein ganzer Projekt-/Frame-Reload
+    assert r1["stale"] is False and r1["planStale"] is False
+    assert r1["facts"]["lights_used"] == 1                 # Facts lokal übernommen
+    assert got["r2"]["after"] == got["r2"]["before"]        # Snapshot bleibt beim Sichten stabil
+    assert got["r2"]["snap"] == got["r2"]["before"]
+    assert got["q"] == 0                                   # Qualität nach automatischer Bewertung
 
 
-def test_lightbox_hires_guarded_and_dirty_null_safe():
-    body = _fn("renderFV")
-    assert "FV.tok" in body and "frameDlg.open" in body
+def test_lightbox_zoom_and_full_image_guarded():
+    assert "fvPswpItem" in APP and "preview_url" in APP and "fullUrl" in APP
+    assert "s.currZoomLevel>s.zoomLevels.initial*1.02" in APP    # Full erst beim Zoom
+    assert "FVS.saved" in APP and "correctPan" in APP            # Zoom + Ausschnitt bleiben erhalten
+    assert "Ganzes Bild" in APP                                  # expliziter Reset
+    assert "pswp.prev()" in APP and "pswp.next()" in APP         # Pfeile blättern
+    assert "FVS.token" in APP and "FVS.closed" in APP            # Dispose/Identity-Guards
+    # PhotoSwipe resets the outgoing slide before dispatching change; transition guards must
+    # protect the last user snapshot from that reset.
+    assert "slideDeactivate" in APP and "slideActivate" in APP
+    assert "!e.slide.isActive" in APP
+    assert "e.slide===pswp.currSlide" in APP
+    assert "setTimeout(()=>{if(FVS===state&&!state.closed)fvApplyZoom" not in APP
+    assert "FVS.view=p.currIndex" not in APP
+    assert "preview_url" not in _fn("fvTile")
     assert "(P.sources||{})" in _fn("renderDirty")
+
+
+ZOOM_CASES = r"""
+let FVS={token:1,closed:false,saved:{z:2,cx:.25,cy:.75},applying:false,awaiting:true};
+const calls=[];
+const slide={width:1000,height:500,zoomLevels:{initial:1,max:8},currZoomLevel:1,pan:{x:0,y:0},
+  bounds:{center:{x:0,y:0},correctPan:(axis,v)=>v},
+  zoomTo(z){this.currZoomLevel=z;calls.push(['zoom',z])},
+  applyCurrentZoomPan(){calls.push(['apply',this.pan.x,this.pan.y])}};
+const pswp={currIndex:0,currSlide:slide};
+function fvLoadFull(){calls.push(['full']);}
+const snap=fvZoomSnapshot({currSlide:{width:1000,height:500,zoomLevels:{initial:1},currZoomLevel:2,pan:{x:500,y:-250},bounds:{center:{x:0,y:0}}}});
+fvApplyZoom(pswp,1);
+console.log(JSON.stringify({snap,z:slide.currZoomLevel,pan:slide.pan,await:FVS.awaiting,applying:FVS.applying,calls}));
+"""
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node nicht installiert")
+def test_zoom_and_crop_persist_between_slides(tmp_path):
+    pick = lambda pat: re.search(pat, APP, re.S).group(0)
+    js = "\n".join([pick(r"function fvZoomSnapshot.*?\n\}"), pick(r"function fvApplyZoom.*?\n\}")]) + ZOOM_CASES
+    f = tmp_path / "zoom.js"
+    f.write_text(js, encoding="utf-8")
+    r = subprocess.run(["node", str(f)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr[-800:]
+    got = json.loads(r.stdout)
+    assert abs(got["snap"]["cx"] - .25) < 1e-6 and abs(got["snap"]["cy"] - .75) < 1e-6
+    assert got["z"] == 2 and got["pan"] == {"x": 500, "y": -250}
+    assert got["await"] is False and got["applying"] is False
+    assert got["calls"][0][0] == "zoom" and got["calls"][-1][0] == "full"
+
+
+ASSET_PREP_CASES = r"""
+const calls=[], toasts=[]; let cur={view:'overview',project:'Proj X'};
+const api=(path,body)=>{calls.push({path,body});return Promise.resolve({title:'Bilder vorbereiten Proj X',kind:'assets'});};
+const toast=m=>toasts.push(m); const refresh=async()=>{};
+const btn={disabled:false};
+(async()=>{ await prepareAssets(btn);
+  console.log(JSON.stringify({calls,view:cur.view,disabled:btn.disabled,toasts}));})();
+"""
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node nicht installiert")
+def test_old_project_prepare_assets_uses_dedicated_route(tmp_path):
+    assert "assets_migration_needed" in APP
+    assert "Bildbestand noch nicht vorbereitet" in APP
+    assert 'id="assetPrepareBtn"' in APP and "keine Bilder als vorhanden" in APP
+    pick = lambda pat: re.search(pat, APP, re.S).group(0)
+    js = "const confirm=()=>true;\n" + pick(r"async function prepareAssets\(.*?\n\}") + ASSET_PREP_CASES
+    f = tmp_path / "assets.js"
+    f.write_text(js, encoding="utf-8")
+    r = subprocess.run(["node", str(f)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr[-800:]
+    got = json.loads(r.stdout)
+    assert len(got["calls"]) == 1
+    assert got["calls"][0]["path"] == "/api/project/Proj%20X/prepare-assets"
+    assert got["calls"][0]["body"] == {}
+    assert not any("reanalyze" in c["path"] for c in got["calls"])
+    assert got["view"] == "job" and got["disabled"] is True
+
+
+ERROR_CASES = r"""
+const dummy=new Proxy(function(){},{get:(t,k)=>['classList','style'].includes(k)?dummy:(['remove','toggle','removeAttribute','blur','add'].includes(k)?()=>{}:undefined),set:()=>true});
+const $=()=>dummy, document={querySelector:()=>null,querySelectorAll:()=>[],activeElement:null};
+class Image{set src(v){}}
+const toasts=[]; const toast=m=>toasts.push(String(m));
+const renderDirty=()=>{};
+let P={name:'p',sources:{roots:['r']}}, cur={project:'p',tab:'frames'};
+const FRAME={path:'a',type:'light',exposure:60,night:'2026-01-01',status:'ok',auto_status:'ok',flags:[],metrics:{},
+  selected:true,selection_source:'auto',thumb_url:'/api/frame-thumb/p?path=a',preview_url:'/api/frame-preview/p?path=a'};
+let responses=[], calls=[];
+function delta(selected){return {revision:1,frame:{path:'a',selected,selection_source:'override',status:'ok',auto_status:'ok',flags:[],metrics:{}},
+  facts:{lights_total:1,lights_used:selected?1:0},analysis_required:false,selection_ready:true};}
+function api(path,body){
+  calls.push(body.value);
+  const r=responses.shift()||{ok:true,selected:body.value==='in'};
+  return new Promise((res,rej)=>setTimeout(()=>r.ok?res(delta(r.selected??(body.value==='in'))):rej(new Error('Netz weg')),r.delay||1));
+}
+(async()=>{
+  FV.list=[Object.assign({},FRAME)];FV.project='p';FV.server=new Map([['a',Object.assign({},FRAME)]]);FV.want.clear();FV._flush=false;FV.gen=0;
+  responses=[{ok:false,delay:1}];
+  await setFrameUse(0,'out');
+  const failed={selected:FV.list[0].selected,source:FV.list[0].selection_source,thumb:FV.list[0].thumb_url,preview:FV.list[0].preview_url,toasts:toasts.length,calls:[...calls]};
+  // a newer intent waits while the first POST fails: do not flash the old server state back
+  FV.list=[Object.assign({},FRAME)];FV.server=new Map([['a',Object.assign({},FRAME)]]);FV.want.clear();FV._flush=false;FV.q=Promise.resolve();calls=[];
+  responses=[{ok:false,delay:30},{ok:true,selected:true,delay:1}];
+  const p1=setFrameUse(0,'out');
+  await new Promise(r=>setTimeout(r,5));
+  const p2=setFrameUse(0,'in');
+  await p2;
+  const raced={selected:FV.list[0].selected,source:FV.list[0].selection_source,calls:[...calls],thumb:FV.list[0].thumb_url,preview:FV.list[0].preview_url,toasts:toasts.length};
+  // an open viewer survives list invalidation: its snapshot stays readable, toggles are blocked
+  FVS={pswp:{currIndex:0},frames:[Object.assign({},FRAME)],strip:dummy,project:'p',gen:FV.gen,closed:false};
+  calls=[];
+  let threw=null;
+  try{fvDropList();fvSyncStrip();fvToggleCur();}catch(e){threw=String(e);}
+  const invalidated={threw,calls:[...calls],frames:FVS.frames.length,selected:FVS.frames[0].selected};
+  console.log(JSON.stringify({failed,raced,invalidated}));
+})();
+"""
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node nicht installiert")
+def test_toggle_post_failure_restores_server_state(tmp_path):
+    pick = lambda pat: re.search(pat, APP, re.S).group(0)
+    js = "\n".join([pick(r"const esc=[^\n]*"), pick(r"const fmt=[^\n]*"), pick(r"const STXT=[^\n]*"),
+                    "let FMODE='legacy';", pick(r"const FTYPES=.*?(?=async function setThumb)")]) + ERROR_CASES
+    f = tmp_path / "error.js"
+    f.write_text(js, encoding="utf-8")
+    r = subprocess.run(["node", str(f)], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr[-1200:]
+    got = json.loads(r.stdout)
+    assert got["failed"]["selected"] is True, "fehlgeschlagener POST zeigt wieder den Serverstand"
+    assert got["failed"]["source"] == "auto"
+    assert got["failed"]["toasts"] >= 1
+    assert got["failed"]["thumb"] and got["failed"]["preview"], "Media-URLs bleiben erhalten"
+    assert got["raced"]["selected"] is True, "neuer Intent gewinnt nach Fehler"
+    assert got["raced"]["calls"] == ["out", "in"]
+    assert got["raced"]["thumb"] and got["raced"]["preview"]
+    assert got["invalidated"]["threw"] is None
+    assert got["invalidated"]["calls"] == [], "invalidierter Viewer darf keinen falschen POST auslösen"
+    assert got["invalidated"]["frames"] == 1 and got["invalidated"]["selected"] is True
+    assert "if(!FV.list)" in _fn("fvRedraw")
+    # Grid und Lightbox werden beim Wiederherstellen synchronisiert.
+    assert "fvUpdateTile(k)" in _fn("fvRestoreFrame") and "fvSyncStrip()" in _fn("fvRestoreFrame")
+
+
+def test_photo_swipe_assets_and_prepare_route_are_explicit():
+    base = os.path.join(ROOT, "app", "vendor", "photoswipe")
+    for name in ("photoswipe.umd.min.js", "photoswipe.css", "LICENSE"):
+        assert os.path.isfile(os.path.join(base, name)), name
+    assert "PhotoSwipe 5.4.4" in open(os.path.join(base, "photoswipe.umd.min.js"), encoding="utf-8").read(400)
+    assert "/static/photoswipe.js" in APP and "/static/photoswipe.css" in APP
+    assert "/prepare-previews" in APP
+    assert "Vorschauen vorbereiten" in APP and "Vorschau nicht vorbereitet" in APP
+    assert "app/vendor/photoswipe/*" in open(os.path.join(ROOT, "..", "pyproject.toml"), encoding="utf-8").read()
+    assert 'app", "vendor", "photoswipe' in open(os.path.join(ROOT, "..", "packaging", "astrostack.spec"), encoding="utf-8").read()
 
 
 ATTR_CASES = r"""

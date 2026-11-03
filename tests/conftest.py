@@ -66,3 +66,9 @@ def mixed_tree(tmp_path):
 
 
 os.environ.setdefault("B2_NO_UPDATE_CHECK", "1")   # Tests nie gegen GitHub prüfen
+
+
+@pytest.fixture(autouse=True)
+def _isolated_preview_cache(tmp_path, monkeypatch):
+    # Default cache otherwise lives in the user profile; every test gets a throwaway cache.
+    monkeypatch.setenv("ASTROSTACK_PREVIEW_CACHE", str(tmp_path / "preview-cache"))

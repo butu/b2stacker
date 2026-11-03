@@ -106,12 +106,12 @@ def test_corrupt_header_is_indexed_with_full_path_and_reason(tmp_path):
     assert "nicht lesbar" in f["measure_error"]
 
 
-def test_detail_analysis_required_mirrors_plan_stale(tmp_path):
+def test_toggle_keeps_analysis_state_without_requiring_reanalysis(tmp_path):
     pdir = _pdir(str(tmp_path / "w"), "Stale")
     assert project.detail_extras(pdir)["analysis_required"] is False
     project.set_override(pdir, "/d/x.fits", "out")
     d = project.detail_extras(pdir)
-    assert d["analysis_required"] is True and d["plan_stale"] is True
+    assert d["analysis_required"] is False and d["plan_stale"] is False
 
 
 def test_empty_roots_can_be_saved_and_block_stacking(tmp_path):

@@ -104,7 +104,11 @@ def context_row(meta) -> dict:
 
 def measure(meta) -> tuple[dict, np.ndarray]:
     """Ein Light vermessen. → (Zeile, Thumbnail 1/8-Auflösung der Luminanz)"""
-    raw = imageio.load(meta.path)
+    return _measure_raw(meta, imageio.load(meta.path))
+
+
+def _measure_raw(meta, raw) -> tuple[dict, np.ndarray]:
+    """Measure from already loaded pixels so preview rendering can share the same read."""
     if raw.ndim == 3:   # bereits debayert
         raw = raw.mean(axis=0)
     p001 = float(np.percentile(raw[::7, ::7], 0.01))
@@ -171,11 +175,25 @@ def thumb_name(path: str) -> str:
     return hashlib.sha1(path.encode("utf-8")).hexdigest()[:16] + ".npy"
 
 
-def _work(meta):
+def _work(item):
+    from . import previews
+    meta, preview = item
     try:
-        return measure(meta), None
+        raw = imageio.load(meta.path)
+        row, thumb = _measure_raw(meta, raw)
     except Exception as e:
         return None, (meta.path, str(e))
+    record = None
+    if preview:
+        sha = preview["sha"]
+        try:
+            if not sha:
+                sha = catalog.sha256_file(meta.path)
+            record = previews.store_from_raw(meta.path, meta.bayer, raw, sha, preview["sig"],
+                                             preview["root"])
+        except Exception as e:  # noqa: BLE001 – preview trouble must never discard the measurement
+            record = previews.failure_record(sha, meta.bayer, preview["sig"], e)
+    return (row, thumb, record), None
 
 
 def _read_csv_rows(p: str) -> dict:
@@ -189,21 +207,25 @@ def _read_csv_rows(p: str) -> dict:
         return {}
 
 
-def analyze_group(frames, outdir: str, workers: int = 2, progress=None, catalog_dir=None, log=None) -> str:
-    """Measure all frames of a light group; writes metrics.csv, thumbs/ and measure_errors.json.
+def analyze_group(frames, outdir: str, workers: int = 2, progress=None, catalog_dir=None, log=None,
+                  preview_cache_dir=None) -> str:
+    """Measure all frames of a light group; writes metrics.csv, thumbs/, previews.json and measure_errors.json.
 
     Reuse order: CSV row with the same stat signature, then catalog (same content), else measure.
     The CSV is rebuilt from current frames, so removed files drop out. Errors are replaced per run;
-    ``kind`` is stat | measure | changed.
+    ``kind`` is stat | measure | changed. Preview media are prepared during the same read as measurement.
     """
+    from . import previews
     os.makedirs(os.path.join(outdir, "thumbs"), exist_ok=True)
     p = os.path.join(outdir, "metrics.csv")
     old = _read_csv_rows(p)
     cat = catalog.open_catalog(catalog_dir) if catalog_dir else None
+    preview_root = previews.cache_root(preview_cache_dir)
     ver = str(catalog.LIGHT_VERSION)
     rows: dict[str, dict] = {}
     errors: list[dict] = []
     todo = []
+    reused = []
     n_csv = n_cat = 0
     for f in frames:
         try:
@@ -218,6 +240,7 @@ def analyze_group(frames, outdir: str, workers: int = 2, progress=None, catalog_
             rows[f.path] = dict(context_row(f), **{k: o.get(k) for k in METRIC_COLS},
                                 file_sig=sig, sha256=o.get("sha256", ""), metrics_ver=ver)
             n_csv += 1
+            reused.append(f)
             continue
         hit = cat.light_get(sha, f.bayer) if (cat and sha) else None
         if hit:
@@ -225,20 +248,28 @@ def analyze_group(frames, outdir: str, workers: int = 2, progress=None, catalog_
             np.save(thumb_file, thumb)
             rows[f.path] = dict(context_row(f), **metrics, file_sig=sig, sha256=sha, metrics_ver=ver)
             n_cat += 1
+            reused.append(f)
             continue
         todo.append((f, sig, sha, "geändert" if f.path in old else "neu"))
     n_new = sum(1 for t in todo if t[3] == "neu")
     n_changed = len(todo) - n_new
+    preview_records: dict[str, dict] = {}
     if todo:
+        work = []
+        for f, sig, sha, _why in todo:
+            preview = {"sha": sha, "sig": sig, "root": preview_root}
+            work.append((f, preview))
         with ProcessPoolExecutor(max_workers=workers) as ex:
-            for i, ((f, sig, sha, _why), (res, err)) in enumerate(zip(todo, ex.map(_work, [t[0] for t in todo]))):
+            for i, ((f, sig, sha, _why), (res, err)) in enumerate(zip(todo, ex.map(_work, work))):
                 kind = "measure"
                 if res and _sig_or_none(f.path) != sig:
                     err = (f.path, "während der Messung geändert")
                     res, kind = None, "changed"
                 if res:
-                    row, thumb = res
+                    row, thumb, preview_rec = res
                     np.save(os.path.join(outdir, "thumbs", thumb_name(f.path)), thumb)
+                    if preview_rec:
+                        preview_records[f.path] = preview_rec
                     if cat and sha:
                         cat.light_put(sha, f.bayer, {k: row[k] for k in METRIC_COLS}, thumb)
                     rows[f.path] = dict(row, file_sig=sig, sha256=sha or "", metrics_ver=ver)
@@ -259,12 +290,27 @@ def analyze_group(frames, outdir: str, workers: int = 2, progress=None, catalog_
                 w.writerow(rows[f.path])
     os.replace(tmp, p)
     _write_errors(outdir, errors)
+    _prepare_previews(reused, preview_records, outdir, preview_root, catalog_dir, log)
     if cat:
         cat.flush()
         if cat.write_failures:
             _emit(log, "Katalog-Schreibfehler: %d (Analyse fortgesetzt; einzelne Einträge nicht gespeichert)"
                   % cat.write_failures)
     return p
+
+
+def _prepare_previews(reused, records: dict, outdir: str, preview_root: str, catalog_dir, log) -> None:
+    """Cached rows still need one explicit read when their project manifest has no browse media yet."""
+    from . import previews
+    try:
+        if records:
+            previews.record_media(outdir, records)
+        missing = previews.missing_frames(reused, outdir, preview_root)
+        if missing:
+            _emit(log, "Bereite Vorschauen vor: %d Frames …" % len(missing))
+            previews.prepare_frames(missing, outdir, preview_root, catalog_dir=catalog_dir)
+    except Exception as e:  # noqa: BLE001 – preview cache trouble must never fail the analysis
+        _emit(log, "Vorschau-Cache nicht schreibbar: %s" % e)
 
 
 def _error(path: str, kind: str, reason) -> dict:

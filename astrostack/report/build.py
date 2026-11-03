@@ -7,6 +7,7 @@ import html
 import io
 import json
 import os
+import re
 import statistics as st
 
 import numpy as np
@@ -22,6 +23,34 @@ from .diag import rig_diagnostics
 from .sky import sky_tracks
 
 TEMPLATE = os.path.join(os.path.dirname(__file__), "template.html")
+CHARTJS = os.path.join(os.path.dirname(__file__), "vendor", "chart.umd.js")
+REPORT_DATA = os.path.join("analysis", "report-data.json")
+
+
+def _read_json(path: str, default):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return default
+
+
+def _write_json(path: str, data) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False, default=str)
+    os.replace(tmp, path)
+
+
+def _render(data: dict, target: str) -> str:
+    tpl = open(TEMPLATE, encoding="utf-8").read()
+    # Chart.js embedded: the report works without internet at the observatory.
+    chartjs = open(CHARTJS, encoding="utf-8").read()
+    tpl = tpl.replace('<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>',
+                      "<script>" + chartjs.replace("</script", "<\\/script") + "</script>")
+    return tpl.replace("/*__DATA__*/null", json.dumps(public(data), ensure_ascii=False, default=str).replace("</", "<\\/")).replace(
+        "__TITLE__", html.escape(target + " – Rohdaten"))
 
 
 def stretch(t: np.ndarray) -> np.ndarray:
@@ -165,13 +194,10 @@ def build(target: str, groups, inv, calib: dict, analysis_dir: str, workdir: str
               | {"flags": [f[1] for f in r["flags"]]} for r in rows]
     data = dict(meta=meta, filters=filters, kpi=kpi, nights=ntab, checks=checks, rec=rec, plan=pub_plan, sky=sky,
                 diag=diag, frames=frames)
-    tpl = open(TEMPLATE, encoding="utf-8").read()
-    # Chart.js eingebettet: Bericht funktioniert auch ohne Internet (Sternwarte)
-    chartjs = open(os.path.join(os.path.dirname(__file__), "vendor", "chart.umd.js"), encoding="utf-8").read()
-    tpl = tpl.replace('<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>',
-                      "<script>" + chartjs.replace("</script", "<\\/script") + "</script>")
-    out = tpl.replace("/*__DATA__*/null", json.dumps(public(data), ensure_ascii=False, default=str).replace("</", "<\\/")).replace(
-        "__TITLE__", html.escape(target + " – Rohdaten"))
+    # Full, reusable snapshot: the report can be rebuilt later without touching originals.
+    _write_json(os.path.join(analysis_dir, os.path.basename(REPORT_DATA)), dict(
+        version=1, generated=meta["generated"], target=target, data=public(data)))
+    out = _render(data, target)
     os.makedirs(os.path.dirname(out_html), exist_ok=True)
     open(out_html, "w", encoding="utf-8").write(out)
     pdir = os.path.dirname(out_html)
@@ -188,3 +214,125 @@ def build(target: str, groups, inv, calib: dict, analysis_dir: str, workdir: str
     with open(os.path.join(pdir, "plan.json"), "w", encoding="utf-8") as fh:
         json.dump(public(plan), fh, indent=2, ensure_ascii=False)
     return dict(html=out_html, plan=os.path.join(os.path.dirname(out_html), "plan.json"), frames=len(rows))
+
+
+def _selection(plan: dict | None, snap: dict) -> set[str]:
+    """Actual plan membership is the only source of truth for report counts."""
+    plan = plan or snap
+    return {p for run in (plan.get("runs") or []) if run.get("enabled", True)
+            for p in (run.get("lights") or []) if p}
+
+
+def _recompute_counts(data: dict, selected: set[str]) -> None:
+    frames = data.get("frames") or []
+    for f in frames:
+        auto = f.get("auto_status") or f.get("status") or "ok"
+        chosen = f.get("path") in selected
+        if chosen:
+            f["status"] = "warn" if auto in ("rejected", "suggest") else auto
+        else:
+            f["status"] = "rejected"
+        f["override"] = ("in" if chosen and auto in ("rejected", "suggest")
+                         else "out" if not chosen and auto in ("ok", "warn") else f.get("override"))
+
+    kpi, seen = [], []
+    for f in frames:
+        if f.get("filter") not in seen:
+            seen.append(f.get("filter"))
+    for filt in seen:
+        group = [f for f in frames if f.get("filter") == filt]
+        used = [f for f in group if f.get("path") in selected]
+        kpi.append(dict(filter=filt, used_h=sum((f.get("exp") or 0) for f in used) / 3600,
+                        total_h=sum((f.get("exp") or 0) for f in group) / 3600,
+                        eff_h=sum((f.get("exp") or 0) * (f.get("weight") or 0) for f in used) / 3600,
+                        n_used=len(used), n=len(group), nights=len({f.get("night") for f in group if f.get("night")})))
+    data["kpi"] = kpi
+    for row in data.get("nights") or []:
+        group = [f for f in frames if f.get("night") == row.get("night") and f.get("filter") == row.get("filter")]
+        used = [f for f in group if f.get("path") in selected]
+        row["n"], row["n_used"] = len(group), len(used)
+        row["hours"] = sum((f.get("exp") or 0) for f in group) / 3600
+        row["used_h"] = sum((f.get("exp") or 0) for f in used) / 3600
+        row["eff_h"] = sum((f.get("exp") or 0) * (f.get("weight") or 0) for f in used) / 3600
+
+
+_DATA_MARKER = re.compile(r"const\s+D\s*=\s*")
+
+
+def embedded_report_data(text: str) -> dict | None:
+    """Read the report's embedded JSON without evaluating JavaScript."""
+    match = _DATA_MARKER.search(text or "")
+    if not match:
+        return None
+    try:
+        data, _end = json.JSONDecoder().raw_decode(text, match.end())
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _legacy_snapshot(pdir: str) -> dict | None:
+    """Bootstrap a snapshot from an existing local report.html (0.6 projects)."""
+    try:
+        with open(os.path.join(pdir, "report.html"), encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return None
+    data = embedded_report_data(text)
+    if not isinstance(data, dict) or not isinstance(data.get("frames"), list) or not isinstance(data.get("meta"), dict):
+        return None
+    snap = dict(version=1, generated=data["meta"].get("generated"), source="report.html",
+                target=data["meta"].get("target") or os.path.basename(pdir), data=data)
+    try:
+        _write_json(os.path.join(pdir, REPORT_DATA), snap)
+    except OSError:                          # a read-only project still gets its report rebuilt
+        pass
+    return snap
+
+
+def _archive_html(pdir: str) -> str | None:
+    """Unknown legacy format: keep the existing report readable instead of failing."""
+    try:
+        with open(os.path.join(pdir, "report.html"), encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return None
+    notice = ('<div role="status" style="padding:10px 14px;margin:0;background:#3a2d12;color:#f5d27a;'
+              'font:14px system-ui,sans-serif">Archivbericht (schreibgeschützt): Das Datenformat dieses '
+              'älteren Berichts ist unbekannt. Für aktuelle Auswahl und Zähler bitte das Projekt neu analysieren.</div>')
+    match = re.search(r"<body[^>]*>", text, re.I)
+    return text[:match.end()] + notice + text[match.end():] if match else notice + text
+
+
+def cached_data(pdir: str) -> dict:
+    """Rebuild report data from the snapshot and the current plan without original IO."""
+    snap = _read_json(os.path.join(pdir, REPORT_DATA), None)
+    if not isinstance(snap, dict) or not isinstance(snap.get("data"), dict):
+        snap = _legacy_snapshot(pdir)
+    if not isinstance(snap, dict) or not isinstance(snap.get("data"), dict):
+        raise FileNotFoundError("Reportdaten fehlen – bitte das Projekt einmal neu analysieren (Migration).")
+    data = json.loads(json.dumps(snap["data"]))
+    plan = _read_json(os.path.join(pdir, "plan.json"), None) or snap["data"].get("plan")
+    selected = _selection(plan, snap["data"])
+    _recompute_counts(data, selected)
+    meta = data["meta"] if isinstance(data.get("meta"), dict) else {}
+    meta["target"] = snap.get("target") or meta.get("target") or os.path.basename(pdir)
+    data["meta"] = meta
+    if isinstance(plan, dict) and plan.get("runs") is not None:
+        pub_plan = dict(plan)
+        pub_plan["runs"] = [dict(r, lightDirs=r.get("lightDirs") or r.get("nights") or []) for r in plan["runs"]]
+        pub_plan["job"] = {k: v for k, v in plan.items() if k not in ("settings",)}
+        data["plan"] = pub_plan
+    return data
+
+
+def cached_html(pdir: str) -> str:
+    """Render the report on demand; selection changes never regenerate a report per click."""
+    try:
+        data = cached_data(pdir)
+    except FileNotFoundError:
+        archived = _archive_html(pdir)
+        if archived is not None:
+            return archived
+        raise
+    return _render(data, data["meta"].get("target") or "")

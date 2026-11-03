@@ -184,12 +184,28 @@ def _median(vals):
     return float(np.median(vals)) if vals else None
 
 
-def match_calibration(inv, flat_checks: dict | None = None, th: Thresholds | None = None) -> list[dict]:
-    """Für jede Light-Gruppe: passende Flats/Bias/Darks/DarkFlats mit Begründung."""
+def _assigned_empty_first(cands: list, folder: str | None) -> list:
+    """Only the assigned set that is currently completely emptied stays the run's explicit choice."""
+    if not folder:
+        return cands
+    for i, c in enumerate(cands):
+        if c.get("emptied") and c.get("set", {}).get("folder") == folder:
+            c["usable"] = True
+            c["assigned"] = True
+            return [c] + cands[:i] + cands[i + 1:]
+    return cands
+
+
+def match_calibration(inv, flat_checks: dict | None = None, th: Thresholds | None = None,
+                      assigned: dict | None = None) -> list[dict]:
+    """Für jede Light-Gruppe: passende Flats/Bias/Darks/DarkFlats mit Begründung.
+    assigned: {(filter, settings): {kind: folder}} aus dem vorherigen Plan – nur dieser Satz darf leer bleiben."""
     th = th or Thresholds()
     flat_checks = flat_checks or {}
+    assigned = assigned or {}
     out = []
     for g in inv.lights:
+        want = assigned.get((g.filter, tuple(g.settings))) or {}
         used = [f for f in g.frames if not f.excluded]
         if not used:
             continue
@@ -203,6 +219,15 @@ def match_calibration(inv, flat_checks: dict | None = None, th: Thresholds | Non
         cands = []
         for c in inv.calib:
             if c.type != fm.FLAT or (c.filter or "").lower() != (g.filter or "").lower():
+                continue
+            keep_empty = c.folder == want.get("flats") and not any(not f.excluded for f in c.frames)
+            if not c.frames and not keep_empty:
+                continue
+            if keep_empty:
+                chk = flat_checks.get(c.id)
+                cands.append(dict(set=c.summary(), score=0.0, reasons=["alle Frames manuell abgewählt"],
+                                  _frames=[], check=chk and dict(verdict=chk["verdict"], findings=chk["findings"]),
+                                  emptied=True, assigned=True, usable=True))
                 continue
             mism = _settings_mismatch(g.settings, c.settings)
             first = c.frames[0]
@@ -252,6 +277,7 @@ def match_calibration(inv, flat_checks: dict | None = None, th: Thresholds | Non
                               check=chk and dict(verdict=chk["verdict"], findings=chk["findings"]),
                               usable=not mism and not excl))
         cands.sort(key=lambda x: -x["score"])
+        cands = _assigned_empty_first(cands, want.get("flats"))
         res["flats"] = cands
         if not any(c["usable"] for c in cands):
             res["findings"].append(Finding("critical", "Keine passenden Flats für %s" % (g.filter or "ohne Filter"),
@@ -262,6 +288,13 @@ def match_calibration(inv, flat_checks: dict | None = None, th: Thresholds | Non
             lst = []
             for c in inv.calib:
                 if c.type != typ:
+                    continue
+                keep_empty = c.folder == want.get(key) and not any(not f.excluded for f in c.frames)
+                if not c.frames and not keep_empty:
+                    continue
+                if keep_empty:
+                    lst.append(dict(set=c.summary(), score=0.0, reasons=["alle Frames manuell abgewählt"],
+                                    _frames=[], emptied=True, assigned=True, usable=True))
                     continue
                 mism = _settings_mismatch(g.settings, c.settings)
                 reasons = list(mism) + _camera_note(g.settings, c.settings)
@@ -283,6 +316,7 @@ def match_calibration(inv, flat_checks: dict | None = None, th: Thresholds | Non
                     reasons.append("nur %d Frames" % len(c.frames)); score -= 5 * (10 - len(c.frames))
                 lst.append(dict(set=c.summary(), score=round(score, 1), reasons=reasons, usable=score > -400, _frames=c.frames))
             lst.sort(key=lambda x: -x["score"])
+            lst = _assigned_empty_first(lst, want.get(key))
             res[key] = lst
         if not any(b["usable"] for b in res["bias"]) and not any(b["usable"] for b in res["darkflats"]):
             res["findings"].append(Finding("warning", "Kein Bias und keine Dark-Flats",
@@ -292,7 +326,7 @@ def match_calibration(inv, flat_checks: dict | None = None, th: Thresholds | Non
                                            "b2stacker entfernt die Hotpixel vor dem Stacken selbst. Besser: Darks mit gleicher "
                                            "Belichtungszeit, Gain und Temperatur aufnehmen und beim Aufnehmen dithern.").to_dict())
         best = next((c for c in cands if c["usable"]), None)
-        if best and best["set"]["frames"] < th.flat_min_frames and not best["set"].get("is_master"):
+        if best and not best.get("emptied") and best["set"]["frames"] < th.flat_min_frames and not best["set"].get("is_master"):
             res["findings"].append(Finding("warning", "Sehr wenige Flats (%d)" % best["set"]["frames"],
                                            "Ein Master-Flat aus so wenigen Frames bringt Rauschen ins Bild. "
                                            "Besser 20–30 Flats je Filter aufnehmen.").to_dict())
@@ -364,9 +398,10 @@ def _stat_sig(path: str):
         return None
 
 
-def check_all(inv, th: Thresholds | None = None, progress=None, catalog_dir=None) -> dict:
+def check_all(inv, th: Thresholds | None = None, progress=None, catalog_dir=None,
+              assigned: dict | None = None) -> dict:
     """Measure all flat sets and match light groups. With ``catalog_dir``, flat stats are reused per content;
-    verdicts and light matching are always recomputed."""
+    verdicts and light matching are always recomputed. assigned preserves prior per-run calibration choices."""
     from .catalog import open_catalog
     th = th or Thresholds()
     flats = [c for c in inv.calib if c.type == fm.FLAT]
@@ -379,7 +414,7 @@ def check_all(inv, th: Thresholds | None = None, progress=None, catalog_dir=None
             progress(i + 1, len(flats), c.folder)
     if cat:
         cat.flush()
-    matches = match_calibration(inv, checks, th)
+    matches = match_calibration(inv, checks, th, assigned=assigned)
     return dict(flat_checks={k: {kk: vv for kk, vv in v.items() if kk != "frames"} | {"frames": v.get("frames", [])}
                              for k, v in checks.items()}, matches=matches)
 

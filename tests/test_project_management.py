@@ -26,6 +26,35 @@ def _add_stack(pdir, sid, fname):
     return f
 
 
+def test_stack_metadata_reads_are_cache_only_and_last_known(tmp_path, monkeypatch):
+    base = str(tmp_path / "w")
+    source = tmp_path / "source"
+    source.mkdir()
+    pdir = _project(base, roots=[str(source)])
+    archive = tmp_path / "archive" / "s.xisf"
+    archive.parent.mkdir()
+    archive.write_bytes(b"XISF0100")
+    project.add_stack(pdir, dict(id="s1", run="RGB", date="2026-11-01T10:00:00", lights=10,
+                                 outputs=[dict(name="RGB", file=str(archive), preview=None)]))
+    real_stat = os.stat
+
+    def guarded_stat(path, *a, **k):
+        p = os.path.abspath(str(path))
+        if p == str(source) or p.startswith(str(source) + os.sep) or p == str(archive):
+            raise AssertionError("Metadaten-GET darf Quelle/Stack-Original nicht statten")
+        return real_stat(path, *a, **k)
+
+    monkeypatch.setattr(os, "stat", guarded_stat)
+    assert project.stacks(pdir)[0]["outputs"][0]["exists"] is True, "last-known state"
+    assert project.list_projects(Settings(workdir=base))[0]["title"] == "M31"
+    assert project.project_facts(pdir)["stacks"] == 1
+    assert project.detail_extras(pdir)["plan"]["total_frames"] == 10
+    monkeypatch.setattr(os, "stat", real_stat)
+    archive.unlink()
+    assert project.stacks(pdir)[0]["outputs"][0]["exists"] is True, "ohne Prüfung bleibt der letzte Stand"
+    assert project.stacks(pdir, verify_files=True)[0]["outputs"][0]["exists"] is False, "explizite Prüfung sieht die fehlende Datei"
+
+
 def test_archive_hides_project_and_keeps_files(tmp_path):
     base = str(tmp_path / "w")
     pdir = _project(base)
@@ -117,12 +146,30 @@ def test_create_with_roots_requires_analysis_and_rejects_duplicates(tmp_path):
         project.create_project(s, "   ", [])
 
 
-def test_empty_project_thumbnail_and_detail_defaults(tmp_path):
+def test_empty_project_thumbnail_and_detail_defaults(tmp_path, monkeypatch):
     from PIL import Image
+    from astrostack import assets
     s = Settings(workdir=str(tmp_path / "w"))
     pdir = project.create_project(s, "Leer", [])
     os.makedirs(os.path.join(pdir, "final"), exist_ok=True)
     Image.new("RGB", (30, 20), (1, 2, 3)).save(os.path.join(pdir, "final", "x.jpg"))
+    assets.refresh(pdir, render_previews=True)      # explicit preparation, not part of a browser GET
+    source = tmp_path / "source"
+    source.mkdir()
+    archive = tmp_path / "archive" / "stack.xisf"
+    archive.parent.mkdir()
+    archive.write_bytes(b"XISF0100")
+    project.add_stack(pdir, dict(id="ext", run="RGB", date="2026-11-01T10:00:00", lights=1,
+                                 outputs=[dict(name="RGB", file=str(archive), preview=str(archive))]))
+    real_stat = os.stat
+
+    def guarded_stat(path, *a, **k):
+        p = os.path.abspath(str(path))
+        if p == str(source) or p.startswith(str(source) + os.sep) or p == str(archive):
+            raise AssertionError("GET darf Quelle/Stack-Original nicht anfassen")
+        return real_stat(path, *a, **k)
+
+    monkeypatch.setattr(os, "stat", guarded_stat)
     t = project.thumbnail(pdir)
     assert t and os.path.basename(t).endswith(".jpg") and "asset-previews" in t
     d = project.detail_extras(pdir)
@@ -131,14 +178,13 @@ def test_empty_project_thumbnail_and_detail_defaults(tmp_path):
     assert d["assets"][0]["name"] == "x.jpg" and d["assets"][0]["exists"]
 
 
-def test_override_marks_plan_stale_and_blocks_stacking(tmp_path):
+def test_toggle_rebuilds_without_stale_guard(tmp_path):
     pdir = _project(str(tmp_path / "w"))
     project.assert_stack_ready(pdir)
     project.set_override(pdir, "/x/a.xisf", "out")
-    assert project.sources(pdir)["plan_stale"] is True
-    with pytest.raises(ValueError):
-        project.assert_stack_ready(pdir)
+    assert project.sources(pdir).get("plan_stale") in (None, False)
     assert project._read(os.path.join(pdir, "overrides.json"), {}) == {"/x/a.xisf": "out"}
+    project.assert_stack_ready(pdir)              # a toggle does not invalidate the plan
 
 
 def test_frames_index_lists_all_frames_with_selection(tmp_path):
@@ -158,7 +204,7 @@ def test_frames_index_lists_all_frames_with_selection(tmp_path):
     assert fr["/d/L1.fits"]["metrics"]["fwhm"] == 2.4
     # L2 hat keine Messung: ein Override 'in' macht ihn nicht stackbar (fail-closed, siehe test_frame_selection).
     assert fr["/d/L2.fits"]["selected"] is False and fr["/d/L2.fits"]["selection_source"] == "override"
-    assert fr["/d/L2.fits"]["stale"] is True and fr["/d/L1.fits"]["stale"] is False
+    assert fr["/d/L2.fits"]["stale"] is False and fr["/d/L1.fits"]["stale"] is False, "Toggle ist sofort aktuell"
     assert fr["/d/F1.fits"]["type"] == "flats" and fr["/d/F1.fits"]["attention"] is None
     assert all(v is None for v in fr["/d/F1.fits"]["metrics"].values())
 
@@ -389,8 +435,9 @@ def test_override_race_during_analysis_keeps_guard_blocked(tmp_path, monkeypatch
     _blocked(pdir)
 
 
-def test_override_marks_stale_before_writing_selection(tmp_path, monkeypatch):
+def test_toggle_is_atomic_when_override_write_fails(tmp_path, monkeypatch):
     pdir = _project(str(tmp_path / "w"))
+    plan_before = project._read(os.path.join(pdir, "plan.json"), {})
     real_write = project._write
 
     def fail_overrides(path, data):
@@ -401,5 +448,7 @@ def test_override_marks_stale_before_writing_selection(tmp_path, monkeypatch):
     monkeypatch.setattr(project, "_write", fail_overrides)
     with pytest.raises(OSError):
         project.set_override(pdir, "/x/a.xisf", "out")
-    assert project.sources(pdir)["plan_stale"] is True
-    _blocked(pdir)
+    monkeypatch.setattr(project, "_write", real_write)
+    assert project._read(os.path.join(pdir, "overrides.json"), {}) == {}
+    assert project._read(os.path.join(pdir, "plan.json"), {}) == plan_before
+    project.assert_stack_ready(pdir)

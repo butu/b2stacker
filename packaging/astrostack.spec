@@ -7,6 +7,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 root = os.path.abspath(os.path.join(SPECPATH, ".."))
 datas = [
     (os.path.join(root, "astrostack", "app", "index.html"), "astrostack/app"),
+    (os.path.join(root, "astrostack", "app", "vendor", "photoswipe"), "astrostack/app/vendor/photoswipe"),
     (os.path.join(root, "astrostack", "report", "template.html"), "astrostack/report"),
     (os.path.join(root, "astrostack", "report", "vendor"), "astrostack/report/vendor"),
     (os.path.join(root, "astrostack", "pjsr", "split.js"), "astrostack/pjsr"),

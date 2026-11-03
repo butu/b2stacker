@@ -43,6 +43,7 @@ def test_report_end_to_end(tmp_path, monkeypatch):
     assert plan["runs"] and plan["runs"][0]["lightCount"] >= 3
     assert plan["runs"][0]["flats"], "Flats sollten zugeordnet sein"
     assert os.path.exists(os.path.join(s.workdir, "projects", "vdB 131", "calibration.json"))
+    assert os.path.exists(os.path.join(s.workdir, "projects", "vdB 131", "analysis", "report-data.json"))
 
 
 def test_cli_scan_json(mixed_tree, capsys, tmp_path, monkeypatch):

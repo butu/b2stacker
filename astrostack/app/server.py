@@ -7,6 +7,7 @@ Nur von diesem Rechner erreichbar. Schreibende Aufrufe brauchen den Header X-Ast
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shutil
 import subprocess
@@ -27,6 +28,10 @@ from ..settings import Settings
 HERE = os.path.dirname(__file__)
 JOBS = JobManager()
 SETTINGS_LOCK = threading.Lock()
+STATIC_FILES = {
+    ("static", "photoswipe.js"): ("vendor/photoswipe/photoswipe.umd.min.js", "text/javascript; charset=utf-8"),
+    ("static", "photoswipe.css"): ("vendor/photoswipe/photoswipe.css", "text/css; charset=utf-8"),
+}
 
 
 def settings() -> Settings:
@@ -312,9 +317,15 @@ def start_analysis(folders: list[str], target: str | None, assign: dict | None =
     names = sorted({v for v in (assign or {}).values() if v}) or ([title] if title else [])
 
     def fn(job):
-        return project.run_report(folders, target or None, s, log=job.write,
-                                  progress=lambda **kw: job.set_progress(**kw), cancel=job.cancel,
-                                  assign=assign, title=(title or None), into=into)
+        res = project.run_report(folders, target or None, s, log=job.write,
+                                 progress=lambda **kw: job.set_progress(**kw), cancel=job.cancel,
+                                 assign=assign, title=(title or None), into=into)
+        for r in res or []:                     # explicit analysis rebuilds inventory and asset previews
+            try:
+                assets.refresh(project.pdir_of(s, r["project"]), render_previews=True)
+            except Exception as e:  # noqa: BLE001 - a failed inventory must not discard the analysis
+                job.write("Asset-Inventar nicht aktualisiert: %s" % e)
+        return res
     job = JOBS.submit("analyze", "Analyse " + (", ".join(names) if names else target or ", ".join(
         os.path.basename(f) or f for f in folders)), s.workdir, fn)
     return job.as_dict()
@@ -347,6 +358,182 @@ def start_stack(name: str) -> dict:
     return job.as_dict()
 
 
+def _preview_cache_dir() -> str | None:
+    s = settings()
+    return getattr(s, "preview_cache_dir", None) or os.environ.get("ASTROSTACK_PREVIEW_CACHE") or None
+
+
+def _analysis_dir(pdir: str) -> str:
+    return os.path.join(pdir, "analysis")
+
+
+def _cached_media(path: str, pdir: str, variant: str) -> dict | None:
+    from .. import previews
+    fn = getattr(previews, "cached_media", None)
+    if fn is None:                          # older previews module: stay cache-only, report unprepared
+        return None
+    return fn(path, _analysis_dir(pdir), variant=variant, preview_cache_dir=_preview_cache_dir())
+
+
+def _dims(media: dict | None, *keys) -> tuple:
+    for key in keys:
+        if media and media.get(key) is not None:
+            return media.get(key)
+    return None
+
+
+def _media_url(kind: str, name: str, path: str, media: dict | None = None) -> str:
+    url = "/api/%s/%s?path=%s" % (kind, urllib.parse.quote(name), urllib.parse.quote(path))
+    version = (media or {}).get("key") or (media or {}).get("version")
+    return url + ("&v=" + urllib.parse.quote(str(version)) if version else "")
+
+
+def _frame_media(row: dict, pdir: str, name: str, media: dict | None = None) -> dict:
+    """Attach cache-only media metadata; never inspect the original frame here."""
+    path = row["path"]
+    media = media or {}
+    thumb = media.get("thumb") if media else _cached_media(path, pdir, "thumb")
+    screen = media.get("screen") if media else _cached_media(path, pdir, "screen")
+    full = media.get("full") if media else _cached_media(path, pdir, "full")
+    row["thumb_url"] = _media_url("frame-thumb", name, path, thumb)
+    row["preview_url"] = _media_url("frame-preview", name, path, screen)
+    row["full_url"] = _media_url("frame-full", name, path, full)
+    row["width"] = _dims(screen or thumb, "orig_width", "source_width", "original_width") or row.get("width")
+    row["height"] = _dims(screen or thumb, "orig_height", "source_height", "original_height") or row.get("height")
+    row["preview_width"] = _dims(screen, "preview_width", "width")
+    row["preview_height"] = _dims(screen, "preview_height", "height")
+    row["media_ready"] = bool(screen or thumb)
+    row["media_error"] = None if row["media_ready"] else "Vorschau nicht vorbereitet"
+    return row
+
+
+def _cached_media_map(paths: list[str], pdir: str) -> dict[str, dict]:
+    """One manifest read per frame list; bulk only avoids repeated manifest parsing."""
+    from .. import previews
+    fn = getattr(previews, "cached_media_bulk", None)
+    if fn is None:
+        return {p: dict(thumb=_cached_media(p, pdir, "thumb"), screen=_cached_media(p, pdir, "screen"),
+                        full=_cached_media(p, pdir, "full")) for p in paths}
+    return fn(paths, _analysis_dir(pdir), variants=("thumb", "screen", "full"),
+              preview_cache_dir=_preview_cache_dir())
+
+
+def cached_frame_media(pdir: str, path: str, variant: str) -> dict | None:
+    """Only already prepared cache media; explicit full-zoom preparation is separate."""
+    if not _known_frame(pdir, path):
+        raise PermissionError("unbekannte Datei")
+    return _cached_media(path, pdir, variant)
+
+
+def start_prepare_previews(name: str) -> dict:
+    """Explicitly prepare browse media for the persisted project membership."""
+    s = settings()
+    pdir = project.pdir_of(s, name)
+    frames = project.frames(pdir)
+    if not frames:
+        raise ValueError("Keine Frames im Projektindex – bitte zuerst eine Analyse ausführen.")
+    meta = dict(created=time.strftime("%Y-%m-%dT%H:%M:%S"), paths=[f["path"] for f in frames])
+    os.makedirs(_analysis_dir(pdir), exist_ok=True)
+    with open(os.path.join(_analysis_dir(pdir), "preview-request.json"), "w", encoding="utf-8") as fh:
+        json.dump(meta, fh, ensure_ascii=False, indent=2)
+
+    def fn(job):
+        from .. import previews
+        job.set_progress(stage="Vorschauen vorbereiten", step="previews", done=0, total=len(frames))
+        return previews.prepare_frames(frames, _analysis_dir(pdir), preview_cache_dir=_preview_cache_dir())
+    return JOBS.submit("previews", "Vorschauen " + name, s.workdir, fn, project=name).as_dict()
+
+
+def start_prepare_assets(name: str) -> dict:
+    """Prepare only the bounded asset locations; no light scan or analysis is required."""
+    s = settings()
+    pdir = project.pdir_of(s, name)
+
+    def fn(job):
+        job.set_progress(stage="Bilder vorbereiten", step="assets", done=0, total=0)
+        entries = assets.refresh(pdir, render_previews=True)
+        return {"assets": len(entries), "prepared": sum(1 for a in entries if a.get("preview"))}
+    return JOBS.submit("assets", "Bilder vorbereiten " + name, s.workdir, fn, project=name).as_dict()
+
+
+def _cache_roots(pdir: str) -> list[str]:
+    from .. import previews
+    roots = [os.path.join(_analysis_dir(pdir), n) for n in ("frame-thumbs", "previews", "asset-previews")]
+    try:
+        roots.append(previews.cache_root(_preview_cache_dir()))
+    except Exception:  # noqa: BLE001 - fall back to the project-local cache roots
+        if _preview_cache_dir():
+            roots.append(_preview_cache_dir())
+    return [os.path.normcase(os.path.realpath(r)) for r in roots]
+
+
+def media_path_allowed(pdir: str, path: str) -> bool:
+    """Only derived cache files may be served; never arbitrary project or source paths."""
+    candidate = os.path.normcase(os.path.realpath(path))
+    for root in _cache_roots(pdir):
+        try:
+            if os.path.commonpath([candidate, root]) == root:
+                return True
+        except ValueError:                      # different drive: not below this root
+            continue
+    return False
+
+
+def _selection_delta(pdir: str, path: str) -> dict:
+    fn = getattr(project, "selection_delta", None)
+    if fn is None:
+        raise RuntimeError("Frame-Auswahl benötigt project.selection_delta (Projektmodul unvollständig).")
+    return fn(pdir, path)
+
+
+def _selection_status(pdir: str) -> dict:
+    """Use A's status helper; never invent a ready/current selection locally."""
+    fn = getattr(project, "selection_delta", None)
+    if fn is not None:
+        try:
+            return fn(pdir, None)
+        except TypeError:                       # older helper without the optional path
+            return fn(pdir)
+    ex = project.detail_extras(pdir)
+    if "selection_ready" in ex and "selection_revision" in ex:
+        return dict(revision=ex["selection_revision"], analysis_required=ex["analysis_required"],
+                    selection_ready=ex["selection_ready"])
+    raise RuntimeError("Auswahlstatus nicht verfügbar – project.selection_delta fehlt.")
+
+
+def _local_thumb_path(pdir: str, path: str | None) -> str | None:
+    """Only project-local derivatives; an external NAS path is not even stat'ed."""
+    if not path:
+        return None
+    p = os.path.abspath(path if os.path.isabs(path) else os.path.join(pdir, path))
+    root = os.path.abspath(pdir)
+    try:
+        if os.path.commonpath([os.path.normcase(p), os.path.normcase(root)]) != os.path.normcase(root):
+            return None
+    except ValueError:
+        return None
+    real = os.path.realpath(p)
+    try:
+        if os.path.commonpath([os.path.normcase(real), os.path.normcase(os.path.realpath(root))]) != os.path.normcase(os.path.realpath(root)):
+            return None
+    except ValueError:
+        return None
+    return real if os.path.isfile(real) else None
+
+
+def cached_project_thumb(pdir: str) -> str | None:
+    """Existing local thumbnail only: browsing must not stat external originals."""
+    own = _local_thumb_path(pdir, project.meta(pdir).get("thumb"))
+    if own:
+        return own
+    for r in reversed(project.stacks(pdir)):
+        for o in r.get("outputs", []):
+            local = _local_thumb_path(pdir, o.get("preview"))
+            if local:
+                return local
+    return _local_thumb_path(pdir, os.path.join(pdir, "thumb.jpg"))
+
+
 def project_detail(name: str) -> dict:
     pdir = project.pdir_of(settings(), name)
     ex = project.detail_extras(pdir)
@@ -360,23 +547,32 @@ def project_detail(name: str) -> dict:
                 stored = project._rel(pdir, o["preview"])
                 o["preview_url"] = "/api/stack-preview/%s?file=%s" % (
                     urllib.parse.quote(name), urllib.parse.quote(stored.replace("\\", "/")))
-    assets = []
+    asset_rows = []
     for a in ex["assets"]:
         a = dict(a)
-        if a["exists"]:
-            a["preview_url"] = "/api/asset-preview/%s?id=%s" % (urllib.parse.quote(name), urllib.parse.quote(a["id"]))
+        preview, err = assets.cached_preview(pdir, a["id"]) if a.get("id") else (None, None)
+        if preview:
+            a["preview_url"] = "/api/asset-preview/%s?id=%s%s" % (
+                urllib.parse.quote(name), urllib.parse.quote(a["id"]),
+                "&v=" + urllib.parse.quote(str(a["preview_version"])) if a.get("preview_version") else "")
+        elif a.get("exists") is False:
+            a["preview_error"] = err or "Datei fehlt"
         else:
-            a["preview_error"] = "Datei fehlt"
-        assets.append(a)
+            a["preview_error"] = err or "Vorschau nicht vorbereitet"
+        asset_rows.append(a)
+    asset_state = assets.state(pdir)
     return dict(name=name, meta=project.meta(pdir), plan=plan, sources=project.sources(pdir),
-                analysis_required=ex["analysis_required"], assets=assets,
+                analysis_required=ex["analysis_required"], assets=asset_rows,
                 asset_scan_locations=ex["asset_scan_locations"],
+                assets_migration_needed=asset_state["migration_needed"],
+                assets_snapshot=asset_state,
                 facts=project.project_facts(pdir, plan, hist),
                 overrides=project._read(os.path.join(pdir, "overrides.json"), {}), stacks=hist,
                 checklist=checklist.items(outs), pdir=pdir)
 
 
-MUTATING_ACTIONS = {"override", "sources", "delete", "stack-meta", "stack-delete", "asset-link", "stack", "plan"}
+MUTATING_ACTIONS = {"override", "sources", "delete", "stack-meta", "stack-delete", "asset-link", "stack", "plan",
+                    "prepare-previews", "prepare-assets"}
 
 
 def check_idle(action: str) -> None:
@@ -411,23 +607,27 @@ def _registered_stack_preview(pdir: str, file: str) -> str | None:
 
 
 def frame_thumb(pdir: str, path: str) -> str:
-    """Kachel-Vorschau eines Projektframes. Raster nutzt nur diese Kacheln, nie das Original."""
+    """Explicit media preparation helper; browser tile requests use the cache-only endpoint."""
     if not _known_frame(pdir, path):
         raise PermissionError("unbekannte Datei")
     from .. import previews
-    return previews.frame_thumbnail(path, os.path.join(pdir, "analysis"))
+    return previews.frame_thumbnail(path, _analysis_dir(pdir))
 
 
 def project_frames(name: str) -> dict:
-    """Frameliste inkl. thumb_url je Frame (lazy im Raster)."""
+    """Frame list plus cache-only media and selection status for the review grid."""
     pdir = project.pdir_of(settings(), name)
     fr = project.frames(pdir)
-    q = urllib.parse.quote(name)
+    media = _cached_media_map([f["path"] for f in fr], pdir)
     for f in fr:
-        f["thumb_url"] = "/api/frame-thumb/%s?path=%s" % (q, urllib.parse.quote(f["path"]))
-        f["preview_url"] = "/api/frame-preview/%s?path=%s" % (q, urllib.parse.quote(f["path"]))
+        _frame_media(f, pdir, name, media.get(f["path"], {}))
+    status = _selection_status(pdir)
     return dict(frames=fr, summary=project.frames_summary(fr),
-                plan_stale=bool(project.sources(pdir).get("plan_stale")))
+                plan_stale=bool(project.sources(pdir).get("plan_stale")),
+                revision=status.get("revision"),
+                analysis_required=status.get("analysis_required"),
+                selection_ready=status.get("selection_ready"),
+                media_preparation_needed=any(not f.get("media_ready") and f.get("type") != "unknown" for f in fr))
 
 
 def start_requality(name: str, stack_id: str) -> dict:
@@ -507,12 +707,14 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     # Antworten
-    def _send(self, code: int, body: bytes, ctype: str):
+    def _send(self, code: int, body: bytes, ctype: str, cache: str = "no-store", headers: dict | None = None):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         self.send_header("X-Content-Type-Options", "nosniff")
+        for key, value in (headers or {}).items():
+            self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -525,6 +727,28 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, fh.read(), ctype)
         except OSError:
             self._json({"error": "nicht gefunden"}, 404)
+
+    def _media(self, pdir: str, path: str, ctype: str, version: str | None = None):
+        """Cacheable derived media with an immutable versioned URL and ETag revalidation."""
+        if not media_path_allowed(pdir, path):
+            return self._json({"error": "Pfad nicht erlaubt"}, 403)
+        try:
+            st = os.stat(path)
+            with open(path, "rb") as fh:
+                body = fh.read()
+        except OSError:
+            return self._json({"error": "Vorschau nicht gefunden"}, 404)
+        tag_src = version or "%s|%s|%s" % (os.path.normcase(os.path.realpath(path)), st.st_mtime_ns, st.st_size)
+        etag = '"%s"' % hashlib.sha1(tag_src.encode("utf-8")).hexdigest()[:20]
+        # Without a content key the file may be overwritten in place (for example id.jpg).
+        cache = "public, max-age=31536000, immutable" if version else "no-cache, must-revalidate"
+        if self.headers.get("If-None-Match") == etag:
+            self.send_response(304)
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", cache)
+            self.end_headers()
+            return
+        self._send(200, body, ctype, cache=cache, headers={"ETag": etag})
 
     def _host_ok(self) -> bool:
         host = (self.headers.get("Host") or "").split(":")[0]
@@ -560,21 +784,46 @@ class Handler(BaseHTTPRequestHandler):
             if parts[:2] == ["api", "frame-thumb"] and len(parts) == 3:
                 pdir = project.pdir_of(settings(), parts[2])
                 try:
-                    out = frame_thumb(pdir, q.get("path", [""])[0])
+                    media = cached_frame_media(pdir, q.get("path", [""])[0], "thumb")
                 except PermissionError as e:
                     return self._json({"error": str(e)}, 403)
-                except Exception as e:  # noqa: BLE001 – Kachel-Fehler sichtbar machen, Original bleibt unberührt
-                    return self._json({"error": "Vorschau nicht möglich: %s" % e}, 422)
-                return self._file(out, "image/jpeg")
+                if not media:
+                    return self._json({"error": "Vorschau nicht vorbereitet – bitte Vorschauen explizit vorbereiten."}, 404)
+                version = q.get("v", [""])[0] or media.get("key")
+                return self._media(pdir, media["path"], "image/jpeg", version)
             if parts[:2] == ["api", "project"] and len(parts) == 3:
                 return self._json(project_detail(parts[2]))
             if parts[:2] == ["api", "frame-preview"] and len(parts) == 3:
                 pdir = project.pdir_of(settings(), parts[2])
+                try:
+                    media = cached_frame_media(pdir, q.get("path", [""])[0], "screen")
+                except PermissionError as e:
+                    return self._json({"error": str(e)}, 403)
+                if not media:
+                    return self._json({"error": "Vorschau nicht vorbereitet – bitte Vorschauen explizit vorbereiten."}, 404)
+                version = q.get("v", [""])[0] or media.get("key")
+                return self._media(pdir, media["path"], "image/jpeg", version)
+            if parts[:2] == ["api", "frame-full"] and len(parts) == 3:
+                pdir = project.pdir_of(settings(), parts[2])
                 path = q.get("path", [""])[0]
-                if not _known_frame(pdir, path):
-                    return self._json({"error": "unbekannte Datei"}, 403)
-                from .. import previews
-                return self._file(previews.frame_preview(path, os.path.join(pdir, "analysis", "previews")), "image/jpeg")
+                try:
+                    media = cached_frame_media(pdir, path, "full")
+                except PermissionError as e:
+                    return self._json({"error": str(e)}, 403)
+                if not media:                   # explicit zoom is the one place that may prepare full media
+                    frame = next((f for f in project.frames(pdir) if f["path"] == path), None)
+                    if not frame:
+                        return self._json({"error": "unbekannte Datei"}, 403)
+                    from .. import previews
+                    try:
+                        media = previews.full_prepare(path, _analysis_dir(pdir),
+                                                      preview_cache_dir=_preview_cache_dir())
+                    except previews.PreviewError as e:
+                        return self._json({"error": str(e)}, 422)
+                if not media:
+                    return self._json({"error": "Großansicht nicht verfügbar"}, 422)
+                version = q.get("v", [""])[0] or media.get("key")
+                return self._media(pdir, media["path"], "image/jpeg", version)
             if parts[:2] == ["api", "stack-preview"] and len(parts) == 3:
                 pdir = project.pdir_of(settings(), parts[2])
                 f = _registered_stack_preview(pdir, q.get("file", [""])[0])
@@ -582,22 +831,30 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"error": "verboten"}, 403)
                 return self._file(f, "image/jpeg")
             if parts[:2] == ["api", "asset-preview"] and len(parts) == 3:
-                # nur registrierte Assets (per id), nie ein beliebiger Pfad über GET
+                # only registered assets (per id), only an already rendered preview
                 pdir = project.pdir_of(settings(), parts[2])
-                path, err = assets.preview(pdir, q.get("id", [""])[0])
+                path, err = assets.cached_preview(pdir, q.get("id", [""])[0])
                 if err:
                     return self._json({"error": err}, 422)
-                return self._file(path, "image/jpeg")
+                return self._media(pdir, path, "image/jpeg", q.get("v", [""])[0] or None)
             if parts[:2] == ["api", "project-thumb"] and len(parts) == 3:
                 pdir = project.pdir_of(settings(), parts[2])
-                t = project.thumbnail(pdir)
+                t = cached_project_thumb(pdir)
                 if not t:
                     return self._json({"error": "kein Bild"}, 404)
                 return self._file(t, "image/jpeg")
+            if tuple(parts) in STATIC_FILES:
+                rel, ctype = STATIC_FILES[tuple(parts)]
+                return self._file(os.path.join(HERE, rel), ctype)
             if parts == ["static", "chart.js"]:
                 return self._file(os.path.join(os.path.dirname(HERE), "report", "vendor", "chart.umd.js"), "text/javascript; charset=utf-8")
             if parts[0] == "p" and len(parts) == 3 and parts[2] == "report.html":
-                return self._file(os.path.join(project.pdir_of(settings(), parts[1]), "report.html"), "text/html; charset=utf-8")
+                from ..report import build as report_build
+                pdir = project.pdir_of(settings(), parts[1])
+                body = report_build.cached_html(pdir)
+                if isinstance(body, str):
+                    body = body.encode("utf-8")
+                return self._send(200, body, "text/html; charset=utf-8")
             return self._json({"error": "nicht gefunden"}, 404)
         except FileNotFoundError as e:
             return self._json({"error": str(e)}, 404)
@@ -673,7 +930,12 @@ class Handler(BaseHTTPRequestHandler):
                         logbook.event("calib_choice", project=name, change=b.get("runs"))
                     return self._json(project.save_edits(pdir, b))
                 if action == "override":
-                    return self._json(project.set_override(pdir, b["path"], b.get("value")))
+                    project.set_override(pdir, b["path"], b.get("value"))
+                    return self._json(_selection_delta(pdir, b["path"]))
+                if action == "prepare-previews":
+                    return self._json(start_prepare_previews(name))
+                if action == "prepare-assets":
+                    return self._json(start_prepare_assets(name))
                 if action == "reanalyze":
                     return self._json(reanalyze(name))
                 if action == "stack":

@@ -5,9 +5,10 @@ import json
 import os
 import re
 import threading
+import time
 from types import SimpleNamespace as NS
 
-from . import analyze, calibcheck, discover, logbook
+from . import analyze, calibcheck, discover, logbook, selection
 from .report import build as report_build
 from .settings import Settings
 
@@ -96,6 +97,60 @@ def targets(inv) -> list[str]:
         if g.target not in seen:
             seen.append(g.target)
     return seen
+
+
+def _calib_assignment(plan: dict) -> dict:
+    """Per-run prior calibration folders; only these may stay empty after overrides."""
+    out = {}
+    for r in plan.get("runs", []):
+        vals = {}
+        for kind, setkey in CALIB_KINDS.items():
+            folder = r.get(setkey) or (r.get("calib_assigned") or {}).get(kind)
+            if folder:
+                vals[kind] = folder
+        if vals:
+            out[(r.get("filter"), tuple(r.get("settings_key") or []))] = vals
+    return out
+
+
+def _prepare_visible_media(pdir: str, adir: str, settings: Settings, log) -> None:
+    """Prepare both lights and the assigned calibration frames before the analysis is released."""
+    from . import previews
+    try:
+        ctx = selection.load_context(pdir)
+        if not ctx or not ctx.get("ready"):
+            return
+        rows = [r for r in selection.visible_rows(ctx, _read(os.path.join(pdir, "plan.json"), {}))
+                if r.get("type") != "unknown"]
+        if not rows:
+            return
+        previews.prepare_frames(rows, adir, preview_cache_dir=getattr(settings, "preview_cache_dir", "") or None,
+                                catalog_dir=catalog_dir(settings), log=log)
+    except Exception as e:  # noqa: BLE001 - media preparation must not turn a valid analysis into a failure
+        log("Vorschauvorbereitung übersprungen: %s" % e)
+
+
+def _capture_and_rebuild_selection(pdir: str, groups, calib_sets, calib, errors, adir: str,
+                                   settings: Settings, target: str, before_ov: dict, log) -> dict:
+    """Capture the scan and rebuild once; return the override state a real user race is measured against."""
+    with _STATE_LOCK:
+        plan_base = _read(os.path.join(pdir, "plan_base.json"), {})
+        templates = selection.templates_for(adir, groups, calib, settings.workdir, target)
+        try:
+            ctx = selection.capture(pdir, groups, calib_sets, plan_base=plan_base, templates=templates, errors=errors)
+        except Exception:  # noqa: BLE001 - a capture failure must keep the project blocked, not crash the report
+            log("Auswahlzustand konnte nicht gespeichert werden – bitte neu analysieren.")
+            raise
+        apply_edits(pdir)
+        try:
+            selection.rebuild_plan(pdir)
+        except selection.SelectionUnavailable:
+            pass
+        _prepare_visible_media(pdir, adir, settings, log)
+        # Fingerprint reconciliation may drop stale overrides itself; only real user edits count as a race.
+        dropped = set((ctx or {}).get("dropped_overrides") or [])
+        post_capture_ov = _read(os.path.join(pdir, "overrides.json"), {})
+        return {p: v for p, v in before_ov.items() if p not in dropped or p in post_capture_ov}
 
 
 def run_report(roots, target: str | None, settings: Settings, log=print, progress=None, cancel=None,
@@ -190,13 +245,14 @@ def run_report(roots, target: str | None, settings: Settings, log=print, progres
         with _STATE_LOCK:                     # consistent snapshot plus lock without interleaved writes
             before_roots = _canon_roots(sources(pdir).get("roots") or [])
             before_ov = _read(os.path.join(pdir, "overrides.json"), {})
+            before_calib_assignment = _calib_assignment(_read(os.path.join(pdir, "plan.json"), {}))
             _update_sources(pdir, analysis_required=True)
         # Shared calibration files must not imply shared project selections.
         log("Prüfe Kalibrierdaten …")
         t_flat = time.time()
         view = calib_view(inv, before_ov)
         calib = calibcheck.check_all(view, progress=lambda i, n, f: progress(stage="Flats prüfen", step="flats", done=i, total=n),
-                                     catalog_dir=catalog_dir(settings))
+                                     catalog_dir=catalog_dir(settings), assigned=before_calib_assignment)
         timings["flats"] = round(time.time() - t_flat, 1)
         log("Vermesse %d Frames von %s …" % (len(frames), groups[0].target))
 
@@ -220,7 +276,8 @@ def run_report(roots, target: str | None, settings: Settings, log=print, progres
         log("Erzeuge Bericht …")
         progress(stage="Bericht & Plan", step="report", target=groups[0].target, done=0, total=0)
         res = report_build.build(groups[0].target, groups, view, calib, adir, settings.workdir, os.path.join(pdir, "report.html"))
-        apply_edits(pdir)
+        guard_ov = _capture_and_rebuild_selection(pdir, groups, inv.calib, calib, own_errs, adir,
+                                                  settings, groups[0].target, before_ov, log)
         is_new = not os.path.exists(os.path.join(pdir, "project.json"))
         m0 = meta(pdir)
         objs = sorted({n for g in groups for n in g.names})
@@ -234,7 +291,7 @@ def run_report(roots, target: str | None, settings: Settings, log=print, progres
         with _STATE_LOCK:
             cur = sources(pdir)
             raced = (_canon_roots(cur.get("roots") or []) != before_roots
-                     or _read(os.path.join(pdir, "overrides.json"), {}) != before_ov
+                     or _read(os.path.join(pdir, "overrides.json"), {}) != guard_ov
                      or (cancel is not None and cancel.is_set()))
             if raced:
                 log("Quellen oder Frame-Auswahl wurden während der Analyse geändert – Neuanalyse nötig.")
@@ -308,10 +365,17 @@ def save_meta(pdir: str, **changes) -> dict:
 
 
 def _write(path: str, data):
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2, ensure_ascii=False, default=str)
-    os.replace(tmp, path)
+    tmp = "%s.%s.%s.%s.tmp" % (path, os.getpid(), threading.get_ident(), time.time_ns())
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2, ensure_ascii=False, default=str)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _mtime_iso(p: str) -> str:
@@ -336,7 +400,7 @@ def list_projects(settings: Settings, include_archived: bool = False) -> list[di
         m = meta(pdir)
         if m.get("archived") and not include_archived:
             continue
-        st = stacks(pdir)
+        st = stacks(pdir, verify_files=False)
         last = st[-1] if st else None
         facts = project_facts(pdir, plan, st)
         out.append(dict(name=d, title=m["name"], target=m["target"], description=m.get("description", ""),
@@ -375,7 +439,13 @@ def add_stack(pdir: str, rec: dict) -> dict:
     """Einen fertigen Stack in stacks.json eintragen (Pfade relativ zum Projekt)."""
     lst = _read(os.path.join(pdir, "stacks.json"), [])
     rec = dict(rec, schema=SCHEMA)
-    rec["outputs"] = [dict(o, file=_rel(pdir, o.get("file")), preview=_rel(pdir, o.get("preview"))) for o in rec.get("outputs", [])]
+    outputs = []
+    for o in rec.get("outputs", []):
+        o = dict(o, file=_rel(pdir, o.get("file")), preview=_rel(pdir, o.get("preview")))
+        # Persist the state here so metadata GETs never need to stat the original.
+        o["exists"] = bool(o.get("file") and os.path.isfile(_abs(pdir, o["file"])))
+        outputs.append(o)
+    rec["outputs"] = outputs
     try:
         from . import __version__
         rec.setdefault("app_version", __version__)
@@ -386,8 +456,12 @@ def add_stack(pdir: str, rec: dict) -> dict:
     return rec
 
 
-def stacks(pdir: str, include_removed: bool = False) -> list[dict]:
-    """Retain removed records so legacy discovery cannot resurrect them or touch result files."""
+def stacks(pdir: str, include_removed: bool = False, verify_files: bool = False) -> list[dict]:
+    """Retain removed records so legacy discovery cannot resurrect them or touch result files.
+
+    Metadata reads use the persisted last-known output state; only explicit start/requality
+    callers should pass verify_files=True to check the originals again.
+    """
     p = os.path.join(pdir, "stacks.json")
     lst = _read(p, None)
     if lst is None:
@@ -402,9 +476,15 @@ def stacks(pdir: str, include_removed: bool = False) -> list[dict]:
         if r.get("removed") and not include_removed:
             continue
         r = dict(r)
-        r["outputs"] = [dict(o, file=_abs(pdir, o.get("file")), preview=_abs(pdir, o.get("preview")),
-                             exists=bool(o.get("file") and os.path.exists(_abs(pdir, o.get("file")))))
-                        for o in r.get("outputs", [])]
+        rendered = []
+        for o in r.get("outputs", []):
+            file = _abs(pdir, o.get("file"))
+            if verify_files:
+                exists = bool(file and os.path.exists(file))
+            else:                              # last-known state, never stat a source or stack original
+                exists = bool(o.get("exists", True))
+            rendered.append(dict(o, file=file, preview=_abs(pdir, o.get("preview")), exists=exists))
+        r["outputs"] = rendered
         out.append(r)
     out.sort(key=lambda r: r.get("date") or "")
     return out
@@ -429,7 +509,7 @@ def _legacy_stacks(pdir: str) -> list[dict]:
                             flats=len(prun.get("flats", [])), bias=len(prun.get("bias", [])), legacy=True,
                             options=plan.get("options", {}), schema=SCHEMA,
                             outputs=[dict(name=os.path.splitext(os.path.basename(f))[0].split("_")[-1], file=_rel(pdir, f),
-                                          preview=None, kpi=None) for f in r.get("finals", [])]))
+                                          preview=None, kpi=None, exists=True) for f in r.get("finals", [])]))
     return res
 
 
@@ -440,6 +520,8 @@ def update_stack_output(pdir: str, stack_id: str, index: int, **changes):
             o = r["outputs"][index]
             for k, v in changes.items():
                 o[k] = _rel(pdir, v) if k in ("file", "preview") else v
+            if "file" in changes:              # explicit mutation may check the new path once
+                o["exists"] = bool(o.get("file") and os.path.isfile(_abs(pdir, o["file"])))
     _write(os.path.join(pdir, "stacks.json"), lst)
 
 
@@ -529,7 +611,7 @@ def _within(path: str, roots) -> bool:
 
 def latest_output(pdir: str, run_name: str) -> str | None:
     """Neuestes vorhandenes Ergebnis eines Laufs (z. B. RGB als Referenz für HaO3)."""
-    for r in reversed(stacks(pdir)):
+    for r in reversed(stacks(pdir, verify_files=True)):
         if r.get("run") == run_name:
             for o in r.get("outputs", []):
                 if o.get("exists"):
@@ -564,7 +646,7 @@ def move_projects(old_workdir: str, new_workdir: str, names: list[str]) -> list[
 def project_facts(pdir: str, plan: dict | None = None, st: list | None = None) -> dict:
     """Eckdaten für das Dashboard: Belichtung, Lights, Nächte, Filter, Stacks."""
     plan = plan if plan is not None else _read(os.path.join(pdir, "plan.json"), {})
-    st = st if st is not None else stacks(pdir)
+    st = st if st is not None else stacks(pdir, verify_files=False)
     inv = _read(os.path.join(pdir, "inventory.json"), {})
     tgt = (meta(pdir).get("target") or "").lower()
     groups = [g for g in inv.get("lights", []) if (g.get("target") or "").lower() == tgt]
@@ -578,6 +660,8 @@ def project_facts(pdir: str, plan: dict | None = None, st: list | None = None) -
         f["lights"] += g.get("frames") or 0
         nights |= set((g.get("nights") or {}).keys())
     for r in plan.get("runs", []):
+        if not r.get("enabled", True):          # the engine skips disabled runs, so they are not used
+            continue
         f = filters.setdefault(r.get("filter") or "–", dict(name=r.get("filter") or "–", hours=0.0, lights=0, used=0, used_hours=0.0))
         f["used"] += r.get("lightCount") or 0
         f["used_hours"] += r.get("hours") or 0
@@ -591,17 +675,41 @@ def project_facts(pdir: str, plan: dict | None = None, st: list | None = None) -
                 last_stack=st[-1].get("date") if st else None)
 
 
+def _local_preview(pdir: str, stored: str | None) -> str | None:
+    """Only project-local preview files may be checked on a browser GET."""
+    if not stored:
+        return None
+    p = stored if os.path.isabs(stored) else os.path.normpath(os.path.join(pdir, stored))
+    try:
+        base = os.path.normcase(os.path.abspath(pdir))
+        if os.path.commonpath([os.path.normcase(os.path.abspath(p)), base]) != base:
+            return None
+    except ValueError:
+        return None
+    return p
+
+
+def _cached_stack_preview(pdir: str) -> str | None:
+    """Read stack metadata without resolving original outputs or their drives."""
+    lst = _read(os.path.join(pdir, "stacks.json"), None)
+    if lst is None:
+        lst = _legacy_stacks(pdir)
+    for r in reversed(sorted([x for x in lst or [] if not x.get("removed")], key=lambda x: x.get("date") or "")):
+        for o in r.get("outputs") or []:
+            p = _local_preview(pdir, o.get("preview"))
+            if p and os.path.isfile(p):
+                return p
+    return None
+
+
 def thumbnail(pdir: str) -> str | None:
     """Vorschaubild für die Projekt-Kachel: selbst gewähltes Bild, sonst neuester Stack, sonst ein gutes Rohbild."""
-    own = meta(pdir).get("thumb")
-    if own:
-        p = _abs(pdir, own)
-        if p and os.path.exists(p):
-            return p
-    for r in reversed(stacks(pdir)):
-        for o in r.get("outputs", []):
-            if o.get("preview") and os.path.exists(o["preview"]):
-                return o["preview"]
+    own = _local_preview(pdir, meta(pdir).get("thumb"))
+    if own and os.path.exists(own):
+        return own
+    cached = _cached_stack_preview(pdir)
+    if cached:
+        return cached
     out = os.path.join(pdir, "thumb.jpg")
     mcsv = os.path.join(pdir, "analysis", "metrics.csv")
     if not os.path.exists(mcsv):
@@ -627,13 +735,12 @@ def thumbnail(pdir: str) -> str | None:
 
 
 def _asset_thumb(pdir: str) -> str | None:
-    """Allow projects without raw lights to use an existing image as their thumbnail."""
+    """Allow projects without raw lights to use an already prepared image preview."""
     from . import assets
     for a in assets.discover(pdir):
-        if a["exists"]:
-            p, err = assets.preview(pdir, a["id"])
-            if p:
-                return p
+        p, err = assets.cached_preview(pdir, a["id"])
+        if p:
+            return p
     return None
 
 
@@ -646,7 +753,9 @@ def detail_extras(pdir: str) -> dict:
     plan.setdefault("total_frames", 0)
     plan.setdefault("target", meta(pdir).get("target"))
     stale = bool(sources(pdir).get("plan_stale"))
+    ctx = selection.load_context(pdir)
     return dict(plan=plan, analysis_required=bool(sources(pdir).get("analysis_required")) or stale, plan_stale=stale,
+                selection_ready=bool(ctx and ctx.get("ready")), selection_revision=int((ctx or {}).get("revision") or 0),
                 assets=assets.discover(pdir), asset_scan_locations=assets.scan_locations(pdir))
 
 
@@ -682,13 +791,18 @@ def _read(path, default):
         return default
 
 
-CALIB_KINDS = {"flats": "flat_set", "bias": "bias_set", "darks": "dark_set", "darkflats": "darkflat_set"}
+CALIB_KINDS = selection.CALIB_KINDS
 
 
 def save_edits(pdir: str, edits: dict) -> dict:
     """Benutzer-Anpassungen am Plan merken (überleben eine Neu-Analyse) und sofort anwenden.
     edits = {options: {...}, runs: {name: {enabled, reference, wbpp, calib: {flats|bias|darks|darkflats: wahl}}}}
     Kalibrier-Wahl: "auto" | "none" | "<Kandidaten-id>" | {"folder": "<pfad>"}"""
+    with _STATE_LOCK:
+        return _save_edits(pdir, edits)
+
+
+def _save_edits(pdir: str, edits: dict) -> dict:
     cur = _read(os.path.join(pdir, "plan_edits.json"), {"options": {}, "runs": {}})
     cur.setdefault("options", {}).update(edits.get("options") or {})
     for k, v in (edits.get("runs") or {}).items():
@@ -706,11 +820,56 @@ def save_edits(pdir: str, edits: dict) -> dict:
             else:
                 r[kk] = vv
     _write(os.path.join(pdir, "plan_edits.json"), cur)
-    return apply_edits(pdir)
+    plan = apply_edits(pdir)
+    try:
+        plan = selection.rebuild_plan(pdir)
+        _clear_plan_stale(pdir)
+    except selection.SelectionUnavailable:
+        pass
+    return plan
 
 
-def apply_edits(pdir: str) -> dict:
+def set_override(pdir: str, path: str, value: str | None) -> dict:
+    """Persist one manual decision and rebuild the plan locally in the same step."""
+    with _STATE_LOCK:
+        p = os.path.join(pdir, "overrides.json")
+        old = _read(p, {})
+        ov = dict(old)
+        if value in ("in", "out"):
+            ov[path] = value
+        else:
+            ov.pop(path, None)
+        try:
+            plan, ctx = selection.compute_plan(pdir, overrides=ov)
+        except selection.SelectionUnavailable:
+            _write(p, ov)                         # keep the decision for the next real analysis
+            return ov
+        _write(p, ov)
+        try:
+            _write(os.path.join(pdir, "plan.json"), plan)
+            selection.commit(pdir, plan, ctx, ov)
+        except Exception:
+            _write(p, old)                        # keep plan and overrides consistent
+            raise
+        _clear_plan_stale(pdir)
+        return ov
+
+
+def _clear_plan_stale(pdir: str) -> None:
+    """A rebuilt plan is current; only a changed source folder still requires analysis."""
+    with _STATE_LOCK:
+        src = sources(pdir)
+        if src.get("plan_stale"):
+            _write(os.path.join(pdir, "sources.json"), dict(src, plan_stale=False))
+
+
+def apply_edits(pdir: str, overrides: dict | None = None, write: bool = True) -> dict:
     """plan.json = plan_base.json (Vorschlag der Analyse) + plan_edits.json (Änderungen des Benutzers)."""
+    with _STATE_LOCK:
+        return _apply_edits(pdir, overrides, write)
+
+
+def _apply_edits(pdir: str, overrides: dict | None = None, write: bool = True) -> dict:
     base_p = os.path.join(pdir, "plan_base.json")
     plan = _read(base_p, None) if os.path.exists(base_p) else None
     if plan is None:
@@ -726,7 +885,7 @@ def apply_edits(pdir: str) -> dict:
                 _apply_calib(r, kind, choice, cands)
         plan["edited"] = True
     # Manual folder choices must not reintroduce explicitly excluded calibration frames.
-    ov = _read(os.path.join(pdir, "overrides.json"), {})
+    ov = overrides if overrides is not None else _read(os.path.join(pdir, "overrides.json"), {})
     if ov:
         for r in plan["runs"]:
             for kind in CALIB_KINDS:
@@ -734,7 +893,12 @@ def apply_edits(pdir: str) -> dict:
                     r[kind] = [p for p in r[kind] if ov.get(p) != "out"]
             for x in r.get("flat_groups") or []:
                 x["flats"] = [p for p in x.get("flats", []) if ov.get(p) != "out"]
-    _write(os.path.join(pdir, "plan.json"), plan)
+    if write:
+        ctx = selection.load_context(pdir)
+        if ctx and ctx.get("ready"):
+            plan = selection.reconcile(pdir, plan, ctx, ov)
+            plan["selection_revision"] = int(ctx.get("revision") or 0)
+        _write(os.path.join(pdir, "plan.json"), plan)
     return plan
 
 
@@ -824,20 +988,6 @@ def inspect_calib_folder(folder: str, kind: str, run: dict) -> dict:
                 ok=not problems)
 
 
-def set_override(pdir: str, path: str, value: str | None) -> dict:
-    with _STATE_LOCK:
-        # Persist the lock first: a crash must never leave a ready plan with a changed selection.
-        _update_sources(pdir, plan_stale=True)
-        p = os.path.join(pdir, "overrides.json")
-        ov = _read(p, {})
-        if value in ("in", "out"):
-            ov[path] = value
-        else:
-            ov.pop(path, None)
-        _write(p, ov)
-        return ov
-
-
 def _update_sources(pdir: str, **changes) -> dict:
     with _STATE_LOCK:
         src = sources(pdir)
@@ -846,15 +996,23 @@ def _update_sources(pdir: str, **changes) -> dict:
         return src
 
 
+def _frame_index_fields(f) -> dict:
+    """Raw geometry/bayer are header facts; prepare jobs must not reread originals for them."""
+    return dict(bayer=getattr(f, "bayer", None), rawWidth=getattr(f, "width", None),
+                rawHeight=getattr(f, "height", None))
+
+
 def write_frames_index(pdir: str, lights, calibs, errors=None) -> list[dict]:
     """Persist all frame membership so browsing does not need to reread image headers."""
     rows = []
     for g in lights:
         for f in g.frames:
-            rows.append(dict(path=f.path, type="light", filter=f.filter, night=f.night, excluded=bool(f.excluded)))
+            rows.append(dict(path=f.path, type="light", filter=f.filter, night=f.night, excluded=bool(f.excluded),
+                             **_frame_index_fields(f)))
     for c in calibs:
         for f in list(c.frames) + list(getattr(c, "hidden", []) or []):
-            rows.append(dict(path=f.path, type=c.type, filter=f.filter, night=f.night, excluded=bool(f.excluded)))
+            rows.append(dict(path=f.path, type=c.type, filter=f.filter, night=f.night, excluded=bool(f.excluded),
+                             **_frame_index_fields(f)))
     for path, reason in errors or []:          # A broken header provides no trustworthy frame type.
         rows.append(dict(path=path, type="unknown", filter=None, night=None, excluded=True, error=str(reason)))
     os.makedirs(os.path.join(pdir, "analysis"), exist_ok=True)
@@ -933,6 +1091,10 @@ def _measure_text(kind: str | None, reason: str | None) -> str:
 
 def indexed_frame_paths(pdir: str) -> set:
     """Validate preview membership without reassessing quality for every image request."""
+    ctx = selection.load_context(pdir)
+    if ctx and ctx.get("ready"):
+        plan = _read(os.path.join(pdir, "plan.json"), {})
+        return {r.get("path") for r in selection.visible_rows(ctx, plan) if r.get("path")}
     rows = _read(os.path.join(pdir, "analysis", "frames.json"), None)
     if rows is not None:
         return {r.get("path") for r in rows if isinstance(r, dict) and r.get("path")}
@@ -942,14 +1104,21 @@ def indexed_frame_paths(pdir: str) -> set:
 def frames(pdir: str) -> list[dict]:
     """Keep measured quality separate from selection and retain failed inputs for inspection."""
     met = _metrics_rows(pdir)
-    rows = _read(os.path.join(pdir, "analysis", "frames.json"), None)
-    if rows is None:                           # Older projects retain membership in their measurements.
-        rows = [dict(path=p, type="light", filter=r.get("filter") or None, night=r.get("night") or None,
-                     excluded=r.get("excluded") in ("1", "True", "true")) for p, r in met.items() if p]
+    ctx = selection.ensure_context(pdir)
+    plan = _read(os.path.join(pdir, "plan.json"), {})
     ov = _read(os.path.join(pdir, "overrides.json"), {})
+    if ctx.get("ready"):
+        rows = selection.visible_rows(ctx, plan)
+    else:
+        rows = _read(os.path.join(pdir, "analysis", "frames.json"), None)
+        if rows is None:                           # Older projects retain membership in their measurements.
+            rows = [dict(path=p, type="light", filter=r.get("filter") or None, night=r.get("night") or None,
+                         excluded=r.get("excluded") in ("1", "True", "true")) for p, r in met.items() if p]
     stale_all = bool(sources(pdir).get("plan_stale"))
     assess = _read(os.path.join(pdir, "analysis", "assessment.json"), {})
     errs = _measure_errors(pdir)
+    lights_member, calib_member = selection.plan_membership(plan) if ctx.get("ready") else ({}, {})
+    membership_known = bool(ctx.get("ready") and ctx.get("has_membership"))
     out = []
     for r in rows:
         p = r["path"]
@@ -975,18 +1144,48 @@ def frames(pdir: str) -> list[dict]:
         else:
             auto = status = "rejected" if r.get("excluded") else "ok"
             flags = []
+        selected_runs = (lights_member if is_light else calib_member).get(p) or []
+        active_runs = [x for x in selected_runs if x.get("enabled", True)]
         if p in ov:
-            selected, source = ov[p] == "in", "override"
+            source = "override"
+            decision = ov[p] == "in"
         else:
-            selected, source = auto not in ("rejected", "suggest", "error"), "auto"
+            source = "auto"
+            decision = auto not in ("rejected", "suggest", "error")
+        if membership_known:
+            selected = bool(active_runs) and decision and not measure_error
+        else:
+            selected = decision
+        disabled = bool(selected_runs) and not active_runs
         if measure_error:                      # An override cannot replace a missing measurement.
             selected = False
         metrics = {k: _num(mrow.get(k)) if mrow and mrow.get(k) not in (None, "") else None for k in METRIC_KEYS}
         out.append(dict(r, selected=selected, selection_source=source, auto_status=auto, status=status,
                         flags=flags, stale=bool(source == "override" and stale_all), measure_error=measure_error,
-                        measure_kind=kind,
+                        measure_kind=kind, assigned_runs=selected_runs, disabled_run=disabled,
+                        reason=("Lauf %s ist deaktiviert" % selected_runs[0].get("name")) if disabled else None,
                         attention=status if status in ("error", "suggest", "warn") else None, metrics=metrics))
     return out
+
+
+def selection_delta(pdir: str, path: str | None = None) -> dict:
+    """Small status payload per toggle; path=None answers a frame GET without reading all rows."""
+    ctx = selection.ensure_context(pdir)
+    plan = _read(os.path.join(pdir, "plan.json"), {})
+    frame = None
+    if path:
+        frame = next((f for f in frames(pdir) if f.get("path") == path), None)
+    runs = [dict(name=r.get("name"), enabled=bool(r.get("enabled", True)), lightCount=r.get("lightCount") or 0,
+                 hours=r.get("hours") or 0) for r in plan.get("runs", [])]
+    used = [r for r in runs if r["enabled"]]
+    facts = dict(lights_total=len(ctx.get("lights") or []),
+                 lights_used=sum(r["lightCount"] for r in used),
+                 hours_used=round(sum(r["hours"] for r in used), 2),
+                 lights_planned=sum(r["lightCount"] for r in runs),
+                 runs=runs)
+    return dict(revision=int(ctx.get("revision") or 0), frame=frame, facts=facts,
+                analysis_required=bool(sources(pdir).get("analysis_required")),
+                selection_ready=bool(ctx.get("ready")))
 
 
 def _metrics_rows(pdir: str) -> dict:

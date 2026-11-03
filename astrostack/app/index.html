@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>b2stacker</title>
+<link rel="stylesheet" href="/static/photoswipe.css">
 <style>
 :root{
   color-scheme:dark;
@@ -68,7 +69,8 @@ aside h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(
 .proj:hover{background:var(--surface-2)}
 .proj.on{background:var(--surface-2);border-color:var(--line)}
 .proj b{display:block;font-weight:600}
-.proj span{font-size:12px;color:var(--text-muted);display:flex;gap:8px;flex-wrap:wrap}
+.proj>span{font-size:12px;color:var(--text-muted);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.proj>span>span{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
 section.view{overflow:auto;padding:22px 24px 60px;min-width:0}
 .wrap{max-width:1080px}
 h1{font-size:24px;margin:0;letter-spacing:-.01em}
@@ -251,6 +253,22 @@ iframe.report{width:100%;border:0;display:block;background:transparent;margin-to
 #frameDlg .nav.l{left:8px}#frameDlg .nav.r{right:8px}
 #frameDlg .fmeta{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px 16px;font-size:13px;padding:12px 20px}
 #frameDlg .fmeta span{display:block;font-size:11.5px;color:var(--text-muted)}
+/* PhotoSwipe viewport: image first, one compact info strip, no separate info wall */
+.pswp.fvpswp{--fvstrip:74px}
+.pswp.fvpswp .pswp__top-bar{background:linear-gradient(rgba(0,0,0,.55),transparent)}
+.fvstrip{position:absolute;left:0;right:0;bottom:0;z-index:20;background:rgba(12,13,16,.92);color:#f0efec;border-top:1px solid rgba(255,255,255,.14);display:flex;align-items:center;gap:12px;padding:8px 64px 8px 14px;font-size:12.5px;line-height:1.35}
+.fvstrip .fvn{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:28vw}
+.fvstrip .fvm{display:flex;gap:10px;flex-wrap:wrap;min-width:0;color:#c3c2b7}
+.fvstrip .fvm b{color:#f0efec;font-weight:600}
+.fvstrip .fvm .warn{color:#fab219}
+.fvstrip .fvw{display:flex;align-items:center;gap:8px;margin-left:auto;white-space:nowrap}
+.fvstrip .fvw button{background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.22);border-radius:7px;padding:4px 9px;cursor:pointer;font:inherit}
+.fvstrip .fvw button:hover{background:rgba(255,255,255,.2)}
+.fvstrip label{display:inline-flex;align-items:center;gap:6px;font-weight:600;cursor:pointer}
+.fvstrip input{width:16px;height:16px;accent-color:var(--accent)}
+.pswp.fvpswp .pswp__counter{display:none}
+.pswp.fvpswp.pswp--closing .fvstrip{opacity:0;transition:opacity .12s}
+@media (max-width:760px){.fvstrip{flex-wrap:wrap;padding-right:48px}.fvstrip .fvn{max-width:60vw}.fvstrip .fvw{margin-left:0}}
 .lo{color:var(--text-muted);font-size:12px}
 /* Ziel-Rückfrage */
 .trow{display:grid;grid-template-columns:auto 1fr minmax(220px,300px);gap:14px;align-items:start;padding:12px 0;border-top:1px solid var(--line)}
@@ -320,6 +338,7 @@ dialog img.full{width:100%;display:block;background:#000}
   <div class="fmeta" id="fMeta"></div></dialog>
 <dialog id="imgDlg" class="wide"><div class="hd"><b id="imgTitle"></b><button class="btn icon" onclick="imgDlg.close()">✕</button></div><img class="full" id="imgFull" alt=""></dialog>
 
+<script src="/static/photoswipe.js"></script>
 <script>
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -415,7 +434,10 @@ const effTheme=()=>document.documentElement.dataset.theme||(matchMedia('(prefers
 window.astrostack={
   resize:h=>{const f=$('#reportFrame');if(f)f.style.height=(h+4)+'px'},
   showFrame:(frames,i,onChange)=>showFrame(frames,i,onChange),
-  override:(path,value)=>api('/api/project/'+encodeURIComponent(cur.project)+'/override',{path,value}).then(r=>{dirty=true;renderDirty();return r}).catch(e=>{toast(e.message,true);throw e}),
+  override:(path,value)=>api('/api/project/'+encodeURIComponent(cur.project)+'/override',{path,value}).then(r=>{
+    if(FV.list&&r&&r.frame)fvMergeFrame(path,r.frame);
+    if(P&&r){P.selection_revision=r.revision;P.selection_ready=r.selection_ready;if(r.facts)P.facts=Object.assign(P.facts||{},r.facts);P.analysis_required=!!r.analysis_required;if(P.sources)P.sources.plan_stale=false;}
+    renderDirty();return r}).catch(e=>{toast(e.message,true);throw e}),
   previewUrl:path=>'/api/frame-preview/'+encodeURIComponent(cur.project)+'?path='+encodeURIComponent(path),
 };
 
@@ -538,7 +560,7 @@ function renderHome(){
   const L=sortedProjects();
   $('#view').innerHTML=`<div class="row"><h1 class="grow">Projekte</h1><span class="muted small">${S.projects.length} Projekt${S.projects.length===1?'':'e'}</span></div>
     <div class="tiles">
-      <button class="tile new" onclick="go('new')">${ic('folder')}<span>Neues Projekt</span><span class="muted small" style="font-weight:400">Ordner wählen, analysieren, stacken – oder Planungsprojekt</span></button>
+      <button class="tile new" onclick="go('new')">${ic('folder')}<span>Neues Projekt</span><span class="muted small" style="font-weight:400">Name nennen, Ordner optional – analysieren und stacken</span></button>
       ${L.map(p=>`<button class="tile" data-n="${esc(p.name)}">
         <div class="ph" style="background-image:url('/api/project-thumb/${encodeURIComponent(p.name)}?v=${encodeURIComponent(p.thumb_v||'')}')"></div>
         <div class="tx"><b title="${esc(p.title)}">${esc(p.title)}</b>
@@ -578,55 +600,61 @@ function renderTargets(){
       <div><label class="muted small">Projekt</label><input type="text" list="projNames" data-proj="${i}" value="${esc(t._proj)}" ${t._on?'':'disabled'}>
         <div class="muted small" style="margin-top:3px">${!t._proj.trim()?'':ex.has(t._proj.trim().toLowerCase())?'→ bestehendes Projekt':(P2[t._proj.trim()]||[]).length>1?'→ neues Projekt, zusammengelegt':'→ neues Projekt'}</div></div></div>`}).join('')}</div>
     <div class="go"><div class="msg">${Object.keys(P2).length?`Es werden <b>${Object.keys(P2).length}</b> Projekt(e) angelegt bzw. aktualisiert: ${Object.entries(P2).map(([n,l])=>`<b>${esc(n)}</b>${l.length>1?' ('+l.length+' Objekte)':''}`).join(', ')}`:'Nichts ausgewählt.'}</div>
-      <button class="btn" id="tBack">Zurück</button><button class="btn primary big" id="tGo" ${Object.keys(P2).length?'':'disabled'}>${ic('play')} Analysieren</button></div>`;
+      <button class="btn" id="tBack">Zurück</button><button class="btn primary big" id="tGo" ${Object.keys(P2).length?'':'disabled'}>${ic('play')} Projekte anlegen</button></div>`;
   document.querySelectorAll('[data-on]').forEach(c=>c.onchange=()=>{T[+c.dataset.on]._on=c.checked;renderTargets()});
   document.querySelectorAll('[data-proj]').forEach(c=>c.onchange=()=>{T[+c.dataset.proj]._proj=c.value;renderTargets()});
   $('#tBack').onclick=()=>{renderTargets.init=false;go('new')};
   $('#tGo').onclick=()=>{const a={};T.forEach(t=>a[t.key]=t._on&&t._proj.trim()?t._proj.trim():null);renderTargets.init=false;startAnalysis(a)};
 }
 
-// ---------- Neues Projekt
+// ---------- Neues Projekt: ein Formular, ein Anlegen-Knopf
 function renderNew(){
   const rec=(S.settings.sources||[]).filter(x=>!folders.includes(x));
   $('#view').innerHTML=`
-  <h1>Neues Projekt</h1><div class="sub" style="margin-top:4px">Ordner wählen – das Programm findet Lights, Flats und Bias selbst, bewertet jedes Foto und schlägt Stacking-Einstellungen vor. Gibt es das Objekt schon als Projekt, wird es aktualisiert.</div>
-  <div class="card steps">
-    <div class="step"><div class="num">1</div><div><h2>${ic('folder')} Wo liegen die Aufnahmen?</h2>
-      <div class="muted small">Am besten den Hauptordner von NINA/ASIAIR – inklusive Flat- und Bias-Ordner. Mehrere Ordner möglich.</div>
-      <div class="folders" id="fl">${folders.map((f,i)=>`<div class="frow"><input type="text" value="${esc(f)}" data-i="${i}" placeholder="z. B. F:\\OneDrive\\NINA"><button class="btn" data-pick="${i}">Durchsuchen …</button>${folders.length>1?`<button class="btn icon" data-del="${i}" title="entfernen">✕</button>`:''}</div>`).join('')}</div>
+  <h1>Neues Projekt</h1><div class="sub" style="margin-top:4px">Projektnamen nennen, Quellordner sind optional. Ohne Ordner ist das Projekt sofort bereit und kann später ergänzt werden. Mit Ordnern findet b2stacker Objekte, Nächte und Kalibrierdaten selbst.</div>
+  <div class="card">
+    <div class="field"><label for="projName">Projektname</label>
+      <input type="text" id="projName" value="${esc(newTitle)}" placeholder="z. B. Andromeda-Galaxie" style="width:min(440px,100%)" autofocus></div>
+    <div class="field" style="margin-top:16px"><label>Quellordner <span class="muted" style="font-weight:400">(optional)</span></label>
+      <div class="muted small">Hauptordner von NINA/ASIAIR – inklusive Flat- und Bias-Ordner. Mehrere Ordner sind möglich.</div>
+      <div class="folders" id="fl">${folders.map((f,i)=>`<div class="frow"><input type="text" value="${esc(f)}" data-i="${i}" placeholder="z. B. F:\\OneDrive\\NINA" aria-label="Quellordner ${i+1}"><button class="btn" data-pick="${i}">Durchsuchen …</button>${folders.length>1?`<button class="btn icon" data-del="${i}" title="entfernen">✕</button>`:''}</div>`).join('')}</div>
       <button class="btn" id="addF">＋ weiterer Ordner</button>
       ${rec.length?`<div class="recent"><span class="muted small">Zuletzt:</span>${rec.map(r=>`<button data-rec="${esc(r)}">${esc(r)}</button>`).join('')}</div>`:''}
-    </div></div>
-    <div class="step"><div class="num">2</div><div><h2>${ic('edit')} Titel <span class="muted" style="font-weight:400">(optional)</span></h2>
-      <input type="text" id="tgt" value="${esc(newTitle)}" placeholder="z. B. Hexenkopfnebel – leer = Objektname aus den Dateien" style="width:min(420px,100%)">
-      <div class="muted small" style="margin-top:4px">Lights, Flats, Bias und Darks werden anhand der Kopfdaten zusammengesucht. Werden mehrere Objekte gefunden, fragt das Programm nach.</div></div></div>
-    <div class="step"><div class="num">3</div><div><button class="btn primary big" id="anBtn">${ic('play')} Analysieren</button>
-      <div class="muted small" style="margin-top:6px">Liest nur – an den Originaldateien wird nichts verändert. Dauert je nach Menge einige Minuten.</div></div></div>
-  </div>
-  <div class="card"><h2>${ic('target')} Oder: Planungsprojekt ohne Aufnahmen</h2>
-    <div class="muted small">Für ein Objekt, das du erst noch fotografieren willst – ganz ohne Ordner und Lights. Quellordner kannst du später im Projekt ergänzen und dann analysieren.</div>
-    <div class="row" style="margin-top:10px"><input type="text" id="planTitle" placeholder="Projektname, z. B. Andromeda-Galaxie" style="width:min(420px,100%)"><button class="btn" id="planBtn">＋ Planungsprojekt anlegen</button></div></div>`;
+    </div>
+    <div class="row" style="margin-top:18px"><button class="btn primary big" id="createBtn">＋ Projekt anlegen</button>
+      <span class="muted small">Ohne Ordner wird nichts gelesen oder verändert. Mit Ordnern wird zuerst geprüft, welche Objekte darin liegen.</span></div>
+  </div>`;
+  const name=()=>$('#projName').value.trim();
   document.querySelectorAll('#fl input').forEach(i=>i.oninput=()=>folders[+i.dataset.i]=i.value);
-  document.querySelectorAll('[data-pick]').forEach(b=>b.onclick=async()=>{b.disabled=true;try{const r=await api('/api/pick-folder',{initial:folders[+b.dataset.pick]||folders.find(x=>x)||''});if(r.path){if(hasPath(folders.filter((_,k)=>k!==+b.dataset.pick),r.path))toast('Dieser Ordner ist schon ausgewählt',true);else{folders[+b.dataset.pick]=r.path;renderNew();}}}catch(e){toast(e.message,true)}b.disabled=false;});
-  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{folders.splice(+b.dataset.del,1);renderNew();});
-  document.querySelectorAll('[data-rec]').forEach(b=>b.onclick=()=>{if(hasPath(folders,b.dataset.rec))return toast('Dieser Ordner ist schon ausgewählt',true);const e=folders.findIndex(x=>!x.trim());if(e>=0)folders[e]=b.dataset.rec;else folders.push(b.dataset.rec);renderNew();});
-  $('#addF').onclick=()=>{folders.push('');renderNew();};
-  $('#tgt').oninput=e=>newTitle=e.target.value;
-  $('#planBtn').onclick=async()=>{const t=$('#planTitle').value.trim();if(!t)return toast('Bitte einen Projektnamen eingeben',true);
-    $('#planBtn').disabled=true;
-    try{P=await api('/api/project-create',{title:t,roots:[]});cur={view:'project',project:P.name,tab:'overview'};await refresh();render();toast('Planungsprojekt angelegt');}
-    catch(e){toast(e.message,true);$('#planBtn').disabled=false;}};
-  $('#anBtn').onclick=async()=>{newTitle=$('#tgt').value.trim();
+  document.querySelectorAll('[data-pick]').forEach(b=>b.onclick=async()=>{b.disabled=true;newTitle=name();try{const r=await api('/api/pick-folder',{initial:folders[+b.dataset.pick]||folders.find(x=>x)||''});if(r.path){if(hasPath(folders.filter((_,k)=>k!==+b.dataset.pick),r.path))toast('Dieser Ordner ist schon ausgewählt',true);else{folders[+b.dataset.pick]=r.path;renderNew();}}}catch(e){toast(e.message,true)}b.disabled=false;});
+  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{newTitle=name();folders.splice(+b.dataset.del,1);renderNew();});
+  document.querySelectorAll('[data-rec]').forEach(b=>b.onclick=()=>{newTitle=name();if(hasPath(folders,b.dataset.rec))return toast('Dieser Ordner ist schon ausgewählt',true);const e=folders.findIndex(x=>!x.trim());if(e>=0)folders[e]=b.dataset.rec;else folders.push(b.dataset.rec);renderNew();});
+  $('#addF').onclick=()=>{newTitle=name();folders.push('');renderNew();};
+  $('#projName').oninput=e=>newTitle=e.target.value;
+  const create=async()=>{
+    const t=name(); if(!t)return toast('Bitte einen Projektnamen eingeben',true);
     const sel=folders.filter(x=>x.trim()),uniq=sel.filter((x,i)=>!hasPath(sel.slice(0,i),x));
     if(uniq.length<sel.length){folders=uniq.length?uniq:[''];toast('Doppelte Ordner wurden zusammengefasst');}
-    try{await api('/api/scan-preview',{folders:uniq});cur.view='job';await refresh();}catch(e){toast(e.message,true)}};
+    const btn=$('#createBtn'); btn.disabled=true;
+    if(!uniq.length){
+      try{P=await api('/api/project-create',{title:t,roots:[]});newTitle='';cur={view:'project',project:P.name,tab:'overview'};await refresh();render();toast('Projekt angelegt – Quellordner kannst du jederzeit ergänzen');}
+      catch(e){toast(e.message,true);btn.disabled=false;}
+      return;
+    }
+    newTitle=t;
+    try{await api('/api/scan-preview',{folders:uniq});cur.view='job';await refresh();}catch(e){toast(e.message,true);btn.disabled=false;}
+  };
+  $('#createBtn').onclick=create;
+  $('#projName').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();create();}};
 }
 
 // ---------- Auftrag (Ablauf, aktueller Schritt, Restzeit)
 function jobCard(j){
   const active=['queued','running'].includes(j.state);
   const p=j.progress||{};
-  const defs=j.kind==='stack'?STEPS.stack:j.kind==='analyze'?STEPS.analyze:j.kind==='scan'?STEPS.analyze.slice(0,1):[{key:'quality',title:'Qualität messen',icon:'gauge',what:'Kennzahlen werden berechnet.',why:''}];
+  const defs=j.kind==='stack'?STEPS.stack:j.kind==='analyze'?STEPS.analyze:j.kind==='scan'?STEPS.analyze.slice(0,1)
+    :j.kind==='assets'?[{key:'assets',title:'Bilder vorbereiten',icon:'image',what:'Bildbestand und Vorschauen werden lokal gespeichert.',why:''}]
+    :[{key:'quality',title:'Qualität messen',icon:'gauge',what:'Kennzahlen werden berechnet.',why:''}];
   let keys=j.kind==='stack'?(p.run_steps&&p.run_steps.length?p.run_steps:defs.map(d=>d.key)):defs.map(d=>d.key);
   const curKey=p.step||(j.kind==='quality'?'quality':null);
   const ci=keys.indexOf(curKey);
@@ -640,7 +668,7 @@ function jobCard(j){
   const runInfo=j.kind==='stack'&&p.runs_total?`Lauf ${p.run_index} von ${p.runs_total}: <b>${esc(p.run||'')}</b> · `:'';
   const stateTxt={queued:'wartet',running:'läuft',done:'fertig',failed:'fehlgeschlagen',cancelled:'abgebrochen'}[j.state];
   return `<div class="card" id="jobCard">
-    <div class="row"><div class="grow"><h2 style="margin:0">${ic(j.kind==='stack'?'layers':j.kind==='analyze'?'star':'gauge')} ${esc(j.title)}</h2>
+    <div class="row"><div class="grow"><h2 style="margin:0">${ic(j.kind==='stack'?'layers':j.kind==='analyze'?'star':j.kind==='assets'?'image':'gauge')} ${esc(j.title)}</h2>
       <div class="muted small">${runInfo}${stateTxt}${active&&overall!=null?` · Schritt ${Math.max(ci,0)+1} von ${keys.length}`:''}${!active&&j.finished?' · '+dt(j.finished):''}</div></div>
       ${active?`<button class="btn danger" id="cancelBtn">Abbrechen</button>`:''}</div>
     <div class="timeline">${tl}</div>
@@ -657,7 +685,7 @@ function renderJob(){
   const active=['queued','running'].includes(j.state);
   const openDet=$('#jobCard details')?.open;
   if(cur.view==='job'){
-    $('#view').innerHTML=`<h1>${j.kind==='stack'?'Stacking':j.kind==='analyze'?'Analyse':j.kind==='scan'?'Ordner durchsuchen':'Kennzahlen'}</h1><div class="sub" style="margin-top:4px">${active?'Du kannst das Fenster offen lassen und nebenbei etwas anderes machen.':''}</div>`+jobCard(j)+
+    $('#view').innerHTML=`<h1>${j.kind==='stack'?'Stacking':j.kind==='analyze'?'Analyse':j.kind==='scan'?'Ordner durchsuchen':j.kind==='assets'?'Bilder vorbereiten':'Kennzahlen'}</h1><div class="sub" style="margin-top:4px">${active?'Du kannst das Fenster offen lassen und nebenbei etwas anderes machen.':''}</div>`+jobCard(j)+
       (!active&&j.kind==='analyze'&&Array.isArray(j.result)&&j.result.length?`<div class="card"><h2>Ergebnis</h2>${j.result.map(r=>`<button class="btn primary" onclick='openProject(${jsArg(r.project)})'>${esc(r.target)} öffnen →</button> `).join('')}</div>`:'');
   }else{
     const slot=$('#jobSlot'); if(!slot)return;
@@ -681,6 +709,8 @@ function onJobFinished(j){
   else if(j.state==='done'&&j.kind==='analyze'&&cur.view==='job'){toast('Analyse fertig');}
   else if(j.state==='done'&&j.kind==='stack'){toast('Stacking fertig');if(cur.project){cur.tab='overview';openProject(cur.project);}}
   else if(j.state==='done'&&j.kind==='quality'){if(cur.project)openProject(cur.project);}
+  else if(j.state==='done'&&j.kind==='previews'){if(cur.project===j.project){fvDropList();if(cur.tab==='frames')renderTab();}toast('Vorschauen vorbereitet – jetzt auch offline verfügbar');}
+  else if(j.state==='done'&&j.kind==='assets'){if(cur.project===j.project)openProject(cur.project);toast('Bilder vorbereitet – jetzt auch offline verfügbar');}
   else if(j.state==='failed')toast(j.kind==='stack'?'Stacking fehlgeschlagen':'Auftrag fehlgeschlagen',true);
 }
 
@@ -688,7 +718,7 @@ function onJobFinished(j){
 async function openProject(name){
   const keepTab=cur.project===name?cur.tab:null;
   try{P=await api('/api/project/'+encodeURIComponent(name));}catch(e){toast(e.message,true);return;}
-  FV.list=null;
+  fvDropList();
   cur={view:'project',project:name,tab:keepTab||(P.stacks.length||!hasData()?'overview':'plan')};
   render();
 }
@@ -712,7 +742,7 @@ function renderProject(){
   <div class="row" style="align-items:flex-start">
     <div class="grow">
       <div class="ptitle" id="ptitle"><h1>${esc(m.name)}</h1><button class="btn icon ghost" id="renBtn" title="Umbenennen">${ic('edit')}</button></div>
-      <div class="muted small">${data&&m.target&&m.name!==m.target?'Objekt: '+esc(m.target)+' · ':''}angelegt ${dshort(m.created)} · ${P.stacks.length} Stack${P.stacks.length===1?'':'s'} · ${data&&plan.created?'Analyse vom '+dt(plan.created):data?'analysiert':'Planungsprojekt · noch nicht analysiert'}</div>
+      <div class="muted small">${data&&m.target&&m.name!==m.target?'Objekt: '+esc(m.target)+' · ':''}angelegt ${dshort(m.created)} · ${P.stacks.length} Stack${P.stacks.length===1?'':'s'} · ${data&&plan.created?'Analyse vom '+dt(plan.created):data?'analysiert':'noch nicht analysiert'}</div>
       <div class="desc"><textarea id="desc" placeholder="Beschreibung – z. B. Ziel, Ausrüstung, Besonderheiten, Ideen für die nächste Nacht …">${esc(m.description||'')}</textarea></div>
       <div class="srcs"><span class="muted small">${ic('folder')} Quellordner:</span>${roots.length?'':'<span class="muted small">noch keine</span>'}${roots.map((r,i)=>`<span class="src">${dirLink(r,r)}<button title="entfernen" data-delsrc="${i}">✕</button></span>`).join('')}<input type="text" id="srcPath" placeholder="Ordnerpfad eingeben" aria-label="Quellordnerpfad"><button class="btn sm" id="addSrc" title="Eingegebenen Pfad hinzufügen oder einen Ordner auswählen">＋ Ordner</button></div>
     </div>
@@ -762,6 +792,16 @@ function renderTab(){
   if(cur.tab==='report'){b.innerHTML=`<div class="muted small" style="margin-top:10px">${ic('info')} Diagramme und Messwerte aller Lights. Fotos verwenden oder weglassen geht im Reiter <b>Frames</b>.</div>
     <iframe class="report" id="reportFrame" scrolling="no" title="Bericht" src="/p/${encodeURIComponent(cur.project)}/report.html?embed=1&theme=${effTheme()}"></iframe>`;return;}
   if(cur.tab==='check')return renderChecklist(b);
+  if(P&&P._selectionDirty&&(cur.tab==='plan'||cur.tab==='overview')){
+    // Plan/overview are the only places that refresh the cached detail after local selection edits.
+    const wantTab=cur.tab;
+    b.innerHTML='<div class="card empty">Plan wird aktualisiert …</div>';
+    api('/api/project/'+encodeURIComponent(cur.project)).then(d=>{
+      if(cur.project!==d.name||cur.tab!==wantTab||$('#tabBody')!==b)return;
+      P=d;P._selectionDirty=false;if(wantTab==='plan')renderPlan(b);else renderOverview(b);renderDirty();
+    }).catch(e=>{b.innerHTML=`<div class="banner err"><div class="grow">Plan konnte nicht geladen werden: ${esc(e.message)}</div></div>`;});
+    return;
+  }
   if(cur.tab==='overview')return renderOverview(b);
   renderPlan(b);
 }
@@ -778,6 +818,15 @@ const KPIS=[
 ];
 function outKey(s,o){return o.name}
 const isThumb=prev=>{const t=P.meta.thumb;if(!t)return false;const a=prev.replace(/\\/g,'/'),b=t.replace(/\\/g,'/');return a.endsWith('/'+b)||a===b};
+async function prepareAssets(btn){
+  if(!confirm('Bildbestand und Vorschauen dieses Projekts einmal vorbereiten?\n\nDie lokalen Projektordner und verknüpften Bilder werden bewusst geprüft. Eine Analyse der Lights ist dafür nicht nötig; an den Originaldateien wird nichts verändert.'))return;
+  btn.disabled=true;
+  try{
+    const j=await api('/api/project/'+encodeURIComponent(cur.project)+'/prepare-assets',{});
+    toast('Bilder werden vorbereitet'+(j&&j.title?' · '+j.title:''));
+    cur.view='job';await refresh();
+  }catch(e){toast(e.message,true);btn.disabled=false;}
+}
 function renderOverview(b){
   const H=P.stacks, F=P.facts||{};
   const fact=(icon,v,l,t)=>`<div class="fact" title="${esc(t||'')}"><div class="fi">${ic(icon)}</div><div><div class="fv">${v}</div><div class="fl">${l}</div></div></div>`;
@@ -800,6 +849,9 @@ function renderOverview(b){
   const AS=P.assets||[];
   const assets=`<div class="card"><h2>${ic('image')} Verknüpfte Bilder <span class="muted" style="font-weight:400">· PSD, TIFF, JPEG oder fertige Stacks</span></h2>
     <div class="muted small">Nur verknüpft und angezeigt – die Dateien werden weder kopiert, verändert noch gelöscht. Bilder im Projektordner und in <code>final</code> erscheinen automatisch.</div>
+    ${P.assets_migration_needed?`<div class="banner info" style="margin:12px 0 2px"><div class="grow"><b>Bildbestand noch nicht vorbereitet.</b> Dieses ältere Projekt hat noch keinen lokalen Bild-Snapshot. Bis zur einmaligen Vorbereitung werden keine Bilder als vorhanden angenommen.
+      „Bilder vorbereiten“ prüft die lokalen Projektordner und verknüpften Bilder einmal bewusst und legt den Offline-Bestand samt Vorschauen an; eine Analyse der Lights ist dafür nicht nötig.</div>
+      <button class="btn primary" id="assetPrepareBtn">Bilder vorbereiten</button></div>`:''}
     ${AS.length?`<div class="stiles">${AS.map(a=>`<div class="stile">
       <div class="ph" style="${a.preview_url?`background-image:url('${esc(a.preview_url)}')`:''}" ${a.preview_url?`onclick='showImg(${jsArg(a.preview_url)},${jsArg(a.name||'')})'`:''}>
         ${a.preview_url?'':`<div class="empty small">${esc(a.preview_error?'Keine Vorschau: '+a.preview_error:'keine Vorschau')}</div>`}</div>
@@ -808,7 +860,10 @@ function renderOverview(b){
       <div class="acts">${a.exists?`<button class="btn sm" onclick='openPi([${jsArg(a.path)}])'>${ic('pi')} PixInsight</button>
         <button class="btn sm" onclick='openDir(${jsArg(String(a.path).replace(/[\\/][^\\/]+$/,''))})'>${ic('folder')} Ordner</button>`:''}</div></div>`).join('')}</div>`:''}
     <div class="frow" style="margin-top:12px"><input type="text" id="assetPath" placeholder="Pfad zur Bilddatei, z. B. D:\\Astro\\M31_final.psd" aria-label="Pfad zur Bilddatei"><button class="btn" id="assetBtn">Verknüpfen</button></div></div>`;
-  const bindAssets=()=>{const bt=$('#assetBtn'),inp=$('#assetPath');if(!bt)return;
+  const bindAssets=()=>{const bt=$('#assetBtn'),inp=$('#assetPath');
+    const prep=$('#assetPrepareBtn');
+    if(prep)prep.onclick=()=>prepareAssets(prep);
+    if(!bt)return;
     const go=async()=>{const v=inp.value.trim();if(!v)return toast('Bitte einen Dateipfad eingeben',true);
       if(hasPath(AS.map(a=>a.path),v))return toast('Diese Datei ist schon verknüpft',true);
       bt.disabled=true;try{P=await api('/api/project/'+encodeURIComponent(cur.project)+'/asset-link',{path:v});toast('Bild verknüpft');renderTab();}catch(e){toast(e.message,true);bt.disabled=false}};
@@ -894,20 +949,26 @@ function renderFrame(){
   $('#fMeta').innerHTML=m.map(([k,v])=>`<div><span>${k}</span>${esc(v)}</div>`).join('');
   $('#fPrev').style.visibility=FR.i>0?'visible':'hidden';$('#fNext').style.visibility=FR.i<FR.frames.length-1?'visible':'hidden';
 }
-$('#fPrev').onclick=()=>{if(FMODE==='fv')return fvStep(-1);if(FR.i>0){FR.i--;renderFrame()}};
-$('#fNext').onclick=()=>{if(FMODE==='fv')return fvStep(1);if(FR.i<FR.frames.length-1){FR.i++;renderFrame()}};
-// Shortcuts only while the lightbox is open; typing in text fields must stay untouched (Esc is native to <dialog>)
+$('#fPrev').onclick=()=>{if(FR.i>0){FR.i--;renderFrame()}};
+$('#fNext').onclick=()=>{if(FR.i<FR.frames.length-1){FR.i++;renderFrame()}};
+// Shortcuts only while a viewer is open; typing in text fields must stay untouched (Esc is native to <dialog>).
 function fvKey(e){
-  if(!frameDlg.open||e.ctrlKey||e.metaKey||e.altKey)return;
+  if(e.ctrlKey||e.metaKey||e.altKey)return;
   const t=e.target, tag=t&&t.tagName;
   if(tag==='TEXTAREA'||tag==='SELECT'||(t&&t.isContentEditable)||(tag==='INPUT'&&!['checkbox','radio'].includes(t.type)))return;
+  if(FVS&&FVS.pswp){
+    // PhotoSwipe owns arrows and Escape. Space is the review toggle, never auto-next.
+    if(e.key===' '){
+      if(e.repeat){e.preventDefault();return;}
+      if(tag==='INPUT')return;
+      if(tag==='BUTTON')t.blur();
+      e.preventDefault();fvToggleCur();
+    }
+    return;
+  }
+  if(!frameDlg.open)return;
   if(e.key==='ArrowLeft'){e.preventDefault();$('#fPrev').click()}
   else if(e.key==='ArrowRight'){e.preventDefault();$('#fNext').click()}
-  else if(e.key===' '&&FMODE==='fv'){
-    if(e.repeat){e.preventDefault();return;}   // holding Space must not flip the choice back and forth
-    if(tag==='INPUT')return;              // focused checkbox toggles natively
-    if(tag==='BUTTON')t.blur();           // otherwise Space would also click the focused button
-    e.preventDefault();fvToggleCur();}
 }
 window.addEventListener('keydown',fvKey);
 // closing (Esc) invalidates pending full previews, so a reopen never shows a stale image
@@ -924,7 +985,7 @@ const METL={fwhm_as:['FWHM','"',2],fwhm:['FWHM (gemessen)',' px',2],hfr_name:['H
   weight:['Gewicht','',2],alt:['Höhe','°',0],moon_illum:['Mond',' %',0],temp:['Sensor',' °C',1],exptime:['Belichtung',' s',1],gain:['Gain','',0]};
 const FV_PAGE=240;
 let FV={list:null,project:null,type:'Alle',filter:'Alle',use:'Alle',att:'Alle',sort:'night',dir:1,view:[],pos:0,limit:FV_PAGE,imgT:null,
-  q:Promise.resolve(),want:new Map(),tok:0,shown:null};
+  q:Promise.resolve(),want:new Map(),server:new Map(),_flush:false,gen:0,tok:0,shown:null,summary:null};
 // Pure sort helpers without DOM access so tests can run them in node.
 // Missing values (not measured) always sort last, whatever the direction; 0 is a real value.
 const QRANK={error:0,suggest:1,warn:2,ok:3};
@@ -947,6 +1008,7 @@ function fvReasons(f){
   const p=[],r=fvRating(f);if(r!=='OK'&&r!=='–')p.push(r);
   if(f.stale||f.status==='stale')p.push('wirkt nach Neu-Analyse');
   if(f.excluded&&f.selection_source!=='override')p.push('liegt in einem Ausschluss-Ordner');
+  if(f.reason)p.push(f.reason);
   if(f.selection_source)p.push(SELSRC[f.selection_source]||f.selection_source);
   return p.concat((f.flags||[]).map(flagText).filter(Boolean));
 }
@@ -961,29 +1023,42 @@ function fvMetricLine(f){if(ftype(f.type)!=='light')return '';const m=f.metrics|
   return `<div class="fmet">${FVMET.map(([k,s,l,d])=>fvMissing(m[k])?`<span title="${esc(l)}: nicht gemessen">${s} nicht gemessen</span>`
     :`<span title="${esc(l)}: ${esc(fmt(m[k],d))}">${s} ${esc(fmt(m[k],d))}</span>`).join('')}</div>`;}
 function fvTile(k){const f=FV.list[k],why=fvReasons(f);
+  const noPv=!f.thumb_url?'Kein Vorschaubild':f.media_ready===false?'Vorschau nicht vorbereitet':'';
   return `<div class="ftile ${f.selected?'':'off'}" data-fi="${k}">
-    <button type="button" class="ph" data-fopen="${k}" aria-label="Foto groß ansehen">${f.thumb_url?`<img loading="lazy" decoding="async" src="${esc(f.thumb_url)}" alt="" onerror="this.outerHTML='&lt;span class=&quot;nopv&quot;&gt;Vorschau nicht lesbar&lt;/span&gt;'">`:'<span class="nopv">Kein Vorschaubild</span>'}</button>
+    <button type="button" class="ph" data-fopen="${k}" aria-label="Foto groß ansehen">${noPv?`<span class="nopv">${esc(noPv)}</span>`:`<img loading="lazy" decoding="async" src="${esc(f.thumb_url)}" alt="" onerror="this.outerHTML='&lt;span class=&quot;nopv&quot;&gt;Vorschau nicht lesbar&lt;/span&gt;'">`}</button>
     <div class="fx"><label class="fuse" data-fsel-l><input type="checkbox" data-fsel="${k}" ${f.selected?'checked':''}> verwenden</label>
       <div class="muted">${esc(ftypeLabel(f.type))}${f.filter?' · '+esc(f.filter):''}${f.night?' · '+esc(f.night):''}</div>
       ${fvMetricLine(f)}
       <div class="fwhy ${fvAttn(f)==='error'?'':'muted'}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap${fvAttn(f)==='error'?';color:var(--critical)':''}" title="${esc(why.join(' · '))}">${esc(why.join(' · ')||'–')}</div></div></div>`;}
+function fvDropList(){
+  // Invalidate list data without destroying an open viewer: it keeps its snapshot read-only until close.
+  FV.gen++;FV.want.clear();FV._flush=false;FV.q=Promise.resolve();FV.list=null;
+}
+function fvStats(){
+  const L=FV.list||[], lights=L.filter(f=>ftype(f.type)==='light');
+  const used=lights.filter(f=>f.selected), h=l=>l.reduce((n,f)=>n+(Number(f.exposure)||0),0)/3600;
+  return {all:lights.length,allH:h(lights),used:used.length,usedH:h(used),
+    errors:lights.filter(f=>f.status==='error').length,manual:lights.filter(f=>fvManual(f)).length};
+}
 async function renderFrames(b){
   if(!FV.list||FV.project!==cur.project){
     b.innerHTML=`<div class="card empty">Frames werden geladen …</div>`;
-    try{const r=await api('/api/project/'+encodeURIComponent(cur.project)+'/frames');FV.list=r.frames||[];FV.project=cur.project;
-      if((r.plan_stale||r.analysis_required)&&P&&P.sources){P.sources.plan_stale=true;renderDirty();}}
+    try{const r=await api('/api/project/'+encodeURIComponent(cur.project)+'/frames');FV.list=r.frames||[];FV.project=cur.project;FV.summary=r.summary||null;
+      FV.server=new Map(FV.list.map(f=>[f.path,Object.assign({},f)]));
+      if((r.plan_stale||r.analysis_required)&&P&&P.sources){P.sources.plan_stale=!!r.plan_stale;P.sources.analysis_required=!!r.analysis_required;renderDirty();}}
     catch(e){b.innerHTML=`<div class="banner err"><div class="grow">Frames konnten nicht geladen werden: ${esc(e.message)}</div></div>`;return;}
     if(cur.tab!=='frames'||$('#tabBody')!==b)return;
   }
   drawFrames(b);
 }
+function fvMissingMedia(){return (FV.list||[]).filter(f=>f.type!=='unknown'&&(f.media_ready===false||f.preview_width==null)).length;}
 function drawFrames(b){
   b=b||$('#tabBody'); if(!b||cur.tab!=='frames')return;
   const L=FV.list, types=FTYPES.filter(([k])=>L.some(f=>ftype(f.type)===k));
   const filters=[...new Set(L.filter(f=>FV.type==='Alle'||ftype(f.type)===FV.type).map(f=>f.filter).filter(Boolean))];
   if(FV.filter!=='Alle'&&!filters.includes(FV.filter))FV.filter='Alle';
   const segH=(key,opts)=>`<div class="seg" data-seg="${key}">${opts.map(([v,l])=>`<button type="button" data-v="${esc(v)}" class="${FV[key]===v?'on':''}">${esc(l)}</button>`).join('')}</div>`;
-  const view=fvFiltered(), used=view.filter(k=>L[k].selected).length;
+  const view=fvFiltered(), st=fvStats(), missing=fvMissingMedia();
   b.innerHTML=`<div class="card"><div class="row">
       ${segH('type',[['Alle','Alle Typen'],...types])}
       ${filters.length?segH('filter',[['Alle','Alle Filter'],...filters.map(f=>[f,f])]):''}
@@ -992,107 +1067,262 @@ function drawFrames(b){
     <div class="row" style="margin-top:8px"><label class="muted small" for="fvSort">Sortieren</label>
       <select id="fvSort">${FVSORT.map(([k,l])=>`<option value="${k}" ${FV.sort===k?'selected':''}>${esc(l)}</option>`).join('')}</select>
       <button type="button" class="btn sm" id="fvDir" title="Richtung umkehren – nicht gemessene Werte stehen immer am Ende">${FV.dir>0?'▲ aufsteigend':'▼ absteigend'}</button>
-      <span class="muted small grow" id="fvCount">${used} von ${view.length} verwendet</span></div>
+      <span class="muted small grow" id="fvCount">${view.filter(k=>L[k].selected).length} von ${view.length} verwendet</span></div>
+    <div class="row" style="margin-top:8px;gap:14px"><span class="muted small" id="fvTotAll"><b style="color:var(--text-primary)">Alle Lights:</b> ${st.all} · ${fmt(st.allH,2)} h</span>
+      <span class="muted small" id="fvTotUsed"><b style="color:var(--text-primary)">verwendet:</b> ${st.used} · ${fmt(st.usedH,2)} h</span>
+      ${st.errors?`<span class="muted small" style="color:var(--critical)">${st.errors} ohne Messung</span>`:''}${st.manual?`<span class="muted small">${st.manual} manuell</span>`:''}
+      ${missing?`<span class="grow"></span><button class="btn sm" id="fvPrepare">${ic('image')} Vorschauen vorbereiten (${missing})</button>`:''}</div>
     ${FV.sort==='quality'?'<div class="muted small" style="margin-top:4px">Qualität = vorhandene Bewertung: aufsteigend zuerst Messung fehlgeschlagen, dann automatisch ausgeschlossen, Hinweis, OK – bei Gleichstand mehr Befunde zuerst. Frames ohne Bewertung stehen am Ende.</div>':''}
-    <div class="muted small" style="margin-top:8px">${ic('info','tiny')} Häkchen = Foto wird beim Stacken verwendet. Geht für Lights und Kalibrierdaten; danach „Neu analysieren“, damit der Plan die Auswahl übernimmt.
-      Foto anklicken = große Ansicht (← → blättern, Leertaste = verwenden an/aus, Esc schließt).</div>
+    <div class="muted small" style="margin-top:8px">${ic('info','tiny')} Häkchen ist die verbindliche Auswahl für Plan und Bericht. Die Änderung wird ohne Neu-Analyse übernommen. Foto anklicken = große Ansicht (← → blättern, Leertaste = verwenden an/aus, Esc schließt).
+      ${missing?'Vorschauen werden bewusst vorbereitet und danach offline aus dem Cache gezeigt.':''}</div>
     ${view.length?`<div class="fgrid" id="fvGrid">${view.slice(0,FV.limit).map(fvTile).join('')}</div>`:'<div class="empty">Keine Frames für diese Auswahl.</div>'}
     ${view.length>FV.limit?`<div class="row" style="justify-content:center;margin-top:12px"><button type="button" class="btn" id="fvMore">Weitere ${Math.min(FV_PAGE,view.length-FV.limit)} anzeigen <span class="muted">(${view.length-FV.limit} übrig)</span></button></div>`:''}</div>`;
   const reset=()=>{FV.limit=FV_PAGE;drawFrames(b)};
   b.querySelectorAll('[data-seg] button').forEach(x=>x.onclick=()=>{FV[x.parentNode.dataset.seg]=x.dataset.v;reset()});
   $('#fvSort').onchange=e=>{FV.sort=e.target.value;reset()};
   $('#fvDir').onclick=()=>{FV.dir=-FV.dir;reset()};
+  const prep=$('#fvPrepare');if(prep)prep.onclick=()=>preparePreviews(prep);
   const more=$('#fvMore'); if(more)more.onclick=()=>{FV.limit+=FV_PAGE;fvRedraw()};
   const g=$('#fvGrid'); if(!g)return;
   g.addEventListener('click',e=>{if(e.target.closest('[data-fsel-l]')){e.stopPropagation();return;}
     const o=e.target.closest('[data-fopen]');if(o)openFV(+o.dataset.fopen);});
   g.addEventListener('change',e=>{const c=e.target.closest('[data-fsel]');if(!c)return;e.stopPropagation();setFrameUse(+c.dataset.fsel,c.checked?'in':'out');});
 }
-function fvRedraw(){const sv=document.querySelector('section.view'),y=sv?sv.scrollTop:0;drawFrames();if(sv)sv.scrollTop=y;}
+async function preparePreviews(btn){
+  if(!confirm('Vorschauen für alle Frames dieses Projekts vorbereiten?\n\nDie Rohbilder werden einmal gelesen und als Bildschirm- und Miniaturbild lokal gespeichert. Danach funktionieren Raster und große Ansicht auch offline; die Originale bleiben unverändert.'))return;
+  btn.disabled=true;btn.textContent='Wird vorbereitet …';
+  try{const j=await api('/api/project/'+encodeURIComponent(cur.project)+'/prepare-previews',{});toast('Vorschauen werden vorbereitet'+(j&&j.title?' · '+j.title:''));cur.view='job';await refresh();}
+  catch(e){toast(e.message,true);btn.disabled=false;drawFrames();}
+}
+function fvRedraw(){
+  const sv=document.querySelector('section.view'),y=sv?sv.scrollTop:0;
+  if(!FV.list){const b=$('#tabBody');if(cur.tab==='frames'&&b)renderFrames(b);return;}
+  drawFrames();if(sv)sv.scrollTop=y;
+}
 function fvUpdateTile(k){
-  const t=document.querySelector(`.ftile[data-fi="${k}"]`), f=FV.list[k];
+  const t=document.querySelector(`.ftile[data-fi="${k}"]`), f=FV.list&&FV.list[k];
   if(t&&f){t.classList.toggle('off',!f.selected);const c=t.querySelector('[data-fsel]');if(c)c.checked=!!f.selected;
     const w=t.querySelector('.fwhy');if(w){const why=fvReasons(f).join(' · ');w.textContent=why||'–';w.title=why;}}
+  if(!FV.list)return;
   const c=$('#fvCount'); if(c){const v=fvFiltered();c.textContent=v.filter(i=>FV.list[i].selected).length+' von '+v.length+' verwendet';}
+  const st=fvStats();
+  const a=$('#fvTotAll'),u=$('#fvTotUsed');
+  if(a)a.innerHTML=`<b style="color:var(--text-primary)">Alle Lights:</b> ${st.all} · ${fmt(st.allH,2)} h`;
+  if(u)u.innerHTML=`<b style="color:var(--text-primary)">verwendet:</b> ${st.used} · ${fmt(st.usedH,2)} h`;
+}
+function fvPatchSnapshot(path,patch){
+  if(!FVS||!FVS.frames||!patch)return;
+  FVS.frames.forEach((f,i)=>{if(f&&f.path===path)FVS.frames[i]=Object.assign({},f,patch);});
+}
+function fvMergeFrame(path,frame){
+  if(!frame)return;
+  FV.server.set(path,Object.assign({},FV.server.get(path)||{},frame));
+  if(FV.list){
+    const k=FV.list.findIndex(f=>f.path===path);
+    if(k>=0){FV.list[k]=Object.assign({},FV.list[k],frame);fvUpdateTile(k);}
+  }
+  fvPatchSnapshot(path,frame);
+  fvSyncStrip();
+}
+function fvRestoreFrame(path){
+  const known=FV.server.get(path);if(!known)return;
+  if(FV.list){
+    const k=FV.list.findIndex(f=>f.path===path);
+    if(k>=0){FV.list[k]=Object.assign({},FV.list[k],known);fvUpdateTile(k);}
+  }
+  fvPatchSnapshot(path,known);
+  fvSyncStrip();
 }
 function setFrameUse(k,val){
   const f=FV.list&&FV.list[k]; if(!f)return FV.q;
-  const path=f.path, proj=cur.project, w=FV.want.get(path);
-  // lock stacking and show the choice at once; the server state replaces it once the queue has run
-  if(P&&P.sources)P.sources.plan_stale=true; renderDirty();
-  FV.want.set(path,{val,n:(w?w.n:0)+1});
-  if(val!==null){f.selected=val==='in';f.selection_source='override';f.stale=true;fvUpdateTile(k);}
-  if(frameDlg.open&&FMODE==='fv')renderFV();
-  // one request at a time, so answers can never overtake each other
+  const path=f.path, proj=cur.project, gen=FV.gen;
+  if(!FV.server.has(path))FV.server.set(path,Object.assign({},f));
+  // Optimistic display only; the tiny server delta remains authoritative.
+  if(val===null){f.selection_source='auto';}else{f.selected=val==='in';f.selection_source='override';}
+  f.stale=false;
+  fvPatchSnapshot(path,{selected:f.selected,selection_source:f.selection_source,stale:false});
+  fvUpdateTile(k);fvSyncStrip();
+  if(P)P._selectionDirty=true;
+  const base='/api/project/'+encodeURIComponent(proj);
+  FV.want.set(path,val);
+  if(FV._flush)return FV.q;
+  FV._flush=true;
+  // Serial queue with last-intent coalescing: rapid clicks send only the final value per path.
   FV.q=FV.q.then(async()=>{
-    if(cur.project!==proj)return;
-    const base='/api/project/'+encodeURIComponent(proj);
-    try{await api(base+'/override',{path,value:val});}catch(e){toast(e.message,true);}
-    const ww=FV.want.get(path); if(ww&&--ww.n<=0)FV.want.delete(path);
-    try{const r=await api(base+'/frames');if(cur.project===proj)fvApply(r);}catch(e){toast(e.message,true);}
-    try{const d=await api(base);if(cur.project===d.name){P=d;renderDirty();}}catch(e){}
+    while(FV.want.size){
+      const batch=[...FV.want];FV.want.clear();
+      for(const [p,next] of batch){
+        if(FV.gen!==gen||cur.project!==proj)break;
+        try{
+          const r=await api(base+'/override',{path:p,value:next});
+          if(FV.gen!==gen||cur.project!==proj)break;
+          // Contract: {revision,frame,facts,analysis_required,selection_ready}. Older servers return only overrides.
+          if(r&&r.frame&&!FV.want.has(p)){fvMergeFrame(p,r.frame);
+            if(P){P.selection_revision=r.revision;P.selection_ready=r.selection_ready;
+              if(r.facts)P.facts=Object.assign(P.facts||{},r.facts);
+              P.analysis_required=!!r.analysis_required;
+              if(P.sources){P.sources.analysis_required=!!r.analysis_required;P.sources.plan_stale=false;}}
+            renderDirty();}
+        }catch(e){
+          toast(e.message,true);
+          // A failed POST must not leave a made-up optimistic state. Only restore when no newer intent is waiting.
+          if(FV.gen===gen&&cur.project===proj&&!FV.want.has(p))fvRestoreFrame(p);
+        }
+      }
+      if(FV.gen!==gen)break;
+    }
+    if(FV.gen===gen)FV._flush=false;
   });
   return FV.q;
 }
-function fvApply(r){
-  const list=r.frames||[], old=FV.list||[];
-  // choices still waiting in the queue stay visible until their own answer arrives
-  list.forEach(f=>{const w=FV.want.get(f.path);if(w&&w.val!==null){f.selected=w.val==='in';f.selection_source='override';f.stale=true;}});
-  const cp=frameDlg.open&&FMODE==='fv'?(old[FV.view[FV.pos]]||{}).path:null;
-  const same=old.length===list.length&&old.every((f,i)=>f.path===list[i].path);
-  FV.list=list;
-  if((r.plan_stale||r.analysis_required)&&P&&P.sources)P.sources.plan_stale=true;
-  const v=fvFiltered(), shown=new Set(v.slice(0,FV.limit));
-  const tiles=[...document.querySelectorAll('.ftile[data-fi]')];
-  if(same&&[...shown].every(k=>tiles.some(t=>+t.dataset.fi===k))){
-    tiles.forEach(t=>{const k=+t.dataset.fi;if(shown.has(k))fvUpdateTile(k);else t.remove();});
-    fvUpdateTile(-1);
-  }else fvRedraw();
-  if(frameDlg.open&&FMODE==='fv'){
-    const at=list.findIndex(f=>f.path===cp), keep=v.indexOf(at);
-    FV.view=v;
-    if(!v.length){frameDlg.close();return;}
-    // a frame that no longer matches the filter drops out; the next one slides into its place
-    FV.pos=keep>=0?keep:Math.min(FV.pos,v.length-1);
-    renderFV();
+function fvToggleCur(){
+  const p=FVS&&FVS.pswp;if(!p||!FVS.frames)return;
+  const f=FVS.frames[p.currIndex];
+  fvToggleSnapshotFrame(f);
+}
+// ---------- PhotoSwipe lightbox: frozen viewing list, cached screen image, full image only on zoom
+let FVS=null;
+function fvPswpItem(f){
+  const pw=Number(f.preview_width)||0,ph=Number(f.preview_height)||0;
+  const w=Number(f.width)||pw||1600,h=Number(f.height)||ph||1000;
+  const ready=!!f.preview_url&&(f.preview_width!=null||f.media_ready===true)&&f.media_ready!==false;
+  const item={width:Math.max(1,w),height:Math.max(1,h),fvPath:f.path,fullUrl:f.full_url||null,
+    alt:`${ftypeLabel(f.type)} ${f.filter||''} ${f.night||''}`};
+  if(ready){item.src=f.preview_url;if(f.thumb_url)item.msrc=f.thumb_url;}
+  else{item.type='html';item.html=`<div style="color:#ddd;padding:24px;font:14px system-ui;text-align:center">Vorschau nicht vorbereitet.<br><span style="opacity:.7">Der Frame bleibt in der Liste und in der Auswahl erhalten.</span></div>`;}
+  return item;
+}
+function fvZoomSnapshot(pswp){
+  const s=pswp&&pswp.currSlide;
+  if(!s||!s.width||!s.zoomLevels||!s.zoomLevels.initial)return null;
+  const z=s.currZoomLevel/s.zoomLevels.initial;
+  if(!(z>1.001))return {z:1,cx:.5,cy:.5};
+  const w=s.width*s.currZoomLevel,h=s.height*s.currZoomLevel;
+  return {z,cx:Math.max(0,Math.min(1,.5-(s.pan.x-s.bounds.center.x)/w)),
+    cy:Math.max(0,Math.min(1,.5-(s.pan.y-s.bounds.center.y)/h))};
+}
+function fvApplyZoom(pswp,tok){
+  if(!FVS||FVS.token!==tok||FVS.closed||!FVS.saved)return;
+  if(FVS.appliedFor===pswp.currIndex)return;
+  const s=pswp.currSlide;if(!s||!s.width)return;
+  const {z,cx,cy}=FVS.saved;
+  if(z<=1.001){
+    s.zoomTo(s.zoomLevels.initial,null,0);s.pan.x=s.bounds.center.x;s.pan.y=s.bounds.center.y;s.applyCurrentZoomPan();
+    FVS.awaiting=false;FVS.appliedFor=pswp.currIndex;return;
+  }
+  const target=Math.min(s.zoomLevels.max,Math.max(s.zoomLevels.initial,z*s.zoomLevels.initial));
+  FVS.applying=true;
+  s.zoomTo(target,null,0);
+  s.pan.x=s.bounds.correctPan('x',s.bounds.center.x+(.5-cx)*s.width*s.currZoomLevel);
+  s.pan.y=s.bounds.correctPan('y',s.bounds.center.y+(.5-cy)*s.height*s.currZoomLevel);
+  s.applyCurrentZoomPan();
+  FVS.applying=false;FVS.awaiting=false;FVS.appliedFor=pswp.currIndex;
+  fvLoadFull(pswp,tok);
+}
+function fvLoadFull(pswp,tok){
+  const s=pswp&&pswp.currSlide;if(!s||!s.zoomLevels)return;
+  if(FVS&&FVS.token===tok&&!FVS.closed&&s.currZoomLevel>s.zoomLevels.initial*1.02){
+    const d=s.data||{};if(!d.fullUrl||d._fullLoaded||d._fullLoading)return;
+    d._fullLoading=true;
+    const hi=new Image();
+    hi.onload=()=>{d._fullLoading=false;
+      if(!FVS||FVS.token!==tok||FVS.closed||FVS.pswp!==pswp||pswp.currSlide!==s)return;
+      const el=s.content&&s.content.element;
+      if(el&&el.tagName==='IMG'){el.src=d.fullUrl;d._fullLoaded=true;}};  // screen stays visible until this load finishes
+    hi.onerror=()=>{d._fullLoading=false;};
+    hi.src=d.fullUrl;
   }
 }
-function openFV(k){FMODE='fv';FV.view=fvFiltered();FV.pos=Math.max(0,FV.view.indexOf(k));renderFV();
-  if(!frameDlg.open)frameDlg.showModal();
-  if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();}
-function fvStep(d){const n=FV.pos+d;if(n<0||n>=FV.view.length)return;FV.pos=n;renderFV();}
-function fvToggleCur(){const k=FV.view[FV.pos];if(k==null)return;setFrameUse(k,FV.list[k].selected?'out':'in');}
-function renderFV(){
-  const k=FV.view[FV.pos], f=FV.list[k]; if(!f)return;
-  $('#fTitle').innerHTML=`${esc(ftypeLabel(f.type))}${f.filter?' · '+ftag(f.filter):''} <span class="muted">${esc(f.night||'')} · ${FV.pos+1} / ${FV.view.length}</span>`;
-  const im=$('#fImg');
-  // re-rendering the same frame (e.g. after Space) keeps the already loaded image
-  if(FV.shown!==f.path){
-    FV.shown=f.path; const tok=++FV.tok, path=f.path;
-    im.classList.remove('zoom');$('#fImgBox').classList.remove('zoomed');
-    im.onerror=()=>{im.hidden=true};
-    // only the frame the user stays on loads its full preview; fast arrow walking shows the thumbnail
-    clearTimeout(FV.imgT);
-    if(f.thumb_url){im.hidden=false;im.src=f.thumb_url;}else{im.hidden=true;im.removeAttribute('src');}
-    const live=()=>frameDlg.open&&FV.tok===tok&&(FV.list[FV.view[FV.pos]]||{}).path===path;
-    if(f.preview_url)FV.imgT=setTimeout(()=>{if(!live())return;
-      const hi=new Image();hi.onload=()=>{if(live()){im.hidden=false;im.src=hi.src;}};hi.src=f.preview_url;},250);
+function fvReasonText(f){
+  const flat=(f.flags||[]).map(flagText).filter(Boolean);
+  if(f.reason)flat.push(f.reason);
+  return flat.length?flat.join(' · '):(f.status==='error'?'Messung fehlgeschlagen':f.selected?'':'automatisch ausgeschlossen');
+}
+function fvSetSnapshotUse(f,val){
+  if(!f)return;
+  if(!FV.list||!FVS||FVS.project!==cur.project||FVS.gen!==FV.gen){
+    toast('Frame-Liste wird neu geladen – Auswahl im Viewer ist bis zum Schließen schreibgeschützt.',true);
+    fvSyncStrip();
+    return;
   }
-  im.onclick=()=>{im.classList.toggle('zoom');$('#fImgBox').classList.toggle('zoomed')};
-  $('#fActs').innerHTML=`<label class="fuse"><input type="checkbox" id="fvUse" ${f.selected?'checked':''}> verwenden <span class="muted small" style="font-weight:400">(Leertaste)</span></label>
-    ${fvManual(f)?'<button class="btn sm" id="fvAuto" title="Eigene Wahl verwerfen, b2stacker entscheidet">Automatik</button>':''}`;
-  $('#fvUse').onchange=e=>setFrameUse(k,e.target.checked?'in':'out');
-  const fa=$('#fvAuto'); if(fa)fa.onclick=()=>setFrameUse(k,null);
-  const M=f.metrics||{};
-  const m=[['Datei',String(f.path||'').split(/[\\/]/).pop()],['Bewertung',fvRating(f)],
-    ['Auswahl',(f.selected?'verwendet':'nicht verwendet')+(f.selection_source?' · '+(SELSRC[f.selection_source]||f.selection_source):'')+(f.stale?' · wirkt nach Neu-Analyse':'')],
-    ['Hinweise',(f.flags||[]).map(flagText).filter(Boolean).join(', ')||'–'],
-    // lights list every metric so gaps read as "nicht gemessen"; calibration frames only what exists
-    ...Object.keys(M).filter(x=>ftype(f.type)==='light'||(M[x]!=null&&M[x]!=='')).map(x=>{const L=METL[x],v=M[x];
-      if(v==null||v==='')return [L?L[0]:x,'nicht gemessen'];
-      return [L?L[0]:x,typeof v==='number'?fmt(v,L?L[2]:2)+(L?L[1]:''):v];})];
-  $('#fMeta').innerHTML=m.map(([a,v])=>`<div><span>${esc(a)}</span>${esc(v)}</div>`).join('');
-  $('#fPrev').style.visibility=FV.pos>0?'visible':'hidden';$('#fNext').style.visibility=FV.pos<FV.view.length-1?'visible':'hidden';
+  const k=FV.list.findIndex(x=>x.path===f.path);
+  if(k<0){toast('Frame ist in der aktuellen Liste nicht mehr vorhanden',true);return;}
+  setFrameUse(k,val);
+}
+function fvToggleSnapshotFrame(f){if(f)fvSetSnapshotUse(f,f.selected?'out':'in');}
+function fvSyncStrip(){
+  if(!FVS||!FVS.pswp||!FVS.strip||!FVS.frames)return;
+  const f=FVS.frames[FVS.pswp.currIndex];if(!f)return;
+  const M=f.metrics||{},line=[];
+  if(ftype(f.type)==='light'){
+    line.push(`<span><b>Sterne</b> ${fvMissing(M.nstars)?'–':esc(fmt(M.nstars,0))}</span>`);
+    line.push(`<span><b>HFR</b> ${fvMissing(M.hfr_name)?'–':esc(fmt(M.hfr_name,2))+' px'}</span>`);
+    line.push(`<span><b>FWHM</b> ${fvMissing(M.fwhm)?'–':esc(fmt(M.fwhm,2))+' px'}</span>`);
+    line.push(`<span><b>ecc</b> ${fvMissing(M.ecc)?'–':esc(fmt(M.ecc,2))}</span>`);
+  }
+  const why=fvReasonText(f);
+  FVS.strip.innerHTML=`<div class="fvn">${esc(String(f.path||'').split(/[\\/]/).pop())}<div class="muted small">${esc(ftypeLabel(f.type))}${f.filter?' · '+esc(f.filter):''}${f.night?' · '+esc(f.night):''}</div></div>
+    <div class="fvm">${line.join('')}${why?`<span class="${fvAttn(f)==='error'?'warn':''}" title="${esc(why)}">${esc(why)}</span>`:''}</div>
+    <div class="fvw"><label><input type="checkbox" id="fvUse" ${f.selected?'checked':''}> verwenden <span style="opacity:.65;font-weight:400">(Leertaste)</span></label>
+      ${fvManual(f)?'<button type="button" id="fvAutoBtn" title="Eigene Wahl verwerfen, b2stacker entscheidet">Automatik</button>':''}
+      <button type="button" id="fvFit">Ganzes Bild</button></div>`;
+  const cb=$('#fvUse');if(cb)cb.onchange=()=>fvToggleSnapshotFrame(f);
+  const ab=$('#fvAutoBtn');if(ab)ab.onclick=()=>fvSetSnapshotUse(f,null);
+  const fit=$('#fvFit');if(fit)fit.onclick=()=>{if(!FVS||!FVS.pswp)return;const s=FVS.pswp.currSlide;if(!s)return;
+    FVS.saved={z:1,cx:.5,cy:.5};s.zoomTo(s.zoomLevels.initial,null,180);s.pan.x=s.bounds.center.x;s.pan.y=s.bounds.center.y;s.applyCurrentZoomPan();};
+}
+function openFV(k){
+  const view=fvFiltered(),at=view.indexOf(k);
+  if(at<0)return;
+  if(!window.PhotoSwipe){toast('Bildbetrachter konnte nicht geladen werden – bitte Anwendung neu starten',true);return;}
+  if(FVS&&FVS.pswp){try{FVS.pswp.close()}catch(e){}}
+  const tok=++FV.tok;
+  const state={view:[...view],frames:view.map(i=>Object.assign({},FV.list[i])),project:cur.project,gen:FV.gen,
+    token:tok,pswp:null,strip:null,saved:{z:1,cx:.5,cy:.5},closed:false,applying:false};
+  FVS=state;
+  const pswp=new PhotoSwipe({dataSource:state.frames.map(f=>fvPswpItem(f)),index:at,
+    showHideAnimationType:'fade',bgOpacity:.94,closeOnVerticalDrag:false,arrowKeys:true,escKey:true,
+    preload:[1,2],counter:false,zoomAnimationDuration:160,
+    padding:{top:0,bottom:84,left:0,right:0}});
+  state.pswp=pswp;
+  pswp.on('afterInit',()=>{
+    if(FVS!==state)return;
+    pswp.element.classList.add('fvpswp');
+    const strip=document.createElement('div');strip.className='fvstrip';pswp.element.appendChild(strip);state.strip=strip;
+    fvSyncStrip();
+  });
+  pswp.on('change',()=>{
+    if(FVS!==state||state.closed)return;
+    state.awaiting=true;state.appliedFor=null;
+    fvSyncStrip();
+    // Slide content exists by the time change fires; loadComplete retries if a size is still pending.
+    fvApplyZoom(pswp,tok);
+  });
+  pswp.on('slideActivate',()=>{if(FVS===state&&!state.closed)state.awaiting=true;});
+  pswp.on('slideDeactivate',e=>{
+    // The outgoing active slide is reset by PhotoSwipe; never let that reset overwrite our snapshot.
+    if(FVS===state&&!state.closed&&e.slide===pswp.currSlide)state.awaiting=true;
+  });
+  pswp.on('loadComplete',e=>{if(FVS===state&&!state.closed&&e.slide===pswp.currSlide)fvApplyZoom(pswp,tok);});
+  pswp.on('zoomPanUpdate',e=>{
+    if(FVS!==state||state.closed||state.applying||state.awaiting||!e.slide.isActive||e.slide!==pswp.currSlide)return;
+    state.saved=fvZoomSnapshot(pswp)||state.saved;
+    fvLoadFull(pswp,tok);
+  });
+  pswp.on('keydown',e=>{
+    const o=e.originalEvent;
+    if(!o||o.ctrlKey||o.metaKey||o.altKey)return;
+    const tag=o.target&&o.target.tagName;
+    if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||(o.target&&o.target.isContentEditable))return;
+    // Arrows always browse, even while zoomed; Escape stays with PhotoSwipe.
+    if(o.key==='ArrowLeft'){e.preventDefault();pswp.prev();}
+    else if(o.key==='ArrowRight'){e.preventDefault();pswp.next();}
+  });
+  const done=()=>{if(FVS===state){state.closed=true;FVS=null;fvRedraw();}};
+  pswp.on('close',done);
+  pswp.on('destroy',done);
+  pswp.init();
+  if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
 }
 async function setThumb(prev){try{P=await api('/api/project/'+encodeURIComponent(cur.project)+'/thumb',prev?{stack_preview:prev}:{});toast(prev?'Projektbild gesetzt':'Projektbild: automatisch');renderTab();refresh();}catch(e){toast(e.message,true)}}
 function showImg(src,title){$('#imgFull').src=src;$('#imgTitle').textContent=title;imgDlg.showModal();}
@@ -1189,7 +1419,7 @@ function updateMeters(){
   else if(!S.wbpp_ok)bl.push('WBPP-Skript nicht gefunden – PixInsight-Installation prüfen.');
   if(S.pixinsight_running&&S.pixinsight_running.length)bl.push('PixInsight ist geöffnet – bitte schließen, sonst teilen sich zwei Instanzen den Arbeitsspeicher.');
   if(S.disk_free_gb!=null&&S.disk_free_gb<n.gb)bl.push(`Zu wenig Platz: ${fmt(n.gb,0)} GB nötig, ${fmt(S.disk_free_gb,0)} GB frei.`);
-  if(needsAnalysis())bl.push('Quellordner oder Frame-Auswahl geändert – erst „Neu analysieren“, danach kann gestackt werden.');
+  if(needsAnalysis())bl.push('Quellordner geändert – erst „Neu analysieren“, danach kann gestackt werden.');
   if(!n.en.length)bl.push('Kein Lauf ausgewählt.');
   if(active)bl.push('Es läuft gerade ein Auftrag.');
   if(S.ram_free_gb!=null&&S.ram_free_gb<Math.min(n.ram,S.settings.min_free_ram_gb))wn.push(`Wenig freier Arbeitsspeicher (${fmt(S.ram_free_gb,1)} GB). Andere Programme schließen.`);
@@ -1205,8 +1435,8 @@ function updateMeters(){
 }
 function renderDirty(){
   const s=$('#dirtySlot'); if(!s)return;
-  const ra=needsAnalysis()?`<div class="banner"><div class="grow">Quellordner oder Frame-Auswahl geändert. Bitte <b>neu analysieren</b> – bis dahin ist Stacken gesperrt, weil der Plan noch den alten Stand kennt.</div>${((P.sources||{}).roots||[]).length?'<button class="btn primary" id="raBtn">Neu analysieren</button>':''}</div>`:'';
-  s.innerHTML=ra+(dirty?`<div class="banner"><div class="grow">Frame-Auswahl geändert. Plan neu berechnen, damit die Änderung beim Stacken zählt (Messwerte bleiben erhalten, geht schnell).</div><button class="btn primary" id="dirtyBtn">Plan aktualisieren</button></div>`:'');
+  const ra=needsAnalysis()?`<div class="banner"><div class="grow">Quellordner geändert. Bitte <b>neu analysieren</b> – bis dahin ist Stacken gesperrt, weil der Plan noch den alten Stand kennt.</div>${((P.sources||{}).roots||[]).length?'<button class="btn primary" id="raBtn">Neu analysieren</button>':''}</div>`:'';
+  s.innerHTML=ra+(dirty?`<div class="banner"><div class="grow">Änderung noch nicht gespeichert.</div><button class="btn primary" id="dirtyBtn">Plan aktualisieren</button></div>`:'');
   const b=$('#dirtyBtn'); if(b)b.onclick=()=>$('#reBtn').click();
   const ra2=$('#raBtn'); if(ra2)ra2.onclick=()=>$('#reBtn').click();
 }

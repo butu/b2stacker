@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "astrostack"
-version = "0.6.1"
+version = "0.6.2"
 description = "Rohdaten sichten, bewerten und mit PixInsight stacken – automatisch, nachvollziehbar, per Klick oder per KI."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,7 +30,7 @@ b2stacker = "astrostack.__main__:run"
 include = ["astrostack*"]
 
 [tool.setuptools.package-data]
-astrostack = ["report/*.html", "report/vendor/*", "pjsr/*.js", "app/*.html"]
+astrostack = ["report/*.html", "report/vendor/*", "pjsr/*.js", "app/*.html", "app/vendor/photoswipe/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

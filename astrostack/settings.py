@@ -24,6 +24,7 @@ def _default_pixinsight() -> str:
 @dataclass
 class Settings:
     workdir: str = ""                          # Arbeitsverzeichnis (Zwischendateien, Masters, Berichte)
+    preview_cache_dir: str = ""                # lokaler Vorschau-Cache; leer = OS-Standard
     pixinsight: str = field(default_factory=_default_pixinsight)
     sources: list[str] = field(default_factory=list)   # zuletzt verwendete Ordner
     custom_filters: dict[str, str] = field(default_factory=dict)

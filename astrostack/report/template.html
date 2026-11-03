@@ -523,7 +523,7 @@ document.getElementById('stLegend').innerHTML=[
   ['error','für dieses Foto liegen keine Messwerte vor – es wird nicht automatisch verwendet.'],
   ['rejected','von dir ausgeschlossen oder liegt in einem Ausschluss-Ordner (z. B. _rejected) – wird nicht gestackt.']]
   .map(([k,t])=>`<div><span class="badge ${st(k)[1]}">${st(k)[0]}</span>${esc(t)}</div>`).join('')+
-  `<div class="muted">Wieder aufnehmen: in b2stacker den Frame anklicken → „Doch verwenden“, danach den Plan aktualisieren. „Automatik“ setzt die eigene Wahl zurück.</div>`;
+  `<div class="muted">Wieder aufnehmen: im Reiter Frames das Häkchen setzen oder hier „Doch verwenden“ – die Auswahl gilt sofort für Plan und Bericht. „Automatik“ setzt die eigene Wahl zurück.</div>`;
 function renderGallery(){
   const list=D.frames.map((f,i)=>({f,i})).filter(({f})=>(selF==='Alle'||f.filter===selF)&&(selS==='Alle'||st(f.status)[0]===selS));
   document.getElementById('fCount').textContent=list.length+' Frames';
