@@ -76,7 +76,7 @@ def test_script_for_mono_and_osc():
     mono = siril.build_script(dict(base, osc=False, sigma=0.7))
     assert mono.startswith("requires 1.4.0\nsetext fit\n")
     assert "convert light \"-out=/o/seq_light\"" in mono
-    assert "calibrate light_ " in mono and '"-cc=dark 3 3"' not in mono and "-cc=dark 3 3" in mono
+    assert "calibrate light_ " in mono and '"-cc=dark 3 3"' not in mono and "-cc=dark 3.0 3.0" in mono
     assert "-cfa" not in mono and "-debayer" not in mono
     assert "setfindstar -sigma=0.70" in mono and "stack r_pp_light_" in mono and "-32b -out=result" in mono
     osc = siril.build_script(dict(base, osc=True))

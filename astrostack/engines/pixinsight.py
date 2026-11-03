@@ -1100,20 +1100,36 @@ def _check_registration(run: dict, outdir: str, master: str, notes: list, log) -
     for b in bad:
         log("  WARNUNG: %s falsch registriert (%s)" % (os.path.basename(b["file"]), ", ".join(b["why"])))
     drop = wbpplog.map_to_lights(bad, run["lights"])
-    keep = [p for p in run["lights"] if p not in drop]
-    if run.get("_retry") or not drop or len(keep) < 3:
+    if registration_verdict(bad, drop, run) == "suspect":
         notes.append("%d Frame(s) möglicherweise falsch registriert – Stack auf Geistersterne prüfen: %s" % (
             len(bad), ", ".join(os.path.basename(b["file"]) for b in bad)))
         return None
     log("  → Diese %d Frame(s) würden Geistersterne erzeugen. Stack wird ohne sie neu gerechnet." % len(drop))
     _discard(master)
-    old_n = len(run["lights"])
+    return drop_frames(run, drop, notes, "PixInsight")
+
+
+def registration_verdict(bad: list[dict], drop: list[str], run: dict) -> str:
+    """Gemeinsame Entscheidung für PixInsight und Siril: "lock" (am Sensor ausgerichtet → Hotpixel-Retry),
+    "drop" (Frames ohne sie neu rechnen), "suspect" (nur melden) oder "ok"."""
+    if any(b.get("lock") for b in bad):
+        return "lock"
+    if not bad:
+        return "ok"
+    keep = [p for p in run["lights"] if p not in drop]
+    if run.get("_retry") or not drop or len(keep) < 3:
+        return "suspect"
+    return "drop"
+
+
+def drop_frames(run: dict, drop: list[str], notes: list, who: str) -> dict:
+    """Lauf ohne die falsch registrierten Frames; Gruppen-Flats und Belichtungszeit mit anpassen."""
     dropped = set(drop)
-    fg = []
-    for g in run.get("flat_groups") or []:
-        fg.append(dict(g, lights=[p for p in g.get("lights", []) if p not in dropped]))
-    notes = notes + ["%d Frame(s) ausgelassen, weil PixInsight sie falsch registriert hat: %s" % (
-        len(drop), ", ".join(os.path.basename(p) for p in drop))]
+    keep = [p for p in run["lights"] if p not in dropped]
+    old_n = len(run["lights"])
+    fg = [dict(g, lights=[p for p in g.get("lights", []) if p not in dropped]) for g in run.get("flat_groups") or []]
+    notes = notes + ["%d Frame(s) ausgelassen, weil %s sie falsch registriert hat: %s" % (
+        len(drop), who, ", ".join(os.path.basename(p) for p in drop))]
     return dict(run, lights=keep, lightCount=len(keep), flat_groups=fg or run.get("flat_groups"),
                 hours=round((run.get("hours") or 0) * len(keep) / old_n, 2) if run.get("hours") else run.get("hours"),
                 _retry=True, _notes=notes, _excluded=list(run.get("_excluded") or []) + drop)

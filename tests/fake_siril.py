@@ -31,6 +31,32 @@ def _seq_files(seq: str) -> list[str]:
     return sorted(f for f in glob.glob(base + "_*.fit") if f[len(base) + 1:len(base) + 6].isdigit())
 
 
+def _bad_frames() -> set[int]:
+    """FAKESIRIL_BAD_FRAMES="2,5": 1-basierte Frames, die Siril nicht registriert (Sequenz-Zeilen wie echt)."""
+    return {int(x) for x in os.environ.get("FAKESIRIL_BAD_FRAMES", "").split(",") if x.strip()}
+
+
+def _write_seq(seq: str, n: int, ref: int = 0) -> None:
+    """Sequenzdatei „<seq>.seq“ (seq mit Unterstrich, z. B. pp_light_) nach dem Muster der echten Siril-1.4-Ausgabe."""
+    bad = _bad_frames()
+    L = ["#Siril sequence file (fake)", "S '%s' 1 %d %d 5 %d 6 0 0 0" % (seq, n, n - len(bad), ref), "L %d" % (ref + 1)]
+    L += ["I %d %d" % (i, 0 if i in bad else 1) for i in range(1, n + 1)]
+    for i in range(1, n + 1):
+        if i in bad:
+            L.append("R0 0 0 0 0 0 0 H 0 0 0 0 0 0 0 0 0")
+        else:
+            L.append("R0 4.6 4.6 0.77 0 0.02 38 H 1 0 0 0 1 0 0 0 1")
+    open(seq + ".seq", "w", encoding="utf-8").write("\n".join(L) + "\n")
+
+
+def _selected(seq: str) -> set[int]:
+    """1-basierte Positionen der ausgewählten Frames (I-Zeilen); ohne Sequenzdatei alle."""
+    p = seq + ".seq"
+    if not os.path.exists(p):
+        return set()
+    return {int(ln.split()[1]) for ln in open(p, encoding="utf-8") if ln.startswith("I ") and ln.split()[2] == "1"}
+
+
 def _opt(args: list[str], key: str, default=None):
     return next((a.split("=", 1)[1] for a in args if a.startswith(key + "=")), default)
 
@@ -89,14 +115,17 @@ def run_script(workdir: str, script: str) -> int:
             files = _seq_files(args[0])
             if os.environ.get("FAKESIRIL_FAIL_REGISTER") == "1" or len(files) < 2:
                 return _fail(i, cmd, "not enough star pairs")
+            _write_seq(args[0], len(files))
             print("log: Registration of %d images done" % len(files), flush=True)
         elif cmd == "seqapplyreg":
             pre = _opt(args, "-prefix", "r_")
             for f in _seq_files(args[0]):
                 data, hdr = _read(f)
                 _write(pre + os.path.basename(f), data, hdr)
+            _write_seq(pre + args[0], len(_seq_files(args[0])))
         elif cmd == "stack":
-            files = _seq_files(args[0])
+            sel = _selected(args[0])
+            files = [f for i, f in enumerate(_seq_files(args[0]), 1) if not sel or i in sel]
             if not files:
                 return _fail(i, cmd, "sequence not found")
             shapes = {_read(f)[0].shape for f in files}

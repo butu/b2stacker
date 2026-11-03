@@ -5,6 +5,8 @@ Phase 1: nur Erkennung und Prüfung. Der Lauf selbst (.ssf-Skript) folgt in Phas
 from __future__ import annotations
 
 import datetime
+import glob
+import math
 import os
 import re
 import shutil
@@ -14,7 +16,7 @@ import threading
 import time
 from dataclasses import dataclass
 
-from .. import logbook, stackqa, staging, steps, system
+from .. import logbook, stackqa, staging, steps, system, wbpplog
 from ..fitsmeta import BIAS, DARK, FLAT
 from ..system import _decode
 from . import pixinsight as pi
@@ -212,7 +214,7 @@ def build_script(spec: dict) -> str:
     if masters.get("flat"):
         cal.append(_kv("-flat", masters["flat"]))
     if masters.get("dark") and spec.get("cosmetic", True):
-        cal.append("-cc=dark 3 3")
+        cal.append("-cc=dark %.1f %.1f" % (pi.CC_COLD_SIGMA, pi.CC_HOT_SIGMA))
     if spec.get("osc"):
         cal += ["-cfa", "-equalize_cfa", "-debayer"]
     L.append("calibrate light_ %s -prefix=pp_" % " ".join(cal))
@@ -312,10 +314,92 @@ def _causes(lines: list[str]) -> list[dict]:
     return out
 
 
+def parse_registration(text: str, lights: list[str]) -> list[dict]:
+    """Siril-Sequenz nach „register“ → Kennzahlen je Light (gleiche Form wie wbpplog.registrations).
+
+    Fehlgeschlagen: R0-Zeile mit 0 Sternen bzw. I-Zeile mit Flag 0. Die Zeilen folgen der Reihenfolge der Lights."""
+    ref, sel, rows = None, {}, []
+    for ln in text.splitlines():
+        f = ln.split()
+        if not f:
+            continue
+        if f[0] == "S" and len(f) > 6:
+            ref = int(f[6])
+        elif f[0] == "I" and len(f) > 2:
+            sel[int(f[1])] = f[2] != "0"
+        elif f[0] == "R0" and len(f) >= 17:
+            rows.append(f)
+    regs = []
+    for i, f in enumerate(rows):
+        if i >= len(lights):
+            break
+        if i == ref:
+            regs.append({"reference": lights[i]})
+            continue
+        fwhm, nstars = float(f[1]), float(f[6])
+        if fwhm <= 0 or nstars <= 0 or not sel.get(i + 1, True):
+            regs.append({"file": lights[i], "failed": True, "fwhm": fwhm, "nstars": nstars})
+            continue
+        h00, h01, h02, h10, h11, h12 = (float(x) for x in f[8:14])
+        regs.append({"file": lights[i], "scale": abs(h00 * h11 - h01 * h10) ** 0.5, "tx": h02, "ty": h12,
+                     "rotation": math.degrees(math.atan2(h10, h00)), "fwhm": fwhm, "nstars": nstars,
+                     "roundness": float(f[3]), "bglvl": float(f[5])})
+    return regs
+
+
+def _check_registration(run: dict, outdir: str, notes: list, log) -> dict | None:
+    """Registrierung aus der Siril-Sequenz prüfen. Wie PixInsight: Lauf ohne falsche Frames wiederholen (einmal)
+    bzw. bei „am Sensor ausgerichtet“ mit Hotpixel-Entfernung und strengerer Sternerkennung neu rechnen."""
+    seq = os.path.join(outdir, "seq_light", "r_pp_light_.seq")
+    try:
+        regs = parse_registration(open(seq, encoding="utf-8", errors="replace").read(), run["lights"])
+        bad = wbpplog.judge(regs, wbpplog.light_info(run["lights"]))
+    except Exception as e:  # noqa: BLE001 – Prüfung darf das Ergebnis nicht gefährden
+        log("  Hinweis: Registrierung nicht geprüft (%s)" % e)
+        return None
+    frames = [r for r in regs if not r.get("reference")]
+    lock = [b for b in bad if b.get("lock")]
+    logbook.event("registration_check", engine="siril", run=run["name"], frames=len(frames),
+                  retry=bool(run.get("_retry")), lock_retry=bool(run.get("_lock_retry")), locked=len(lock),
+                  bad=[dict(file=os.path.basename(b["file"]), why=b["why"], scale=b.get("scale"), lock=b.get("lock"),
+                            tx=b.get("tx"), ty=b.get("ty"), rotation=b.get("rotation")) for b in bad],
+                  stats=[dict(file=os.path.basename(r["file"]), fwhm=r.get("fwhm"), nstars=r.get("nstars"),
+                              roundness=r.get("roundness"), bglvl=r.get("bglvl")) for r in frames if "file" in r])
+    if not bad:
+        log("  Registrierung geprüft: alle %d Frames plausibel" % len(frames))
+        return None
+    if lock:
+        log("  WARNUNG: %d Bilder aus anderen Nächten/von der anderen Meridianseite liegen „perfekt“ (0,0 px) auf der "
+            "Referenz – Siril hat sie an Hotpixeln (Sensor) statt an den Sternen ausgerichtet." % len(lock))
+        if not run.get("_lock_retry"):
+            log("  → Neuer Versuch: Hotpixel werden entfernt und die Sternerkennung filtert stärker.")
+            return dict(run, _lock_retry=True, _force_cosmetic=True,
+                        _notes=notes + ["Erster Versuch an Hotpixeln ausgerichtet – mit Hotpixel-Entfernung neu gerechnet."])
+        raise StackError("Siril hat die Bilder auch im zweiten Versuch an Sensor-Mustern statt an den Sternen "
+                         "ausgerichtet (%d Bilder). Der Stack wäre unbrauchbar (Geistersterne). Abhilfe: passende Darks "
+                         "aufnehmen und im Plan wählen, beim Aufnehmen dithern." % len(lock))
+    for b in bad:
+        log("  WARNUNG: %s falsch registriert (%s)" % (os.path.basename(b["file"]), ", ".join(b["why"])))
+    drop = [b["file"] for b in bad]
+    if pi.registration_verdict(bad, drop, run) == "suspect":
+        notes.append("%d Frame(s) möglicherweise falsch registriert – Stack auf Geistersterne prüfen: %s" % (
+            len(bad), ", ".join(os.path.basename(p) for p in drop)))
+        return None
+    log("  → Diese %d Frame(s) würden Geistersterne erzeugen. Stack wird ohne sie neu gerechnet." % len(drop))
+    return pi.drop_frames(run, drop, notes, "Siril")
+
+
+def _drop_intermediates(outdir: str) -> None:
+    for old in [outdir] + glob.glob(glob.escape(outdir) + ".versuch-*"):
+        for d in ("raw", "seq_light", "seq_bias", "seq_dark", "seq_darkflat", "seq_flat"):
+            shutil.rmtree(os.path.join(old, d), ignore_errors=True)
+
+
 def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, cancel, runner_factory) -> str:
     name = run["name"]
+    orig_run = run
     outdir = os.path.join(jobdir, pi.safe_file(name))
-    shutil.rmtree(outdir, ignore_errors=True)
+    pi._isolate_attempt(outdir, log)                # frühere Versuche bleiben als .versuch-n (Protokolle)
     os.makedirs(outdir, exist_ok=True)
     n = len(run["lights"])
     log("=== Lauf %s (Siril): %d Lights ===" % (name, n))
@@ -340,13 +424,16 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     pi._preflight_calibration(run, calib, log)
     if not calib["flats"]:
         log("  WARNUNG: keine Flats – Vignettierung und Staub bleiben im Bild.")
-    if not calib["darks"]:
-        log("  Hinweis: keine Darks – Hotpixel-Entfernung von b2stacker ist für Siril noch nicht umgesetzt.")
     if run.get("flat_groups"):
         raise StackError("Flat-Gruppen (Kamera-Stellung je Nacht) sind für Siril noch nicht umgesetzt.")
     if run.get("reference") not in (None, "", "auto"):
         log("  WARNUNG: Referenz „%s“ wird mit Siril noch nicht übernommen – Siril wählt die Referenz selbst. "
             "Masters mehrerer Filter sind dadurch nicht zwingend deckungsgleich." % run.get("reference"))
+
+    # Ohne Darks: Hotpixel vor dem Stacken mit unserer Korrektur entfernen (Siril-Äquivalent zur PixInsight-Stufe).
+    # Mit Darks übernimmt -cc=dark die Hotpixel; _force_cosmetic (Wiederholung) erzwingt die Vorstufe immer.
+    if (not calib["darks"] or run.get("_force_cosmetic")) and plan.get("options", {}).get("hot_pixels", True) is not False:
+        run = pi._cosmetic(plan, dict(run, _force_cosmetic=True), settings, jobdir, calib, st, log, save, cancel)
 
     # Bereitstellen: Lights und Rohkalibrierung als Sequenzen (Original-Dateien bleiben unverändert)
     raw = os.path.join(outdir, "raw")
@@ -377,6 +464,9 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
         log("  Sternerkennung → setfindstar -sigma=%.2f (Näherung aus WBPP-sensitivity)" % spec["sigma"])
     if params:
         log("  Hinweis: Sternerkennung-Parameter ohne Siril-Entsprechung nicht übernommen: %s" % ", ".join(sorted(params)))
+    if run.get("_lock_retry"):                       # strengere Sternerkennung: höhere Schwelle
+        spec["sigma"] = min(5.0, (spec.get("sigma") or 1.0) + 1.0)
+        log("  Sternerkennung strenger → setfindstar -sigma=%.2f" % spec["sigma"])
     script_text = build_script(spec)
     script = os.path.join(outdir, "siril.ssf")
     open(script, "w", encoding="utf-8").write(script_text)
@@ -475,6 +565,10 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
             "Siril hat keinen Stack erzeugt (Exit-Code %s)." % code if code else "Siril lief durch, hat aber keinen Stack erzeugt.")
         logbook.event("stack_diagnosis", run=name, causes=causes)
         raise StackError("Stacking fehlgeschlagen beim %s: %s" % (steps.BY_KEY.get(key, {}).get("title", "Stacken"), why))
+    notes = list(orig_run.get("_notes") or [])
+    retry = _check_registration(orig_run, outdir, notes, log)
+    if retry is not None:
+        return _one_run(plan, retry, settings, jobdir, masters, finaldir, st, log, save, cancel, runner_factory)
     log("  Stack: %s (%s)" % (os.path.basename(result), pi._elapsed(time.time() - t0)))
     master_keep = os.path.join(outdir, "master.fit")          # bleibt nach der Bereinigung erhalten
     shutil.copy2(result, master_keep)
@@ -493,6 +587,19 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
         log("  Qualität %s: Rauschen %.2f ADU · %d Sterne · Verlauf %.1f %%" % (o["name"], k["noise"], k["stars"],
                                                                            k["gradient_pct"]))
     st.steps_done.append("quality")
+    bad_fwhm = pi.fwhm_implausible(run.get("star_stats") or orig_run.get("star_stats"), outputs)
+    if bad_fwhm:
+        log("  WARNUNG: " + bad_fwhm)
+        for o in outputs:
+            pi._discard_file(o["file"])
+        if not orig_run.get("_lock_retry"):
+            log("  → Neuer Versuch: Hotpixel werden entfernt und die Sternerkennung filtert stärker.")
+            return _one_run(plan, dict(orig_run, _lock_retry=True, _force_cosmetic=True,
+                                       _notes=notes + ["Erster Versuch unplausibel (%s) – neu gerechnet." % bad_fwhm]),
+                            settings, jobdir, masters, finaldir, st, log, save, cancel, runner_factory)
+        st.failed_step = "register"
+        raise StackError("Der Stack ist unbrauchbar: %s Vermutlich hat Siril an Hotpixeln (Sensor) statt an den Sternen "
+                         "ausgerichtet. Abhilfe: passende Darks wählen, beim Aufnehmen dithern." % bad_fwhm)
     finals = [o["file"] for o in outputs]
     st.finals += finals
     logbook.event("stack_run", project=os.path.basename(plan["workdir"]), run=name, lights=n, hours=run.get("hours"),
@@ -502,10 +609,9 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
                          lights=n, hours=run.get("hours"), nights=run.get("nights"), filter=run.get("filter"),
                          mode=run.get("mode"), flats=len(run.get("flats", [])), bias=len(run.get("bias", [])),
                          darks=len(run.get("darks", [])), reference=run.get("reference"),
-                         notes=list(run.get("_notes") or []), excluded=run.get("_excluded") or [])
+                         notes=notes, excluded=orig_run.get("_excluded") or [])
     if settings.cleanup_intermediate:
-        for d in ("raw", "seq_light", "seq_bias", "seq_dark", "seq_darkflat", "seq_flat"):
-            shutil.rmtree(os.path.join(outdir, d), ignore_errors=True)
+        _drop_intermediates(outdir)
     return master_keep
 
 
