@@ -101,6 +101,15 @@ def test_mono_run_produces_final_and_keeps_originals(tmp_path, cli):
 
 
 @posix_only
+def test_cleanup_removes_cosmetic_intermediates(tmp_path, cli):
+    plan, _, _ = make_plan(tmp_path, darks=0)                 # ohne Darks → eigene Hotpixel-Vorstufe läuft
+    st = engines.run_plan(plan, settings(tmp_path, cli), log=lambda *a: None, open_results=False)
+    assert st.state == "done", st.error
+    leftovers = [root for root, dirs, _ in os.walk(str(tmp_path / "work")) if os.path.basename(root) == "_cosmetic"]
+    assert leftovers == []
+
+
+@posix_only
 def test_osc_run_produces_rgb_final(tmp_path, cli):
     plan, run, _ = make_plan(tmp_path, osc=True)
     st = engines.run_plan(plan, settings(tmp_path, cli), log=lambda *a: None, open_results=False)

@@ -607,6 +607,13 @@ def _check_registration(run: dict, outdir: str, seq_name: str, ref_frames: int, 
     return pi.drop_frames(run, drop, notes, "Siril")
 
 
+def _drop_cosmetic(jobdir: str, name: str) -> None:
+    cos = os.path.join(jobdir, "_cosmetic")
+    shutil.rmtree(os.path.join(cos, pi.safe_file(name)), ignore_errors=True)
+    if os.path.isdir(cos) and not os.listdir(cos):
+        os.rmdir(cos)
+
+
 def _drop_intermediates(outdir: str) -> None:
     for old in [outdir] + glob.glob(glob.escape(outdir) + ".versuch-*"):
         for d in os.listdir(old):
@@ -1003,6 +1010,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
                          notes=notes, excluded=orig_run.get("_excluded") or [])
     if settings.cleanup_intermediate:
         _drop_intermediates(outdir)
+        _drop_cosmetic(jobdir, name)
     return master_keep
 
 
