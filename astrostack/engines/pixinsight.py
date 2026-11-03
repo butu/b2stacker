@@ -556,10 +556,31 @@ def stage_lights(paths: list[str], dst: str, log) -> list[str]:
 
 def run_plan(plan: dict, settings, log=print, on_status=None, cancel: threading.Event | None = None,
              runner_factory=None, status_file: str | None = None, open_results: bool | None = None) -> Status:
-    """Alle aktivierten Läufe eines Plans nacheinander ausführen."""
-    cancel = cancel or threading.Event()
+    """Alle aktivierten Läufe eines Plans nacheinander ausführen (PixInsight/WBPP)."""
     real_pi = runner_factory is None
     runner_factory = runner_factory or (lambda: Runner(settings.pixinsight))
+
+    def preflight():
+        if real_pi and not os.path.exists(settings.pixinsight):
+            raise StackError("PixInsight nicht gefunden: %s – Pfad in den Einstellungen prüfen." % settings.pixinsight)
+
+    def opener(finals):
+        subprocess.Popen([settings.pixinsight] + finals)
+
+    return run_frame(plan, settings, one_run=_one_run, runner_factory=runner_factory, preflight=preflight,
+                     opener=opener if real_pi else None, log=log, on_status=on_status, cancel=cancel,
+                     status_file=status_file, open_results=open_results)
+
+
+def run_frame(plan: dict, settings, one_run, runner_factory, preflight, opener=None, log=print, on_status=None,
+              cancel: threading.Event | None = None, status_file: str | None = None,
+              open_results: bool | None = None) -> Status:
+    """Engine-neutraler Rahmen: Jobdir, Status-Datei, Protokoll, Energiesparsperre, Schleife über die Läufe.
+
+    one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, cancel, runner_factory) → Master-Pfad.
+    preflight() prüft Engine-Voraussetzungen; opener(finals) öffnet Ergebnisse (None = nicht öffnen).
+    """
+    cancel = cancel or threading.Event()
     st = Status(state="running", started=datetime.datetime.now().isoformat(timespec="seconds"))
     pdir = plan["workdir"]
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -601,8 +622,7 @@ def run_plan(plan: dict, settings, log=print, on_status=None, cancel: threading.
     try:
         if keep:
             keep.__enter__()
-        if real_pi and not os.path.exists(settings.pixinsight):
-            raise StackError("PixInsight nicht gefunden: %s – Pfad in den Einstellungen prüfen." % settings.pixinsight)
+        preflight()
         runs = [r for r in plan["runs"] if r.get("enabled", True)]
         if not runs:
             raise StackError("Kein Lauf aktiviert.")
@@ -615,12 +635,13 @@ def run_plan(plan: dict, settings, log=print, on_status=None, cancel: threading.
             st.steps_done = []
             _set_step(st, "check", 0, len(run["lights"]))
             _save()
-            masters[run["name"]] = _one_run(plan, run, settings, jobdir, masters, finaldir, st, _log, _save, cancel, runner_factory)
+            masters[run["name"]] = one_run(plan, run, settings, jobdir, masters, finaldir, st, _log, _save, cancel,
+                                           runner_factory)
         st.state = "done"
         _record_stacks(plan, st, stamp, _log)
         _log("Fertig: " + ", ".join(os.path.basename(f) for f in st.finals))
-        if (settings.open_results if open_results is None else open_results) and st.finals and real_pi:
-            subprocess.Popen([settings.pixinsight] + st.finals)
+        if (settings.open_results if open_results is None else open_results) and st.finals and opener:
+            opener(st.finals)
     except Cancelled:
         st.state, st.error = "cancelled", "vom Benutzer abgebrochen"
         _log("Abgebrochen.")
