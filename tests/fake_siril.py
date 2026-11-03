@@ -36,18 +36,21 @@ def _bad_frames() -> set[int]:
     return {int(x) for x in os.environ.get("FAKESIRIL_BAD_FRAMES", "").split(",") if x.strip()}
 
 
-def _write_seq(seq: str, n: int, ref: int = 0) -> None:
-    """Sequenzdatei „<seq>.seq“ (seq mit Unterstrich, z. B. pp_light_) nach dem Muster der echten Siril-1.4-Ausgabe."""
+def _write_seq(seq: str, n: int, ref: int = 0, identity: bool = False) -> None:
+    """Sequenzdatei „<seq>.seq“ nach dem Muster der echten Siril-1.4.4-Ausgabe (Mono: R0-Zeilen, S-Feld 6 =
+    0-basierter Referenz-Index). register schreibt die Homographie in <seq>.seq; seqapplyreg (identity=True)
+    schreibt nur die ausgewählten Frames mit Identität in r_<seq>.seq."""
     bad = _bad_frames()
-    L = ["#Siril sequence file (fake)", "S '%s' 1 %d %d 5 %d 6 0 0 0" % (seq, n, n - len(bad), ref), "L %d" % (ref + 1)]
+    kept = [i for i in range(1, n + 1) if not identity or i not in bad]
+    L = ["#Siril sequence file (fake)", "S '%s' 1 %d %d 5 %d 6 0 0 0" % (seq, n, len(kept), ref), "L 1"]
     L += ["I %d %d" % (i, 0 if i in bad else 1) for i in range(1, n + 1)]
-    for i in range(1, n + 1):
+    for i in kept:
         if i in bad:
             L.append("R0 0 0 0 0 0 0 H 0 0 0 0 0 0 0 0 0")
         else:
             # Drift wie bei echten Nächten: Referenz 0 px, weitere Frames 1–4 px (nie „0,0 px“ = Sensormuster)
             zero = os.environ.get("FAKESIRIL_ZERO_SHIFT") == "1"     # Sensormuster: alle „0,0 px“ auf der Referenz
-            tx, ty = (0.0, 0.0) if zero or i - 1 == ref else (1.0 + 0.9 * i, -0.6 * i)
+            tx, ty = (0.0, 0.0) if identity or zero or i - 1 == ref else (1.0 + 0.9 * i, -0.6 * i)
             L.append("R0 4.6 4.6 0.77 0 0.02 38 H 1 0 %g 0 1 %g 0 0 1" % (tx, ty))
     open(seq + ".seq", "w", encoding="utf-8").write("\n".join(L) + "\n")
 
@@ -150,7 +153,7 @@ def run_script(workdir: str, script: str) -> int:
             for f in _seq_files(args[0]):
                 data, hdr = _read(f)
                 _write(pre + os.path.basename(f), data, hdr)
-            _write_seq(pre + args[0], len(_seq_files(args[0])), _REF.get(args[0], 1) - 1)
+            _write_seq(pre + args[0], len(_seq_files(args[0])), _REF.get(args[0], 1) - 1, identity=True)
         elif cmd == "setref":
             _REF[args[0]] = int(args[1])
         elif cmd == "unselect":

@@ -518,10 +518,11 @@ def _causes(lines: list[str], code: int | None = None) -> list[dict]:
 
 
 def parse_registration(text: str, lights: list[str]) -> list[dict]:
-    """Siril-Sequenz nach „register“ → Kennzahlen je Light (gleiche Form wie wbpplog.registrations).
+    """Siril sequence after „register“ → per-light metrics (same shape as wbpplog.registrations).
 
-    Fehlgeschlagen: R0-Zeile mit 0 Sternen bzw. I-Zeile mit Flag 0. Die Zeilen folgen der Reihenfolge der Lights."""
-    ref, sel, rows = None, {}, []
+    S field 6 = 0-based reference index. One Rk row per frame: star/FWHM values, 3x3 homography in fields 8-16.
+    Mono uses R0, OSC registers on the green channel (R1). Failed: 0 stars or I flag 0."""
+    ref, sel, rows = None, {}, {}
     for ln in text.splitlines():
         f = ln.split()
         if not f:
@@ -530,8 +531,11 @@ def parse_registration(text: str, lights: list[str]) -> list[dict]:
             ref = int(f[6])
         elif f[0] == "I" and len(f) > 2:
             sel[int(f[1])] = f[2] != "0"
-        elif f[0] == "R0" and len(f) >= 17:
-            rows.append(f)
+        elif re.fullmatch(r"R\d+", f[0]) and len(f) >= 17:
+            rows.setdefault(f[0], []).append(f)
+    if not rows:
+        return []
+    rows = rows["R1"] if "R1" in rows else rows[sorted(rows)[0]]
     regs = []
     for i, f in enumerate(rows):
         if i >= len(lights):
@@ -553,7 +557,8 @@ def parse_registration(text: str, lights: list[str]) -> list[dict]:
 def _check_registration(run: dict, outdir: str, seq_name: str, ref_frames: int, notes: list, log) -> dict | None:
     """Registrierung aus der Siril-Sequenz prüfen. Wie PixInsight: Lauf ohne falsche Frames wiederholen (einmal)
     bzw. bei „am Sensor ausgerichtet“ mit Hotpixel-Entfernung und strengerer Sternerkennung neu rechnen."""
-    seq = os.path.join(outdir, "seq_light", "r_%s.seq" % seq_name)
+    # register writes the matrices into the input sequence; seqapplyreg's r_ output has identity matrices only
+    seq = os.path.join(outdir, "seq_light", "%s.seq" % seq_name)
     try:
         regs = parse_registration(open(seq, encoding="utf-8", errors="replace").read(),
                                   run["lights"] + [REF_MARK] * ref_frames)

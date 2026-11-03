@@ -9,30 +9,38 @@ from astrostack.engines import pixinsight as pi
 
 from .test_siril_run import make_cli, make_plan, posix_only, settings
 
-# Ausschnitt einer echten Siril-1.4-Sequenz nach „seqapplyreg“; Referenz = 0-basierter Index 3
-SEQ_OK = """#Siril sequence file
-S 'r_pp_light_' 1 4 4 5 3 6 0 0 0
-L 1
-I 1 1
-I 2 1
-I 3 0
-I 4 1
-R0 4.66548 4.66548 0.768193 0 0.0249208 38 H 1 0 0 0 1 0 0 0 1
-R0 4.58984 5.31455 0.780477 0 0.0219428 35 H 0.992064 -0.00230786 2.18651 -0.00157192 0.993154 0.171085 -2.41592e-05 -5.21295e-05 1
-R0 0 0 0 0 0 0 H 0 0 0 0 0 0 0 0 0
-R0 4.5519 4.5519 0.757735 0 0.0247395 38 H 1 0 0 0 1 0 0 0 1
-"""
+FIX = os.path.join(os.path.dirname(__file__), "fixtures", "siril")
+LIGHTS4 = ["/d/a.fit", "/d/b.fit", "/d/c.fit", "/d/d.fit"]
 
 
-def test_parse_registration_reads_shift_scale_and_failures():
-    lights = ["/d/a.fit", "/d/b.fit", "/d/c.fit", "/d/d.fit"]
-    regs = siril.parse_registration(SEQ_OK, lights)
+def _fixture(name: str) -> str:
+    return open(os.path.join(FIX, name), encoding="utf-8").read()
+
+
+def test_parse_real_mono_sequence_reads_homography_from_register_output():
+    # Siril 1.4.4: Homographie steht in <seq>.seq nach „register“; Referenz = Index 3 (Frame 4, Identität)
+    regs = siril.parse_registration(_fixture("mono_fault_pp_light.seq"), LIGHTS4)
     assert {"reference": "/d/d.fit"} in regs
     by = {r["file"]: r for r in regs if "file" in r}
-    assert by["/d/b.fit"]["tx"] == pytest.approx(2.18651) and by["/d/b.fit"]["ty"] == pytest.approx(0.171085)
-    assert by["/d/b.fit"]["scale"] == pytest.approx((0.992064 * 0.993154 - 0.00230786 * 0.00157192) ** 0.5)
-    assert by["/d/b.fit"]["nstars"] == 35
+    assert by["/d/a.fit"]["tx"] == pytest.approx(-3) and by["/d/a.fit"]["ty"] == pytest.approx(-1)
+    assert by["/d/b.fit"]["tx"] == pytest.approx(-8) and by["/d/b.fit"]["ty"] == pytest.approx(2)
+    assert by["/d/a.fit"]["scale"] == pytest.approx(1, abs=1e-6)
+    assert by["/d/a.fit"]["nstars"] == 76
+    assert by["/d/c.fit"]["failed"] is True            # von Siril verworfen (I-Zeile 0, Zeile 0 0 0)
+
+
+def test_parse_real_osc_sequence_uses_green_channel():
+    regs = siril.parse_registration(_fixture("osc_fault_pp_light.seq"), LIGHTS4)
+    by = {r["file"]: r for r in regs if "file" in r}
+    assert {"reference": "/d/a.fit"} in regs              # OSC: Referenz = Index 0
+    assert by["/d/b.fit"]["tx"] == pytest.approx(-5, abs=1e-3) and by["/d/b.fit"]["ty"] == pytest.approx(3, abs=1e-3)
     assert by["/d/c.fit"]["failed"] is True
+
+
+def test_seqapplyreg_identity_sequence_is_not_used_for_checks():
+    # r_-Sequenz hat nach seqapplyreg nur Identität → taugt nicht zur Prüfung
+    regs = siril.parse_registration(_fixture("mono_fault_r_pp_light.seq"), ["/d/a.fit", "/d/b.fit", "/d/d.fit"])
+    assert all(r.get("tx", 0) == 0 for r in regs)
 
 
 def test_lock_frame_is_judged_as_sensor_alignment():
@@ -141,7 +149,7 @@ def test_darks_use_cosmetic_correction_with_configured_sigmas(tmp_path, monkeypa
 def test_registration_without_rows_is_not_reported_as_plausible(tmp_path):
     seq_dir = tmp_path / "seq_light"
     seq_dir.mkdir()
-    (seq_dir / "r_pp_light_.seq").write_text("#Siril sequence file\nS 'pp_light_' 1 0 0 5 0 6 0 0 0\n")
+    (seq_dir / "pp_light_.seq").write_text("#Siril sequence file\nS 'pp_light_' 1 0 0 5 0 6 0 0 0\n")
     logs = []
     lights = [str(tmp_path / ("light_%d.fit" % i)) for i in range(3)]
     assert siril._check_registration(dict(name="L", lights=lights), str(tmp_path), "pp_light_", 0, [],
