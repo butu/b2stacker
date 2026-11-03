@@ -16,6 +16,8 @@ import threading
 import time
 from dataclasses import dataclass
 
+import numpy as np
+
 from .. import logbook, stackqa, staging, steps, system, wbpplog
 from ..fitsmeta import BIAS, DARK, FLAT
 from ..system import _decode
@@ -225,16 +227,29 @@ def build_script(spec: dict) -> str:
         L.extend(["cd " + _quote(g["lights"]), "convert light %s" % _kv("-out", seq_light), "cd " + _quote(seq_light)])
         L.append("calibrate light_ %s -prefix=pp_" % " ".join(cal))
         seqs.append(_p(os.path.join(seq_light, "pp_light_")))
-    if spec.get("sigma"):
-        L.append("setfindstar -sigma=%.2f" % spec["sigma"])
+    sigma_line = "setfindstar -sigma=%.2f" % spec["sigma"] if spec.get("sigma") else ""
+    ref = spec.get("reference")
+    if ref:                                                # Referenzframes als eigene Sequenz (nicht kalibriert)
+        L.extend(["cd " + _quote(ref), "convert ref %s" % _kv("-out", os.path.join(out, "seq_ref")), ])
+        seqs.append(_p(os.path.join(out, "seq_ref", "ref_")))
     seq = _stack_seq(len(seqs))
-    if len(seqs) > 1:                                      # Gruppen → eine Sequenz in Auswahlreihenfolge der Gruppen
+    if len(seqs) > 1:                                      # Gruppen (+ Referenz) → eine Sequenz in dieser Reihenfolge
         L.append("cd " + _quote(os.path.join(out, "seq_light")))
         L.append("merge %s lights" % " ".join(_quote(s) for s in seqs))
-    L.append("register %s -2pass -minpairs=10 -transf=homography -maxstars=2000" % seq)
-    L.append("seqapplyreg %s -interp=lanczos4 -prefix=r_" % seq)
-    L.append("stack r_%s rej w 3 3 -norm=addscale -weight=wfwhm -output_norm -32b%s -out=result"
-             % (seq, " -rgb_equal" if spec.get("osc") else ""))
+    if sigma_line:
+        L.append(sigma_line)
+    if ref:
+        n = sum(g.get("n", 0) for g in groups)
+        # Referenz = erster Referenzframe; Registrierung ohne -2pass, sonst würde Siril die Referenz neu wählen
+        L.append("setref %s %d" % (seq, n + 1))
+        L.append("register %s -minpairs=10 -transf=homography -maxstars=2000" % seq)
+        L.append("seqapplyreg %s -interp=lanczos4 -prefix=r_" % seq)
+        L.append("unselect r_%s %d %d" % (seq, n + 1, n + 2))
+    else:
+        L.append("register %s -2pass -minpairs=10 -transf=homography -maxstars=2000" % seq)
+        L.append("seqapplyreg %s -interp=lanczos4 -prefix=r_" % seq)
+    L.append("stack r_%s rej w 3 3 -norm=addscale -weight=wfwhm -output_norm -32b%s%s -out=result"
+             % (seq, " -rgb_equal" if spec.get("osc") else "", " -filter-included" if ref else ""))
     return "\n".join(L) + "\n"
 
 
@@ -308,6 +323,38 @@ def _stage_set(stg, cs: dict | None, folder: str, prefix: str) -> dict | None:
     return cs
 
 
+REF_MARK = "<Referenz>"       # Platzhalter für die zwei Referenzframes in der Registrierungsauswertung
+
+
+def _reference_files(src: str, osc: bool, shape: tuple, folder: str) -> str:
+    """Referenzbild als zwei gleiche FITS-Frames („ref_00001/2“) mit Geometrie der Lights.
+
+    Siril legt aus einem Einzelbild keine Sequenz an, daher zwei Frames; der zweite wird ebenfalls ausgeschlossen."""
+    from astropy.io import fits
+    if src.lower().endswith(".xisf"):
+        from .. import xisf
+        arr = xisf.read_image(src)
+    else:
+        arr = fits.getdata(src)
+    arr = np.asarray(arr, dtype=np.float32)
+    arr = arr[None] if arr.ndim == 2 else arr
+    if arr.shape[1:] != tuple(shape):
+        raise StackError("Referenzbild hat eine andere Bildgröße (%dx%d) als die Lights (%dx%d) – die Referenz muss "
+                         "aus denselben Aufnahmen stammen." % (arr.shape[2], arr.shape[1], shape[1], shape[0]))
+    if arr.shape[0] not in (1, 3):
+        raise StackError("Referenzbild hat %d Kanäle – erwartet werden 1 (Mono) oder 3 (RGB)." % arr.shape[0])
+    if osc and arr.shape[0] == 1:
+        arr = np.repeat(arr, 3, axis=0)                  # Mono-Master für RGB-Lauf: Graustufen auf 3 Kanäle
+    elif not osc and arr.shape[0] == 3:
+        arr = arr.mean(axis=0, keepdims=True)            # RGB-Master für Mono-Lauf: Helligkeit als Mittelwert
+    data = arr if osc else arr[0]
+    os.makedirs(folder, exist_ok=True)
+    for i in (1, 2):
+        dst = os.path.join(folder, "ref_%05d.fit" % i)
+        fits.PrimaryHDU(data=data.astype(np.float32), header=fits.Header()).writeto(dst, overwrite=True)
+    return folder
+
+
 def _causes(lines: list[str]) -> list[dict]:
     """Verständliche Ursachen aus der Siril-Ausgabe (englische Meldungen, siehe docs/ERKENNTNISSE.md)."""
     text = "\n".join(lines).lower()
@@ -366,12 +413,14 @@ def parse_registration(text: str, lights: list[str]) -> list[dict]:
     return regs
 
 
-def _check_registration(run: dict, outdir: str, seq_name: str, notes: list, log) -> dict | None:
+def _check_registration(run: dict, outdir: str, seq_name: str, ref_frames: int, notes: list, log) -> dict | None:
     """Registrierung aus der Siril-Sequenz prüfen. Wie PixInsight: Lauf ohne falsche Frames wiederholen (einmal)
     bzw. bei „am Sensor ausgerichtet“ mit Hotpixel-Entfernung und strengerer Sternerkennung neu rechnen."""
     seq = os.path.join(outdir, "seq_light", "r_%s.seq" % seq_name)
     try:
-        regs = parse_registration(open(seq, encoding="utf-8", errors="replace").read(), run["lights"])
+        regs = parse_registration(open(seq, encoding="utf-8", errors="replace").read(),
+                                  run["lights"] + [REF_MARK] * ref_frames)
+        regs = [r for r in regs if r.get("file") != REF_MARK]          # zweiter Referenzframe: nicht bewerten
         bad = wbpplog.judge(regs, wbpplog.light_info(run["lights"]))
     except Exception as e:  # noqa: BLE001 – Prüfung darf das Ergebnis nicht gefährden
         log("  Hinweis: Registrierung nicht geprüft (%s)" % e)
@@ -416,6 +465,35 @@ def _drop_intermediates(outdir: str) -> None:
                 shutil.rmtree(full, ignore_errors=True)
 
 
+def _reference_source(run: dict, plan: dict, masters: dict, log) -> str | None:
+    """Referenzbild aus „file:“ oder „master:<lauf>“ (wie PixInsight). None = Siril wählt selbst."""
+    r = run.get("reference") or "auto"
+    if r.startswith("master:"):
+        src = r[7:]
+        ref = masters.get(src)
+        if not ref:
+            from .. import project as _project
+            ref = _project.latest_output(plan["workdir"], src)
+        if not ref:
+            log("  Referenz-Master %s nicht vorhanden – Siril wählt die Referenz selbst." % src)
+        return ref
+    if r.startswith("file:"):
+        ref = r[5:]
+        if not os.path.exists(ref):
+            raise StackError("Referenzbild nicht gefunden: " + ref)
+        return ref
+    return None
+
+
+def _light_shape(p: str) -> tuple:
+    if p.lower().endswith(".xisf"):
+        from .. import xisf
+        return tuple(xisf.read_image(p).shape[-2:])
+    from astropy.io import fits
+    h = fits.getheader(p)
+    return (int(h["NAXIS2"]), int(h["NAXIS1"]))
+
+
 def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, cancel, runner_factory) -> str:
     name = run["name"]
     orig_run = run
@@ -445,9 +523,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     pi._preflight_calibration(run, calib, log)
     if not calib["flats"]:
         log("  WARNUNG: keine Flats – Vignettierung und Staub bleiben im Bild.")
-    if run.get("reference") not in (None, "", "auto"):
-        log("  WARNUNG: Referenz „%s“ wird mit Siril noch nicht übernommen – Siril wählt die Referenz selbst. "
-            "Masters mehrerer Filter sind dadurch nicht zwingend deckungsgleich." % run.get("reference"))
+    ref_src = _reference_source(run, plan, masters, log)
 
     # Ohne Darks: Hotpixel vor dem Stacken mit unserer Korrektur entfernen (Siril-Äquivalent zur PixInsight-Stufe).
     # Mit Darks übernimmt -cc=dark die Hotpixel; _force_cosmetic (Wiederholung) erzwingt die Vorstufe immer.
@@ -488,7 +564,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
         merged += gl
         gflats = g.flats if g else calib["flats"]
         flat_dir = os.path.join(raw, sub, "flat")
-        spec_groups.append(dict(sub=sub, lights=lights_dir,
+        spec_groups.append(dict(sub=sub, lights=lights_dir, n=len(gl),
                                 flat=_stage_set(stg, _calib_spec(gflats, "flat", flat_dir, log), flat_dir, "flat")))
     if len(merged) != n:
         raise StackError("Interner Fehler: %d Lights bereitgestellt, %d gewählt." % (len(merged), n))
@@ -508,6 +584,11 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
         spec["sigma"] = min(5.0, (spec.get("sigma") or 1.0) + 1.0)
         log("  Sternerkennung strenger → setfindstar -sigma=%.2f" % spec["sigma"])
     os.makedirs(os.path.join(outdir, "seq_light"), exist_ok=True)     # Ziel von merge (Siril wechselt dorthin)
+    ref_dir = None
+    if ref_src:
+        ref_dir = _reference_files(ref_src, spec["osc"], _light_shape(merged[0]), os.path.join(raw, "ref"))
+        spec["reference"] = ref_dir
+        log("  Referenz: %s (Siril-Frames %d und %d, ausgeschlossen)" % (os.path.basename(ref_src), n + 1, n + 2))
     to_orig = dict(zip(run["lights"], orig_run["lights"]))           # Cosmetic-Kopien → Original-Lights
     reg_lights = [to_orig.get(p, p) for p in merged]                  # Registrierung in Siril-Reihenfolge
     script_text = build_script(spec)
@@ -515,7 +596,8 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     open(script, "w", encoding="utf-8").write(script_text)
     log("  Skript: %s (%d Zeilen)" % (script, script_text.count("\n")))
     logbook.event("staging", run=name, grouping=multi, lights=len(merged), **stg.stats)
-    dirs = [outdir, settings.workdir] + [os.path.dirname(p) for p in run["lights"]] + \
+    dirs = [outdir, settings.workdir] + ([os.path.dirname(ref_src)] if ref_src else []) + \
+        [os.path.dirname(p) for p in run["lights"]] + \
         [os.path.dirname(p) for k in calib for p in (calib[k] or [])]
     inst = locate(settings.siril)
     if inst is None:
@@ -609,7 +691,8 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
         logbook.event("stack_diagnosis", run=name, causes=causes)
         raise StackError("Stacking fehlgeschlagen beim %s: %s" % (steps.BY_KEY.get(key, {}).get("title", "Stacken"), why))
     notes = list(orig_run.get("_notes") or [])
-    retry = _check_registration(dict(orig_run, lights=reg_lights), outdir, _stack_seq(len(groups or [])), notes, log)
+    retry = _check_registration(dict(orig_run, lights=reg_lights), outdir,
+                                _stack_seq(len(spec_groups) + (1 if ref_dir else 0)), 2 if ref_dir else 0, notes, log)
     if retry is not None:
         return _one_run(plan, retry, settings, jobdir, masters, finaldir, st, log, save, cancel, runner_factory)
     log("  Stack: %s (%s)" % (os.path.basename(result), pi._elapsed(time.time() - t0)))

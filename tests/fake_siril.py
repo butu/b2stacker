@@ -3,7 +3,7 @@
 Interpretiert die Befehle, die engines/siril.py erzeugt (Verhalten grob nach Siril 1.4.4):
 * ``siril-cli --version`` → ``siril 1.4.4``
 * ``siril-cli -d <dir> -s <skript.ssf>`` (Skriptpfad absolut, wie in der Engine)
-* ``requires``, ``setext``, ``cd``, ``setfindstar`` (no-op), ``convert <name> -out=<dir>``, ``merge <seq>… <out>``,
+* ``requires``, ``setext``, ``cd``, ``setfindstar`` (no-op), ``convert <name> -out=<dir>``, ``merge <seq>… <out>``, ``setref``, ``unselect``,
   ``calibrate <seq>_ [-bias= -dark= -flat= -cc= -cfa -equalize_cfa -debayer] -prefix=P``,
   ``register <seq>_``, ``seqapplyreg <seq>_ -prefix=P``, ``stack <seq>_ … -out=N``.
 * Ausgabe wie Siril: ``log: Running command: <cmd>``, ``progress: …, NN.NN%``; bei Fehler
@@ -55,6 +55,22 @@ def _selected(seq: str) -> set[int]:
     if not os.path.exists(p):
         return set()
     return {int(ln.split()[1]) for ln in open(p, encoding="utf-8") if ln.startswith("I ") and ln.split()[2] == "1"}
+
+
+_REF: dict[str, int] = {}       # setref-Position (1-basiert) je Sequenz – nur für diesen Lauf
+
+
+def _set_selection(seq: str, a: int, b: int, value: int) -> None:
+    """unselect/select: I-Zeilen a..b (1-basiert) auf value setzen."""
+    p = seq + ".seq"
+    lines = open(p, encoding="utf-8").read().splitlines()
+    out = []
+    for ln in lines:
+        f = ln.split()
+        if f and f[0] == "I" and a <= int(f[1]) <= b:
+            ln = "I %s %d" % (f[1], value)
+        out.append(ln)
+    open(p, "w", encoding="utf-8").write("\n".join(out) + "\n")
 
 
 def _opt(args: list[str], key: str, default=None):
@@ -115,14 +131,18 @@ def run_script(workdir: str, script: str) -> int:
             files = _seq_files(args[0])
             if os.environ.get("FAKESIRIL_FAIL_REGISTER") == "1" or len(files) < 2:
                 return _fail(i, cmd, "not enough star pairs")
-            _write_seq(args[0], len(files))
+            _write_seq(args[0], len(files), _REF.get(args[0], 1) - 1)
             print("log: Registration of %d images done" % len(files), flush=True)
         elif cmd == "seqapplyreg":
             pre = _opt(args, "-prefix", "r_")
             for f in _seq_files(args[0]):
                 data, hdr = _read(f)
                 _write(pre + os.path.basename(f), data, hdr)
-            _write_seq(pre + args[0], len(_seq_files(args[0])))
+            _write_seq(pre + args[0], len(_seq_files(args[0])), _REF.get(args[0], 1) - 1)
+        elif cmd == "setref":
+            _REF[args[0]] = int(args[1])
+        elif cmd == "unselect":
+            _set_selection(args[0], int(args[1]), int(args[2]), 0)
         elif cmd == "merge":                                   # Sequenzen hintereinander → eine neue Sequenz
             out, frames = args[-1], []
             for src in args[:-1]:
