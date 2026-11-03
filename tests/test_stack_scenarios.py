@@ -312,3 +312,105 @@ def test_merged_project_accepts_calibration_only_folder(tmp_path, monkeypatch):
     res2 = project.run_report(project.sources(pdir)["roots"], m["target"], s, log=lambda *x: None, into=m["target"])
     assert res2 and res2[0]["frames"] == 6
     assert project.load_plan(pdir)["runs"][0]["bias"], "Bias aus dem neuen Ordner übernommen"
+
+
+def _lock_once(monkeypatch, then_fail=False):
+    """Erster Versuch: „an Hotpixeln ausgerichtet“ (wie NGC 3486, Bericht 2 §13), danach normal."""
+    from astrostack import wbpplog
+    calls = []
+
+    def fake_check(outdir, info):
+        calls.append(outdir)
+        if len(calls) == 1:
+            if then_fail:
+                monkeypatch.setenv("FAKEPI_FAIL_REGISTRATION", "1")
+            return dict(frames=3, reference=None, log=None,
+                        bad=[dict(file="L_%d.xisf" % i, why=["0,0 px"], lock=True) for i in range(2)])
+        return dict(frames=3, reference=None, log=None, bad=[])
+    monkeypatch.setattr(wbpplog, "check_registration", fake_check)
+    monkeypatch.setattr(pi, "_cosmetic", lambda plan, run, *a, **k: run)      # Hotpixel-Weg hier nicht Thema
+    return calls
+
+
+def test_lock_retry_uses_valid_parameters_and_new_master(tmp_path, monkeypatch):
+    """Bericht 2 §13: Wiederholung mit hotPixelFilterRadius ≤ 2, Ergebnis stammt aus dem zweiten Versuch."""
+    build(str(tmp_path / "nas"))
+    s, pdir = analyse(tmp_path, monkeypatch, str(tmp_path / "nas"))
+    plan = select_only(pdir, lambda p: NIGHTS[0][0] in p)
+    calls = _lock_once(monkeypatch)
+    lines = []
+    st, got, cmd, jobdir = stack(s, plan, monkeypatch, lines)
+    assert st.state == "done", st.error + "\n" + "\n".join(lines)
+    assert len(calls) == 2, "nach dem zweiten Versuch erneut geprüft"
+    assert "hotPixelFilterRadius=2" in cmd and "hotPixelFilterRadius=3" not in cmd
+    out = os.path.join(jobdir, "RGB")
+    assert os.path.isdir(out + ".versuch-1"), "erster Versuch beiseitegelegt"
+    assert st.runs["RGB"]["master"].startswith(out + os.sep)
+    assert any("Hotpixeln" in n for n in st.runs["RGB"]["notes"])
+
+
+def test_failed_retry_never_ships_old_master(tmp_path, monkeypatch):
+    """Bericht 2 §13 (kritisch): scheitert die Wiederholung, endet der Lauf als fehlgeschlagen – ohne Final."""
+    build(str(tmp_path / "nas"))
+    s, pdir = analyse(tmp_path, monkeypatch, str(tmp_path / "nas"))
+    plan = select_only(pdir, lambda p: NIGHTS[0][0] in p)
+    _lock_once(monkeypatch, then_fail=True)
+    st, got, cmd, jobdir = stack(s, plan, monkeypatch)
+    assert st.state == "failed" and not st.finals, (st.state, st.finals)
+    assert st.failed_step == "register" or "Ausrichtung" in st.error, st.error
+    assert any("kein" in c["text"].lower() for c in st.causes), st.causes
+    final = os.path.join(pdir, "final")
+    assert not os.path.isdir(final) or not os.listdir(final)
+    old = os.path.join(jobdir, "RGB.versuch-1", "master")
+    assert all(f.endswith(".verworfen") for f in os.listdir(old)), os.listdir(old)
+
+
+def test_wbpp_parameters_clamped_before_start():
+    p, notes = pi.check_wbpp_params({"hotPixelFilterRadius": "3", "maxStarDistortion": "0.45", "structureLayers": "x"})
+    assert p["hotPixelFilterRadius"] == "2" and p["maxStarDistortion"] == "0.45" and "structureLayers" not in p
+    assert len(notes) == 2
+
+
+def test_wbpp_diagnostics_are_hints_and_calibration_counts_lights(tmp_path, monkeypatch):
+    """Bericht 2 §11/§12: LongPaths-Vorabdiagnose ist kein Alarm; „Kalibrieren“ zählt Lights, nicht Flats."""
+    build(str(tmp_path / "nas"))
+    s, pdir = analyse(tmp_path, monkeypatch, str(tmp_path / "nas"))
+    plan = select_only(pdir, lambda p: NIGHTS[0][0] in p)
+    monkeypatch.setattr(pi, "ProcRunner", None, raising=False)
+    seen = []
+    orig = pi._set_step
+
+    class NoLong(ProcRunner):
+        def __init__(self):
+            super().__init__(long_paths=False)
+    monkeypatch.setattr(pi.staging, "long_paths_enabled", lambda: False)
+    monkeypatch.setattr(pi.system, "pixinsight_processes", lambda: [])
+    lines = []
+    st = pi.run_plan(plan, s, log=lines.append, runner_factory=NoLong,
+                     on_status=lambda x: seen.append((x.step, x.done, x.total, list(x.substeps))))
+    assert st.state == "done", st.error
+    assert not st.alert, st.alert
+    assert any("lange Pfade" in h and "unkritisch" in h for h in st.hints), st.hints
+    assert not any(l.lstrip().startswith("⚠") for l in lines)
+    cal = [x for x in seen if x[0] == "calibrate"]
+    assert all(d <= t == 3 for _k, d, t, _s in cal), cal
+    subs = [s for x in cal for s in x[3]]
+    assert {"master_bias", "cal_flat", "cal_light"} <= {s["key"] for s in subs} or not subs
+
+
+def test_calibration_substeps_from_wbpp_log():
+    from astrostack import wbpplog
+    t = wbpplog.CalibTracker(n_lights=28, n_flats=60)
+    t.feed("[x] * Begin integration of Bias frames")
+    t.feed("[x] * Writing master Bias frame")
+    for i in range(60):
+        t.feed("Calibration frame %d: G:/w/_grp/flats_652791f451/Flat_%04d.fit ---> G:/w/IR/calibrated/Flat_BIN-1_CFA/Flat_%04d_c.xisf" % (i, i, i))
+    t.feed("[x] * Begin integration of Flat frames")
+    for i in range(5):
+        t.feed("Calibration frame %d: //JUPITER/disk2/L_%04d.fit ---> G:/w/IR/calibrated/Light_BIN-1_CFA/L_%04d_c.xisf" % (i, i, i))
+    subs = {s["key"]: s for s in t.as_list()}
+    assert subs["master_bias"]["state"] == "done"
+    assert subs["cal_flat"]["done"] == 60 and subs["cal_flat"]["state"] == "done"
+    assert subs["master_flat"]["state"] == "done"            # vom nächsten Unterschritt abgelöst
+    assert subs["cal_light"]["done"] == 5 and t.lights_done == 5 and subs["cal_light"]["state"] == "now"
+    assert "unkritisch" in wbpplog.hint_text("** Warning: Diagnostics: Cannot create files with a path longer than 256 characters", 175)

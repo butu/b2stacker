@@ -58,7 +58,18 @@ Im Reiter **Frames** steht jedes Bild als Kachel; ein Häkchen heißt „verwend
 und Sortierungen (Nacht, Sterne, HFR, FWHM, Bewertung) helfen beim Aussortieren.
 
 Großansicht: Pfeiltasten blättern, **V** = verwenden, **N** = nicht verwenden (beide springen weiter),
-**A** = zurück auf Automatik, Leertaste schaltet um, Esc schließt. Deine Entscheidungen überleben jede Neu-Analyse.
+**A** = zurück auf Automatik, Leertaste schaltet um, **P** = als Projektbild verwenden, Esc schließt.
+
+**Sterne einblenden** (rechts unter „Einblenden“, nur bei Lights):
+
+- **S – Sterne:** grüne Ellipsen an den Sternen, die b2stacker erkennt (Größe = FWHM, Form und Richtung = Exzentrizität).
+- **X – Würde PixInsight verwerfen:** dieselben Sterne in Orange, wenn sie die StarAlignment-Grenze
+  `maxStarDistortion` nicht schaffen (Näherung). Sind fast alle Sterne orange, richtet PixInsight sich womöglich an
+  Hotpixeln aus.
+- **H – Hotpixel:** rote Punkte.
+
+Darunter steht eine Zeile wie „137 Sterne · FWHM 7,7 px · 112 würden verworfen · 4 600 Hotpixel“. Die Erkennung
+läuft beim ersten Einblenden (ein paar Sekunden) und wird danach gemerkt. Deine Entscheidungen überleben jede Neu-Analyse.
 
 ## 5. Stacken: Läufe, Kalibrierung, Optionen
 
@@ -74,10 +85,17 @@ Der Reiter **Stacken** zeigt den Plan. b2stacker stackt jeden Filter in einem ei
     sofort, wie viele Lights und **wie viele Stunden** dann integriert werden (mindestens 3 Lights bleiben).
     Deine Auswahl im Reiter „Frames“ ändert sich dadurch nicht.
   - **Referenz** – Frame, auf den ausgerichtet wird. „Master von …“ hält mehrere Filter deckungsgleich.
+  - **Sternerkennung angepasst** – erscheint, wenn die Sterne groß oder leicht oval sind (z. B. lange Brennweite).
+    b2stacker leitet dann aus der Analyse passende Werte für PixInsights StarAlignment ab (`maxStarDistortion`,
+    `minStructureSize`, Hotpixel- und Rauschfilter), damit an echten Sternen statt an Hotpixeln ausgerichtet wird.
   - Platzbedarf und Light-Ordner des Laufs.
 - **Empfohlene Einstellungen** gelten für alle Läufe (Hotpixel, Local Normalization, Gewichtung …).
   „Warum diese Einstellungen?“ erklärt jede Wahl.
 - Unten zeigt ein Kasten, ob alles bereit ist (Platz, Arbeitsspeicher, PixInsight) – dann **Stacken**.
+
+Ein Klick auf ein Ergebnis öffnet den **Ergebnis-Betrachter**: blättern mit den Pfeiltasten, rechts Aufnahme,
+Kalibrierung, Qualitätskennzahlen und Hinweise des Stacks, dazu „In PixInsight öffnen“, „Ordner öffnen“,
+„Als Projektbild“ (**P**), „Kennzahlen messen“ und „Umbenennen“. Bearbeitete Bilder sind in derselben Reihe.
 
 Fertige Stacks liegen in `<Arbeitsverzeichnis>/projects/<Projekt>/final/` als
 `Ziel_Filter_Datum_Stunden.xisf`. Dualband an der Farbkamera wird danach in Ha + OIII bzw. SII + OIII geteilt.
@@ -88,7 +106,18 @@ Analyse, Vorschauen und Stacking sind **Aufträge**. Es läuft immer einer; weit
 und lassen sich dort abbrechen. Das Symbol oben rechts zeigt den laufenden Auftrag mit Projekt, Schritt und
 Restzeit. Während ein Auftrag läuft, kannst du weiter Frames sichten und andere Projekte bearbeiten.
 
-Jeder Auftrag endet eindeutig mit **Fertig**, **Fehlgeschlagen** oder **Abgebrochen**.
+Beim Kalibrieren zeigt die Karte die Unterschritte aus dem PixInsight-Protokoll, z. B. „✓ Master-Bias erstellt ·
+✓ Flats kalibriert (60/60) · ▸ Master-Flat erstellen · Lights kalibrieren (0/28)“. Gibt es noch keine
+Schätzgrundlage, steht bei der Restzeit „wird geschätzt …“.
+
+Hinweise aus PixInsights Vorab-Prüfung (etwa „lange Pfade“ in Windows aus) erscheinen grau als **Hinweis**, nicht als
+Fehler. b2stacker schätzt selbst, wie lang die Pfade dieses Laufs werden, und stoppt nur dann vor dem Start, wenn sie
+wirklich zu lang wären.
+
+Jeder Auftrag endet eindeutig mit **Fertig**, **Fehlgeschlagen** oder **Abgebrochen**. Ein Ergebnis, das b2stacker
+selbst als unbrauchbar erkennt (z. B. an Hotpixeln statt an Sternen ausgerichtet), wird **nie** als „Fertig“
+ausgeliefert: b2stacker rechnet einmal mit Hotpixel-Entfernung neu, und scheitert auch das, endet der Lauf als
+fehlgeschlagen mit Erklärung.
 
 ## 7. Wenn etwas schiefgeht
 

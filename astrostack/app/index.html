@@ -535,6 +535,23 @@ iframe.report{width:100%;border:0;display:block;background:transparent;min-heigh
   .meter{grid-template-columns:1fr auto}.meter .mb{grid-column:1/-1;grid-row:2}}
 .topsl{display:flex;flex-direction:column;gap:4px;flex:1 1 220px;min-width:200px;align-items:stretch}
 .topsl input[type=range]{width:100%;accent-color:var(--accent)}
+.subs{display:flex;flex-direction:column;gap:2px;margin-top:8px;font-size:13px}
+.subs .sub{display:grid;grid-template-columns:18px 1fr;align-items:center;opacity:.55}
+.subs .sub.done{opacity:.75}.subs .sub.done span:first-child{color:var(--ok);display:flex}
+.subs .sub.now{opacity:1;font-weight:600}
+.alertline details.raw{margin-top:4px;color:var(--text-secondary);font-size:12.5px}
+.alertline details.raw code{display:block;white-space:pre-wrap;word-break:break-word;margin-top:4px}
+details.hints{margin-top:8px;font-size:13px;opacity:.6}details.hints summary{cursor:pointer;display:flex;gap:6px;align-items:center}
+details.hints>div{padding-left:20px;margin-top:3px}
+.fvstrip .fvthumb{display:flex;align-items:center;gap:10px;height:36px;padding:0 12px;border-radius:8px;color:var(--ok);font-size:14px;font-weight:700}
+.fvstrip .fvthumb svg{width:16px;height:16px}
+.fvstrip .rvsec{font-size:12px;text-transform:uppercase;letter-spacing:.06em;opacity:.5;margin-bottom:-8px}
+.fvstrip{overflow-y:auto}
+.fvstrip .fvov{display:flex;flex-direction:column;gap:5px}
+.fvstrip .ovc{display:flex;align-items:center;gap:9px;height:32px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:#fff;opacity:.65;font-size:13.5px;cursor:pointer;text-align:left}
+.fvstrip .ovc i{width:12px;height:9px;border:2px solid;border-radius:50%;flex:none}
+.fvstrip .ovc .kbd{margin-left:auto}.fvstrip .ovc.on{opacity:1;background:var(--fill)}
+.pswp svg.fvsvg{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}
 </style>
 </head>
 <body>
@@ -1160,9 +1177,11 @@ function jobCard(j){
     ${active&&d?`<div class="nowbox"><div class="big-ic">${ic(d.icon)}</div>
       <div><b>${esc(d.title)}</b>${p.total?` <span style="opacity:.6">· ${p.done} von ${p.total}</span>`:''}${p.target?` <span style="opacity:.6">· ${esc(p.target)}</span>`:''}
         <div class="what">${esc(p.message&&/beendet/.test(p.message)?p.message:d.what)}</div>${d.why?`<div class="why">Wozu: ${esc(d.why)}</div>`:''}
-        ${p.alert?`<div class="alertline">${ic('warn','s14')}<span>PixInsight meldet: ${esc(p.alert)}</span></div>`:''}
+        ${(p.substeps||[]).length?`<div class="subs">${p.substeps.map(x=>`<div class="sub ${x.state}"><span>${x.state==='done'?ic('check','s14'):x.state==='now'?'▸':''}</span><span>${esc(x.title)}${x.total?` <span style="opacity:.6">(${x.done}/${x.total})</span>`:''}</span></div>`).join('')}</div>`:''}
+        ${p.alert?`<div class="alertline">${ic('warn','s14')}<div><span>PixInsight meldet: ${esc(p.alert)}</span>${p.alert_raw&&p.alert_raw!==p.alert?`<details class="raw"><summary>Originaltext</summary><code>${esc(p.alert_raw)}</code></details>`:''}</div></div>`:''}
+        ${(p.hints||[]).length?`<details class="hints"><summary>${ic('info','s14')} ${p.hints.length===1?esc(p.hints[0]):p.hints.length+' Hinweise von PixInsight'}</summary>${p.hints.length>1?p.hints.map(h=>`<div>${esc(h)}</div>`).join(''):''}</details>`:''}
         <div class="progress ${pct==null?'indet':''}"><div style="width:${pct??0}%"></div></div></div>
-      <div class="eta"><span class="small" style="opacity:.6">noch ca.</span><b>${p.eta_s!=null?dur(p.eta_s):'…'}</b><span class="small" style="opacity:.6">läuft seit ${dur(p.step_elapsed_s)}</span></div></div>`:''}
+      <div class="eta">${p.eta_s!=null?`<span class="small" style="opacity:.6">noch ca.</span><b>${dur(p.eta_s)}</b>`:`<span class="small" style="opacity:.6">Restzeit</span><b style="font-size:14px">wird geschätzt …</b>`}<span class="small" style="opacity:.6">läuft seit ${dur(p.step_elapsed_s)}</span></div></div>`:''}
     ${j.state==='failed'?failBanner(j,p):''}
     ${j.state==='cancelled'?`<div class="banner"><div class="grow"><div class="bt">Abgebrochen</div><div class="bx">Bisher Erledigtes bleibt erhalten.</div></div></div>`:''}
     <details ${j.state==='failed'||UI.log?'open':''} id="jobLogBox"><summary class="lnk plain small" style="opacity:.75">${ic('down','s14')} Protokoll${(j.log||[]).length?` <span style="opacity:.6;font-weight:400">· ${(j.log||[]).length>=120?'letzte 120 Zeilen':(j.log||[]).length+' Zeilen'}</span>`:''}</summary>
@@ -1483,7 +1502,7 @@ function renderOverview(b){
       „Bilder vorbereiten“ prüft die lokalen Projektordner und verknüpften Bilder einmal bewusst und legt den Offline-Bestand samt Vorschauen an; eine Analyse der Lights ist dafür nicht nötig.</div></div>
       <button class="btn primary" id="assetPrepareBtn">Bilder vorbereiten</button></div>`:''}
     <div class="rgrid">${outs.map(({s,o})=>`<div class="rcard">
-      <div class="ph ${o.preview_url?'img':''}" style="${o.preview_url?`background-image:url('${esc(o.preview_url)}')`:''}" ${o.preview_url?`onclick='showImg(${jsArg(o.preview_url)},${jsArg(o.name+' · '+dt(s.date))})'`:''}>${o.preview_url?'':'Stack-Vorschau'}</div>
+      <div class="ph ${o.preview_url?'img':''}" style="${o.preview_url?`background-image:url('${esc(o.preview_url)}')`:''}" ${o.preview_url?`onclick='openRV(${jsArg('s:'+s.id+'|'+o.name)})'`:''}>${o.preview_url?'':'Stack-Vorschau'}</div>
       ${o.preview&&isThumb(o.preview)?`<span class="mark">Projektbild</span>`:''}
       <div class="rb"><div class="rh"><span class="tag">${fic(o.name)}${esc(o.name)}</span><span class="rd">${dlong(s.date)}</span></div>
         <div class="ell" style="font-size:14px;font-weight:600" title="${esc(stackName(s))}">${esc(s.name||'Stack '+(H.indexOf(s)+1))}${s.legacy?' <span class="badge neutral">ältere Version</span>':''}</div>
@@ -1491,8 +1510,9 @@ function renderOverview(b){
         ${(s.notes||[]).map(n=>`<div class="small warnc">${ic('warn','tiny')} ${esc(n)}</div>`).join('')}
         ${o.exists?'':`<div class="small errc ell" title="${esc(o.file)}">${ic('warn','tiny')} fehlt: ${esc(o.file.split(/[\\/]/).pop())}</div>`}
         <div class="ra"><button class="lnk" data-edit="${esc(o.name)}" ${o.exists?'':'disabled style="opacity:.4"'}>Bearbeitung</button>
+          ${o.preview&&!isThumb(o.preview)?`<button class="lnk" onclick='setThumb(${jsArg(o.preview)})' title="Auf der Projektkarte zeigen">Als Projektbild</button>`:''}
           <button class="btn ghost sm icon" data-sm="${esc(s.id)}|${esc(o.name)}" title="Weitere Aktionen">${ic('more')}</button></div></div></div>`).join('')}
-      ${AS.map(a=>`<div class="rcard"><div class="ph ${a.preview_url?'img':''}" style="${a.preview_url?`background-image:url('${esc(a.preview_url)}')`:''}" ${a.preview_url?`onclick='showImg(${jsArg(a.preview_url)},${jsArg(a.name||'')})'`:''}>${a.preview_url?'':esc(a.preview_error?'Keine Vorschau: '+a.preview_error:'keine Vorschau')}</div>
+      ${AS.map(a=>`<div class="rcard"><div class="ph ${a.preview_url?'img':''}" style="${a.preview_url?`background-image:url('${esc(a.preview_url)}')`:''}" ${a.preview_url?`onclick='openRV(${jsArg('a:'+a.id)})'`:''}>${a.preview_url?'':esc(a.preview_error?'Keine Vorschau: '+a.preview_error:'keine Vorschau')}</div>
         <div class="rb"><div class="rh"><span class="tag">${ic('image','tiny')}Bearbeitet</span></div>
           <div class="ell" style="font-size:14px;font-weight:600" title="${esc(a.name)}">${esc(a.name)}</div>
           <div class="rk ell mono" title="${esc(a.path)}">${a.exists?'':'⚠ fehlt: '}${esc(a.path)}</div>
@@ -1620,6 +1640,10 @@ function fvKey(e){
   if(e.ctrlKey||e.metaKey||e.altKey)return;
   const t=e.target, tag=t&&t.tagName;
   if(tag==='TEXTAREA'||tag==='SELECT'||(t&&t.isContentEditable)||(tag==='INPUT'&&!['checkbox','radio'].includes(t.type)))return;
+  if(RVS&&RVS.pswp){
+    if(!e.repeat&&String(e.key).toLowerCase()==='p'){e.preventDefault();rvThumbCur();}
+    return;
+  }
   if(FVS&&FVS.pswp){
     // PhotoSwipe owns arrows and Escape. Space is the review toggle, never auto-next.
     if(e.key===' '){
@@ -1627,6 +1651,10 @@ function fvKey(e){
       if(tag==='INPUT')return;
       if(tag==='BUTTON')t.blur();
       e.preventDefault();fvToggleCur();
+    }else if(!e.repeat&&['s','x','h'].includes(String(e.key).toLowerCase())){
+      e.preventDefault();fvToggleOv(String(e.key).toLowerCase());
+    }else if(!e.repeat&&String(e.key).toLowerCase()==='p'){
+      e.preventDefault();fvThumbCur();
     }else if(!e.repeat&&['v','n','a'].includes(String(e.key).toLowerCase())){
       // V/N decide and move on to the next frame (design: "nach V/N geht es automatisch weiter"), A resets to automatic.
       e.preventDefault();fvDecideCur(String(e.key).toLowerCase());
@@ -1881,7 +1909,49 @@ function fvDecideCur(key){
   if(p.currIndex<FVS.frames.length-1&&p.next)p.next();
 }
 // ---------- PhotoSwipe lightbox: frozen viewing list, cached screen image, full image only on zoom
-let FVS=null;
+let FVS=null, RVS=null;
+// Stern-Overlay im Frame-Browser (Bericht 2 §15) – b2stackers eigene Erkennung, Koordinaten in Originalpixeln
+const OV={s:false,x:false,h:false}, OVC={};
+function fvToggleOv(k){OV[k]=!OV[k];if(FVS&&FVS.strip)FVS.strip.querySelectorAll('[data-ov]').forEach(b=>b.classList.toggle('on',!!OV[b.dataset.ov]));fvOverlay();}
+function fvMsd(f){const r=((P&&P.plan&&P.plan.runs)||[]).find(x=>(x.lights||[]).includes(f.path));
+  const v=Number(r&&r.star_detection&&r.star_detection.params&&r.star_detection.params.maxStarDistortion);return v>0?v:0.6;}
+async function fvOverlay(){
+  const st=FVS;if(!st||!st.pswp)return;const slide=st.pswp.currSlide,f=st.frames[st.pswp.currIndex];
+  const old=slide&&slide.container&&slide.container.querySelector('svg.fvsvg');
+  document.querySelectorAll('.pswp svg.fvsvg').forEach(x=>{if(x!==old)x.remove();});
+  const info=document.getElementById('fvOvInfo');
+  if(!slide||!f||!(OV.s||OV.x||OV.h)){if(old)old.remove();if(info)info.textContent='';return;}
+  const key=f.path+(OV.h?'|h':'');let d=OVC[key]||(OV.h?null:OVC[f.path+'|h']);
+  if(!d){if(info)info.textContent='Sterne werden erkannt …';
+    try{d=await api('/api/frame-stars/'+encodeURIComponent(st.project)+'?path='+encodeURIComponent(f.path)+(OV.h?'&hot=1':''));OVC[key]=d;}
+    catch(e){if(info)info.textContent='Sterne nicht verfügbar: '+e.message;return;}
+    if(FVS!==st||st.frames[st.pswp.currIndex]!==f)return;}
+  const el=slide.content&&slide.content.element;if(!el||!slide.container)return;
+  const msd=fvMsd(f),dist=e=>Math.PI/4*Math.sqrt(Math.max(0,1-e*e));
+  const rej=d.stars.filter(x=>dist(x[3])<msd).length;
+  const ell=(x,col)=>{const rx=Math.max(3,x[2]*1.3),ry=rx*Math.sqrt(Math.max(0.05,1-x[3]*x[3]));
+    return `<ellipse cx="${x[0]}" cy="${x[1]}" rx="${rx}" ry="${ry}" transform="rotate(${x[4]} ${x[0]} ${x[1]})" stroke="${col}"/>`;};
+  let g='';
+  if(OV.s||OV.x)d.stars.forEach(x=>{const r=dist(x[3])<msd;if(r&&OV.x)g+=ell(x,'#ffa348');else if(OV.s)g+=ell(x,'#8ff0a4');});
+  if(OV.h&&d.hot){const hr=Math.max(2,d.width/700);d.hot.forEach(h=>{g+=`<circle cx="${h[0]}" cy="${h[1]}" r="${hr}" fill="#ff7b63" stroke="none"/>`;});}
+  let svg=old;
+  if(!svg){svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('class','fvsvg');slide.container.appendChild(svg);
+    const sync=()=>{svg.style.width=el.style.width||el.width+'px';svg.style.height=el.style.height||el.height+'px';};sync();
+    try{new ResizeObserver(sync).observe(el);}catch(e){}}
+  svg.setAttribute('viewBox',`0 0 ${d.width} ${d.height}`);svg.setAttribute('preserveAspectRatio','none');
+  svg.innerHTML=`<g fill="none" stroke-width="1.6" vector-effect="non-scaling-stroke">${g}</g>`;
+  svg.querySelectorAll('ellipse').forEach(e=>e.setAttribute('vector-effect','non-scaling-stroke'));
+  if(info)info.textContent=`${d.nstars} Sterne · FWHM ${d.fwhm_med!=null?fmt(d.fwhm_med,1)+' px':'–'} · Exz. ${d.ecc_med!=null?fmt(d.ecc_med,2):'–'} · ${rej} von ${d.stars.length} würden bei maxStarDistortion ${fmt(msd,2)} verworfen`+
+    (d.hot_count!=null?` · ${d.hot_count.toLocaleString('de-AT')} Hotpixel`:'')+' · b2stacker-Erkennung, Näherung';
+}
+// Projektbild aus dem Frame-Browser (Bericht 2 §16)
+const FV_IMG='<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="3" width="12" height="10" rx="2"/><circle cx="6" cy="6.5" r="1.2"/><path d="m3 12 3.5-3.5 2.5 2.5 2-2 2 2"/></svg>';
+function fvIsThumb(f){return !!(f&&P&&P.meta&&P.meta.thumb&&P.meta.thumb_frame&&P.meta.thumb_frame===f.path);}
+async function fvThumbCur(){
+  const p=FVS&&FVS.pswp;if(!p||!FVS.frames)return;const f=FVS.frames[p.currIndex];if(!f||fvIsThumb(f))return;
+  try{P=await api('/api/project/'+encodeURIComponent(FVS.project)+'/thumb',{frame:f.path});toast('Projektbild gesetzt');fvSyncStrip();refresh();}
+  catch(e){toast(e.message,true)}
+}
 function fvPswpItem(f){
   const pw=Number(f.preview_width)||0,ph=Number(f.preview_height)||0;
   const w=Number(f.width)||pw||1600,h=Number(f.height)||ph||1000;
@@ -1970,14 +2040,22 @@ function fvSyncStrip(){
     <div class="fvbtns">
       <button type="button" class="fvb ${f.selected?'useon':''}" id="fvUseBtn"><span class="i" style="display:inline-flex;width:16px">${FV_CHECK}</span><span class="g">Verwenden</span><span class="kbd">V</span></button>
       <button type="button" class="fvb ${f.selected?'':'skipon'}" id="fvSkipBtn">${FV_UNAVAIL}<span class="g">Nicht verwenden</span><span class="kbd">N</span></button>
-      ${mine?`<button type="button" class="fvb auto" id="fvAutoBtn" title="Eigene Wahl verwerfen, b2stacker entscheidet">${FV_UNDO}<span class="g">Auf Automatik zurücksetzen</span><span class="kbd">A</span></button>`:''}</div>
+      ${mine?`<button type="button" class="fvb auto" id="fvAutoBtn" title="Eigene Wahl verwerfen, b2stacker entscheidet">${FV_UNDO}<span class="g">Auf Automatik zurücksetzen</span><span class="kbd">A</span></button>`:''}
+      ${fvIsThumb(f)?`<div class="fvthumb on">${FV_CHECK}<span class="g">Projektbild</span></div>`:`<button type="button" class="fvb auto" id="fvThumbBtn" title="Dieses Bild auf der Projektkarte zeigen">${FV_IMG}<span class="g">Als Projektbild</span><span class="kbd">P</span></button>`}</div>
     <div class="fvm">${meta.map(([k,v])=>`<span>${k}</span><span>${v}</span>`).join('')}</div>
     <div class="fvf">${esc(f.path||'')}</div>
     <button type="button" class="btn sm fvfit" id="fvFit">Ganzes Bild</button>
+    ${ftype(f.type)==='light'?`<div class="fvov"><span class="fvo">Einblenden</span>
+      <button type="button" class="ovc ${OV.s?'on':''}" data-ov="s"><i style="border-color:#8ff0a4"></i>Sterne<span class="kbd">S</span></button>
+      <button type="button" class="ovc ${OV.x?'on':''}" data-ov="x" title="Näherung der StarAlignment-Regel maxStarDistortion"><i style="border-color:#ffa348"></i>Würde PixInsight verwerfen<span class="kbd">X</span></button>
+      <button type="button" class="ovc ${OV.h?'on':''}" data-ov="h"><i style="border-color:#ff7b63;border-radius:50%"></i>Hotpixel<span class="kbd">H</span></button>
+      <div class="fvo" id="fvOvInfo"></div></div>`:''}
     <div class="fvk"><span class="kbd">←</span><span class="kbd">→</span><span>blättern ·</span><span class="kbd">Leertaste</span><span>umschalten ·</span><span class="kbd">Esc</span><span>schließen · nach V/N geht es automatisch weiter</span></div>`;
   const ub=$('#fvUseBtn');if(ub)ub.onclick=()=>fvSetSnapshotUse(f,'in');
   const sb=$('#fvSkipBtn');if(sb)sb.onclick=()=>fvSetSnapshotUse(f,'out');
   const ab=$('#fvAutoBtn');if(ab)ab.onclick=()=>fvSetSnapshotUse(f,null);
+  const tb=$('#fvThumbBtn');if(tb)tb.onclick=()=>fvThumbCur();
+  if(FVS.strip.querySelectorAll){FVS.strip.querySelectorAll('[data-ov]').forEach(b=>b.onclick=()=>fvToggleOv(b.dataset.ov));fvOverlay().catch(()=>{});}
   const fit=$('#fvFit');if(fit)fit.onclick=()=>{if(!FVS||!FVS.pswp)return;const s=FVS.pswp.currSlide;if(!s)return;
     FVS.saved={z:1,cx:.5,cy:.5};s.zoomTo(s.zoomLevels.initial,null,180);s.pan.x=s.bounds.center.x;s.pan.y=s.bounds.center.y;s.applyCurrentZoomPan();};
 }
@@ -2015,7 +2093,7 @@ function openFV(k){
     // The outgoing active slide is reset by PhotoSwipe; never let that reset overwrite our snapshot.
     if(FVS===state&&!state.closed&&e.slide===pswp.currSlide)state.awaiting=true;
   });
-  pswp.on('loadComplete',e=>{if(FVS===state&&!state.closed&&e.slide===pswp.currSlide)fvApplyZoom(pswp,tok);});
+  pswp.on('loadComplete',e=>{if(FVS===state&&!state.closed&&e.slide===pswp.currSlide){fvApplyZoom(pswp,tok);fvOverlay();}});
   pswp.on('zoomPanUpdate',e=>{
     if(FVS!==state||state.closed||state.applying||state.awaiting||!e.slide.isActive||e.slide!==pswp.currSlide)return;
     state.saved=fvZoomSnapshot(pswp)||state.saved;
@@ -2035,6 +2113,72 @@ function openFV(k){
   pswp.on('destroy',done);
   pswp.init();
   if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+}
+// ---------- Ergebnis-Betrachter: Stacks und bearbeitete Bilder mit Kennzahlen (Bericht 2 §17)
+function rvItems(){
+  const H=P.stacks||[],out=[];
+  [...H].reverse().forEach(s=>s.outputs.forEach(o=>{if(o.preview_url)out.push({key:'s:'+s.id+'|'+o.name,kind:'stack',s,o,src:o.preview_url});}));
+  (P.assets||[]).forEach(a=>{if(a.preview_url)out.push({key:'a:'+a.id,kind:'asset',a,src:a.preview_url});});
+  return out;
+}
+function rvSize(src){return new Promise(ok=>{const im=new Image();const t=setTimeout(()=>ok([1600,1067]),4000);
+  im.onload=()=>{clearTimeout(t);ok([im.naturalWidth||1600,im.naturalHeight||1067]);};im.onerror=()=>{clearTimeout(t);ok([1600,1067]);};im.src=src;});}
+function rvMeta(it){
+  const row=(k,v)=>v==null||v===''?'':`<span>${k}</span><span>${v}</span>`;
+  if(it.kind==='asset'){const a=it.a;
+    return `<div class="fvm">${row('Format',esc((a.path||'').split('.').pop().toUpperCase()))}${row('Größe',a.size?fmt(a.size/1048576,1)+' MB':'')}${row('Geändert',a.mtime?dt(a.mtime):'')}${row('Datei',a.exists===false?'<span style="color:var(--err)">fehlt</span>':'vorhanden')}</div>`;}
+  const s=it.s,o=it.o,k=o.kpi||{};
+  const fw=k.fwhm_as!=null?fmt(k.fwhm_as,2)+'″ ('+fmt(k.fwhm_px,2)+' px)':k.fwhm_px!=null?fmt(k.fwhm_px,2)+' px':null;
+  return `<div class="rvsec">Aufnahme</div><div class="fvm">${row('Belichtung',s.hours!=null?fmt(s.hours,1)+' h':'')}${row('Lights',s.lights)}${row('Nächte',(s.nights||[]).length||'')}
+      ${row('Filter',esc(s.filter||''))}${row('Modus',esc({debayer:'Farbbild',extract:'Dualband geteilt',mono:'Mono'}[s.mode]||s.mode||''))}${row('Referenz',esc(s.reference&&s.reference!=='auto'?s.reference.replace(/^master:/,'Master von '):'Bester Frame'))}</div>
+    <div class="rvsec">Kalibrierung</div><div class="fvm">${row('Flats',s.flats??'–')}${row('Bias',s.bias??'–')}${row('Darks',s.darks??'–')}</div>
+    ${o.kpi?`<div class="rvsec">Qualität</div><div class="fvm">${row('FWHM',fw)}${row('Sterne',k.stars)}${row('Exzentrizität',k.ecc!=null?fmt(k.ecc,2):'')}${row('Rauschen',k.noise!=null?fmt(k.noise,2)+' ADU':'')}
+      ${row('Hintergrund',k.bg!=null?fmt(k.bg,0)+' ADU':'')}${row('SNR Hintergrund',k.snr_bg!=null?fmt(k.snr_bg,1):'')}${row('Verlauf',k.gradient_pct!=null?fmt(k.gradient_pct,1)+' %':'')}
+      ${row('Farbsaum',k.fringe_px!=null?fmt(k.fringe_px,2)+' px':'')}${row('Bildgröße',k.width?k.width+' × '+k.height:'')}</div>`:`<div class="fvo">Keine Kennzahlen gemessen.</div>`}`;
+}
+function rvSync(){
+  if(!RVS||!RVS.pswp||!RVS.strip)return;
+  const i=RVS.pswp.currIndex,it=RVS.items[i];if(!it)return;
+  const thumb=it.kind==='stack'?(it.o.preview&&isThumb(it.o.preview)):false;
+  const title=it.kind==='stack'?`${esc(it.o.name)} · ${esc(stackName(it.s))}`:esc(it.a.name||'Bearbeitetes Bild');
+  if(RVS.top)RVS.top.innerHTML=`<b>${title}</b><span>${i+1} von ${RVS.items.length}</span>`;
+  const notes=it.kind==='stack'?(it.s.notes||[]):[];
+  const file=it.kind==='stack'?it.o.file:it.a.path, exists=it.kind==='stack'?it.o.exists:it.a.exists!==false;
+  RVS.strip.innerHTML=`<div style="display:flex;flex-direction:column;gap:6px"><span class="fvo">${it.kind==='stack'?(it.s.date?esc(dlong(it.s.date)):'Stack'):'Bearbeitetes Bild'}</span>
+      ${thumb?`<div class="fvthumb on">${FV_CHECK}<span class="g">Projektbild</span></div>`:''}
+      ${notes.map(n=>`<div class="fvr" style="color:var(--warn)">${esc(n)}</div>`).join('')}</div>
+    <div class="fvbtns">${exists?`<button type="button" class="fvb" id="rvPi">${FV_IMG}<span class="g">In PixInsight öffnen</span></button>
+      <button type="button" class="fvb auto" id="rvDir"><span class="g">Ordner öffnen</span></button>`:''}
+      ${it.kind==='stack'&&!thumb&&it.o.preview?`<button type="button" class="fvb auto" id="rvThumb"><span class="g">Als Projektbild</span><span class="kbd">P</span></button>`:''}
+      ${it.kind==='stack'&&exists&&!it.o.kpi?`<button type="button" class="fvb auto" id="rvQ"><span class="g">Kennzahlen messen</span></button>`:''}
+      ${it.kind==='stack'?`<button type="button" class="fvb auto" id="rvRen"><span class="g">Umbenennen …</span></button>`:''}</div>
+    ${rvMeta(it)}
+    <div class="fvf">${exists?'':'<span style="color:var(--err)">fehlt: </span>'}${esc(file||'')}</div>
+    <div class="fvk"><span class="kbd">←</span><span class="kbd">→</span><span>blättern ·</span><span class="kbd">P</span><span>Projektbild ·</span><span class="kbd">Esc</span><span>schließen</span></div>`;
+  const on=(id,fn)=>{const b=document.getElementById(id);if(b)b.onclick=fn;};
+  on('rvPi',()=>openPi([file]));on('rvDir',()=>openDir(String(file).replace(/[\\/][^\\/]+$/,'')));
+  on('rvThumb',()=>rvThumbCur());on('rvQ',()=>{RVS.pswp.close();requality(it.s.id);});on('rvRen',()=>{RVS.pswp.close();renameStack(it.s.id);});
+}
+async function rvThumbCur(){
+  const it=RVS&&RVS.pswp&&RVS.items[RVS.pswp.currIndex];if(!it||it.kind!=='stack'||!it.o.preview||isThumb(it.o.preview))return;
+  try{P=await api('/api/project/'+encodeURIComponent(cur.project)+'/thumb',{stack_preview:it.o.preview});toast('Projektbild gesetzt');rvSync();refresh();}catch(e){toast(e.message,true)}
+}
+async function openRV(key){
+  const items=rvItems(),at=items.findIndex(x=>x.key===key);
+  if(at<0)return;
+  if(!window.PhotoSwipe){const it=items[at];showImg(it.src,it.kind==='stack'?it.o.name:it.a.name);return;}
+  const sizes=await Promise.all(items.map(x=>rvSize(x.src)));
+  const state={items,pswp:null,strip:null,top:null};RVS=state;
+  const pad=vp=>vp.x>900?{top:72,bottom:20,left:64,right:340+64}:{top:60,bottom:Math.round(vp.y*.46)+8,left:8,right:8};
+  const pswp=new PhotoSwipe({dataSource:items.map((x,i)=>({src:x.src,width:sizes[i][0],height:sizes[i][1],alt:x.key})),index:at,
+    showHideAnimationType:'fade',bgOpacity:.97,closeOnVerticalDrag:false,arrowKeys:true,escKey:true,counter:false,paddingFn:pad});
+  state.pswp=pswp;
+  pswp.on('afterInit',()=>{pswp.element.classList.add('fvpswp');
+    const top=document.createElement('div');top.className='fvtop';pswp.element.appendChild(top);state.top=top;
+    const strip=document.createElement('div');strip.className='fvstrip';pswp.element.appendChild(strip);state.strip=strip;rvSync();});
+  pswp.on('change',()=>{if(RVS===state)rvSync();});
+  const done=()=>{if(RVS===state)RVS=null;};pswp.on('close',done);pswp.on('destroy',done);
+  pswp.init();
 }
 async function setThumb(prev){try{P=await api('/api/project/'+encodeURIComponent(cur.project)+'/thumb',prev?{stack_preview:prev}:{});toast(prev?'Projektbild gesetzt':'Projektbild: automatisch');renderTab();refresh();}catch(e){toast(e.message,true)}}
 function showImg(src,title){$('#imgFull').src=src;$('#imgTitle').textContent=title;imgDlg.showModal();}
@@ -2117,6 +2261,8 @@ function renderPlan(b){
           <span class="small"><b data-topp="${i}">${runTop(r,op)} %</b> · <span data-topt2="${i}">${topText(r,runTop(r,op))}</span></span></div></div>
         <div class="optrow" style="flex-wrap:wrap"><div class="ot" style="flex:1 1 260px"><span class="on">Referenz</span><span class="od">Frame, auf den alle anderen ausgerichtet werden. Ein Master eines anderen Laufs hält mehrere Filter deckungsgleich.</span></div>
           <select data-ref="${i}">${runOpts(r).map(o=>`<option value="${esc(o)}" ${o===(r.reference||'auto')?'selected':''}>${o==='auto'?'Bester Frame':'Master von '+esc(runLabel(o.slice(7)))}</option>`).join('')}</select></div>
+        ${r.star_detection?`<div class="optrow" style="flex-wrap:wrap"><div class="ot" style="flex:1 1 260px"><span class="on">Sternerkennung angepasst</span><span class="od">${esc(r.star_detection.why)} – damit PixInsight an echten Sternen ausrichtet, nicht an Hotpixeln. Aus der Analyse von ${r.star_detection.stats?.n||'?'} Lights abgeleitet.</span></div>
+          <span class="small mono" style="opacity:.7;text-align:right">${Object.entries(r.star_detection.params).map(([k,v])=>esc(k)+' = '+esc(String(v).replace('.',','))).join('<br>')}</span></div>`:''}
         <div class="optrow"><div class="ot"><span class="on">Platzbedarf</span><span class="od">Zwischendateien und Arbeitsspeicher für diesen Lauf.</span></div><span class="small" style="white-space:nowrap">~${fmt(r.gb,0)} GB · ~${fmt(r.ram_gb,0)} GB RAM</span></div>
         ${(r.light_dirs||[]).length?`<div class="optrow" style="flex-wrap:wrap;align-items:flex-start"><div class="ot" style="flex:0 0 auto"><span class="on">Light-Ordner</span></div><div style="display:flex;flex-wrap:wrap;gap:4px 14px;flex:1;justify-content:flex-end">${r.light_dirs.map(d=>dirLink(d)).join('')}</div></div>`:''}
         <div class="optrow"><div class="ot"><span class="od">${esc(r.why||'')}</span></div></div></div>`:''}

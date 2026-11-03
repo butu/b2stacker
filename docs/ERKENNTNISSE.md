@@ -158,3 +158,17 @@
   Pseudo-Ziele. Objekt jetzt zuerst aus dem Dateinamen (`Light_IC434_180.0s_…`).
 - WBPP liest Gruppen-Kennwörter laut Adam-Block-Forum auch aus dem FITS-Header (Pfad hat Vorrang) – mögliche
   spätere Option, um Flat-Gruppen ohne Verknüpfungen zu bilden.
+
+## Nachtrag 2026-11-03 (2): Bericht 2 – NGC 3486, C11 + ASI294MC Pro (0,33"/px)
+- **Kritisch:** Nach einem erkannten Hotpixel-Lock schickte die Wiederholung `hotPixelFilterRadius=3` – gültig ist
+  0–2. WBPP brach die Registrierung ab („No active frames to be integrated“), b2stacker fand danach die
+  `_autocrop`-Datei des verworfenen ersten Versuchs und lieferte sie als „Fertig“ aus. Behoben: eigener Ordner je
+  Versuch, Master nur aus diesem Versuch, alle Varianten verwerfen, Parameter vor dem Start begrenzen.
+- **Vermutete Ursache des Locks:** WBPP-Voreinstellung `maxStarDistortion = 0,60`. Ein Stern mit Exzentrizität e hat
+  das Maß π/4·√(1−e²); bei e = 0,66 sind das ≈ 0,59, bei 0,70 ≈ 0,56 – die meisten echten (leicht ovalen) Sterne
+  fallen durch, übrig bleiben runde Hotpixel. Dazu `minStructureSize = 0`. b2stacker setzt diese Werte jetzt aus
+  den Messwerten (für NGC 3486: `maxStarDistortion 0,46`, `minStructureSize 7`, Hotpixel-/Rauschfilter 2).
+  Noch nicht an echten Daten bestätigt.
+- Plausibilitätsgrenze: Stack-FWHM 2,44 px gegenüber 7,7 px in den Einzelbildern → an Hotpixeln ausgerichtet.
+- WBPP 3.x meldet vor dem Start „Diagnostics: Cannot create files with a path longer than 256 characters“, sobald
+  LongPathsEnabled aus ist – unabhängig von den tatsächlichen Pfaden (hier max. 175 Zeichen).

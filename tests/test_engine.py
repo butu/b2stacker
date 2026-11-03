@@ -239,12 +239,14 @@ def test_registration_parser_on_wbpp_log():
 
 class FakePILocked(FakePI):
     """Erster Lauf: Bilder der Ostseite liegen „perfekt“ auf der Referenz (an Hotpixeln ausgerichtet)."""
+    attempts = 0
 
     def start(self, script, items):
         cmd = super().start(script, items)
         out = dict(i.split("=", 1) for i in items if i.startswith("outputDirectory="))["outputDirectory"]
         os.makedirs(os.path.join(out, "logs"), exist_ok=True)
-        k = len(os.listdir(os.path.join(out, "logs")))
+        k = FakePILocked.attempts               # jeder Versuch hat einen eigenen, leeren Ausgabeordner
+        FakePILocked.attempts += 1
         ref = "[2026-11-01 17:49:55] Reference image: G:/w/debayered/L_0000_c_d.xisf\n"
         frames = "".join(SA_FRAME % ("L_%04d" % i, 900, 0.6, 0.9, 1.0) for i in range(4))
         if k:   # zweiter Versuch: echte Verschiebung/Drehung
@@ -256,13 +258,14 @@ class FakePILocked(FakePI):
 def test_sensor_lock_detected_and_retried_with_cosmetic(tmp_path, monkeypatch):
     s, plan, pdir = _setup(tmp_path, monkeypatch, n=4, pier=["West", "West", "East", "East"])
     FakePI.calls = []
+    FakePILocked.attempts = 0
     monkeypatch.setattr(pi.system, "pixinsight_processes", lambda: [])
     lines = []
     st = pi.run_plan(plan, s, log=lines.append, runner_factory=FakePILocked)
     assert st.state == "done", st.error
     wbpp = [c for c in FakePI.calls if c[0] != "split.js"]
     assert len(wbpp) == 2
-    assert "hotPixelFilterRadius=3" in wbpp[1][1] and "noiseReductionFilterRadius=2" in wbpp[1][1]
+    assert "hotPixelFilterRadius=2" in wbpp[1][1] and "noiseReductionFilterRadius=2" in wbpp[1][1]   # 0–2 gültig
     assert any("am Sensor" in l or "Hotpixeln" in l for l in lines)
     assert st.runs["HaO3"]["lights"] == 4                    # niemand ausgelassen, nur neu ausgerichtet
 

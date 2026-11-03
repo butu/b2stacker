@@ -19,6 +19,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -47,6 +48,38 @@ WBPP_DEFAULTS = {
     "generateRejectionMaps": "true",
     "saveFrameGroups": "false",
 }
+
+
+# Gültige Wertebereiche von WBPP-Parametern, die b2stacker selbst setzt (PixInsight 1.9 / WBPP 2.7–3.2).
+# Ein Wert außerhalb lässt WBPP mitten im Lauf scheitern („Numeric parameter value out of range“).
+WBPP_RANGES = {
+    "hotPixelFilterRadius": (0, 2, int),
+    "noiseReductionFilterRadius": (0, 50, int),
+    "structureLayers": (1, 8, int),
+    "minStructureSize": (0, 64, int),
+    "sensitivity": (0.0, 1.0, float),
+    "peakResponse": (0.0, 1.0, float),
+    "maxStarDistortion": (0.0, 1.0, float),
+}
+
+
+def check_wbpp_params(p: dict) -> tuple[dict, list[str]]:
+    """Bekannte Parameter auf ihren gültigen Bereich begrenzen → (Parameter, Hinweise)."""
+    out, notes = dict(p), []
+    for k, (lo, hi, typ) in WBPP_RANGES.items():
+        if k not in out:
+            continue
+        try:
+            v = typ(float(out[k]))
+        except (TypeError, ValueError):
+            notes.append("WBPP-Parameter %s=%r ungültig – weggelassen" % (k, out[k]))
+            out.pop(k)
+            continue
+        c = min(hi, max(lo, v))
+        if c != v:
+            notes.append("WBPP-Parameter %s=%s außerhalb %s–%s → %s" % (k, out[k], lo, hi, c))
+        out[k] = ("%g" % c) if typ is float else str(c)
+    return out, notes
 
 
 class StackError(Exception):
@@ -78,6 +111,9 @@ class Status:
     run_steps: list = field(default_factory=list)
     steps_done: list = field(default_factory=list)
     alert: str = ""                   # letzte Fehlermeldung von PixInsight (live)
+    alert_raw: str = ""               # Originalzeile zur Meldung (zum Aufklappen)
+    hints: list = field(default_factory=list)      # Hinweise (WBPP-Vorab-Diagnose) – kein Fehler
+    substeps: list = field(default_factory=list)   # Unterschritte des aktuellen Schritts (aus dem WBPP-Protokoll)
     causes: list = field(default_factory=list)    # verständliche Ursachen bei Fehlschlag
     failed_step: str = ""
     logdir: str = ""
@@ -188,8 +224,12 @@ def _header(p: str) -> dict:
     return dict(fits.getheader(p))
 
 
-def find_master(outdir: str) -> str | None:
+def find_master(outdir: str, since: float | None = None) -> str | None:
+    """Master-Light dieses Laufs. ``since``: nur Dateien, die nach dem Start dieses Versuchs entstanden sind –
+    nie auf ein Ergebnis eines früheren (verworfenen) Versuchs zurückfallen (Bericht 2 §13)."""
     ms = sorted(glob.glob(os.path.join(outdir, "master", "masterLight*.xisf")), key=os.path.getmtime)
+    if since is not None:
+        ms = [m for m in ms if os.path.getmtime(m) >= since - 2]
     if not ms:
         return None
     combined = [m for m in ms if not any(m.endswith(s) for s in ("_R.xisf", "_G.xisf", "_B.xisf"))]
@@ -211,6 +251,15 @@ def stage_progress(outdir: str, n_lights: int) -> tuple[str, int, int]:
     if last[0] == "register" and last[1] >= n_lights * 0.9:
         return "integrate", 0, 0        # Registrieren fertig → Local Normalization + Integration
     return last
+
+
+def estimate_max_path(outdir: str, lights: list[str]) -> int:
+    """Längster Pfad, den WBPP beim Kalibrieren/Debayern/Registrieren erzeugt (Schätzung):
+    Lauf-Ordner + Zwischenordner + Gruppenordner (~60) + längster Dateiname + Suffix (_c_cc_d_r_lps.xisf)."""
+    if not lights:
+        return 0
+    longest = max(len(os.path.splitext(os.path.basename(p))[0]) for p in lights)
+    return len(os.path.abspath(outdir)) + len("\\registered\\") + 60 + longest + len("_c_cc_d_r_lps.xisf")
 
 
 def crash_text(code: int) -> str:
@@ -264,7 +313,8 @@ class Runner:
             self.proc.kill()
 
 
-def wbpp_items(plan: dict, run: dict, outdir: str, reference: str | None, calib: dict) -> list[str]:
+def wbpp_items(plan: dict, run: dict, outdir: str, reference: str | None, calib: dict,
+               notes: list | None = None) -> list[str]:
     opt = plan.get("options", {})
     items = ["automationMode=true", "outputDirectory=" + pi_path(outdir)]
     p = dict(WBPP_DEFAULTS)
@@ -282,7 +332,11 @@ def wbpp_items(plan: dict, run: dict, outdir: str, reference: str | None, calib:
         p["referenceImage"] = pi_path(reference)
     else:
         p["bestFrameRefernceMethod"] = "1"
+    p.update({k: str(v) for k, v in ((run.get("star_detection") or {}).get("params") or {}).items()})
     p.update({k: str(v) for k, v in (run.get("wbpp") or {}).items()})   # Experten-Überschreibungen
+    p, fixes = check_wbpp_params(p)
+    if notes is not None:
+        notes += fixes
     items += ["%s=%s" % kv for kv in p.items()]
     for key in ("bias", "darks", "darkflats", "flats"):
         items += compress_paths(calib.get(key, []))
@@ -429,13 +483,14 @@ def build_group_links(groups: list[dict], base: str, fix=lambda paths: paths, lo
 class WbppTail:
     """Neue Zeilen aus dem WBPP-Protokoll mitlesen, damit das b2stacker-Protokoll während PixInsight nicht stillsteht.
     Nur aussagekräftige Zeilen, gedrosselt (PixInsight schreibt sehr viel)."""
-    KEEP = ("error", "warning", "fehler", "**", "calibrat", "register", "integrat", "debayer", "normaliz", "measur",
+    KEEP = ("error", "warning", "fehler", "**", "master", "calibrat", "register", "integrat", "debayer", "normaliz", "measur",
             "weight", "master", "cosmetic", "drizzle", "* ", "frames", "completed", "processing")
 
     def __init__(self, logdir: str, limit: int = 8):
         self.logdir, self.limit, self.file, self.pos = logdir, limit, None, 0
 
-    def new_lines(self) -> list[str]:
+    def read_all(self) -> list[str]:
+        """Alle neuen vollständigen Zeilen (ungefiltert, ungekürzt) – für Fortschritt und Fehlererkennung."""
         try:
             f = wbpplog.newest_log(self.logdir)
         except Exception:  # noqa: BLE001
@@ -443,22 +498,36 @@ class WbppTail:
         if not f:
             return []
         if f != self.file:
-            self.file, self.pos = f, 0
+            self.file, self.pos, self.rest = f, 0, b""
         try:
             with open(f, "rb") as fh:
                 fh.seek(self.pos)
-                chunk = fh.read(256 * 1024)
+                chunk = fh.read(1024 * 1024)
                 self.pos = fh.tell()
         except OSError:
             return []
+        data = getattr(self, "rest", b"") + chunk
+        lines = data.split(b"\n")
+        self.rest = lines.pop()                        # unvollständige letzte Zeile beim nächsten Mal
         out = []
-        for raw in chunk.decode("utf-8", "replace").splitlines():
-            line = " ".join(raw.split())
-            if len(line) < 4 or set(line) <= set("*=-_. "):
-                continue
-            if any(k in line.lower() for k in self.KEEP):
-                out.append(line[:200])
-        return out[-self.limit:]
+        for raw in lines:
+            line = " ".join(raw.decode("utf-8", "replace").split())
+            if len(line) >= 4 and not set(line) <= set("*=-_. "):
+                out.append(line)
+        return out
+
+    def flush(self) -> list[str]:
+        """Nach dem Ende: auch die letzte Zeile ohne Zeilenumbruch."""
+        out = self.read_all()
+        rest = " ".join(getattr(self, "rest", b"").decode("utf-8", "replace").split())
+        self.rest = b""
+        return out + ([rest] if len(rest) >= 4 else [])
+
+    def keep(self, line: str) -> bool:
+        return any(k in line.lower() for k in self.KEEP)
+
+    def new_lines(self) -> list[str]:
+        return [x[:300] for x in self.read_all() if self.keep(x)][-self.limit:]
 
 
 def stage_lights(paths: list[str], dst: str, log) -> list[str]:
@@ -554,7 +623,7 @@ def run_plan(plan: dict, settings, log=print, on_status=None, cancel: threading.
         st.state, st.error = "cancelled", "vom Benutzer abgebrochen"
         _log("Abgebrochen.")
     except (StackError, staging.StagingError) as e:
-        st.state, st.error, st.failed_step = "failed", str(e), st.step
+        st.state, st.error, st.failed_step = "failed", str(e), st.failed_step or st.step
         _log("FEHLER: " + str(e))
         logbook.event("error", project=project_name, run_id=stamp, run=st.run, step=st.step, message=str(e))
     except Exception as e:  # noqa: BLE001 – alles melden statt still sterben
@@ -580,6 +649,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     name = run["name"]
     orig_run = run
     outdir = os.path.join(jobdir, safe_file(name))
+    _isolate_attempt(outdir, log)
     os.makedirs(outdir, exist_ok=True)
     n = len(run["lights"])
     if run.get("_retry") or run.get("_lock_retry"):
@@ -654,8 +724,26 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
         raise StackError("Interner Fehler: %d Lights bereitgestellt, %d gewählt." % (len(lay.lights), n))
     run = dict(run, lights=lay.lights)
     calib, ref = lay.calib, lay.reference
-    items = wbpp_items(plan, run, outdir, ref, calib)
+    fixes = []
+    items = wbpp_items(plan, run, outdir, ref, calib, notes=fixes)
+    for f in fixes:
+        log("  Hinweis: " + f)
+    sd = run.get("star_detection") or {}
+    if sd.get("params"):
+        log("  Sternerkennung angepasst (%s): %s" % (sd.get("why", ""), ", ".join(
+            "%s=%s" % kv for kv in sd["params"].items())))
+    max_path = estimate_max_path(outdir, run["lights"])
+    if staging.long_paths_enabled() is False and max_path:
+        if max_path > 256:
+            raise StackError("Die Zwischendateien von PixInsight würden Pfade mit ca. %d Zeichen bekommen – Windows erlaubt "
+                             "ohne „lange Pfade“ nur 256. Abhilfe: ein kürzeres Arbeitsverzeichnis wählen (z. B. D:\\b2) "
+                             "oder lange Pfade in Windows aktivieren (einmalig, Administrator: LongPathsEnabled = 1)."
+                             % max_path)
+        if max_path > 236:
+            log("  WARNUNG: längster Zwischenpfad ca. %d von 256 Zeichen – knapp. Kürzeres Arbeitsverzeichnis empfohlen."
+                % max_path)
     runner = runner_factory()
+    t_attempt = time.time()
     cmd = runner.start(script, items)
     log("  PixInsight gestartet")
     open(os.path.join(outdir, "command.txt"), "w", encoding="utf-8").write(cmd)
@@ -663,6 +751,30 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     timing = steps.load_timing(settings.workdir)
     last = None
     tail = WbppTail(os.path.join(outdir, "logs"))
+    tracker = wbpplog.CalibTracker(n, len(calib.get("flats") or []))
+    st.alert, st.hints, st.substeps = "", [], []
+
+    def read_lines(final=False):
+        lines = tail.flush() if final else tail.read_all()
+        shown = [x for x in lines if tail.keep(x)]
+        quiet = set(shown[:-(40 if final else tail.limit)])            # Protokoll gedrosselt, Erkennung vollständig
+        for line in lines:
+            kind = wbpplog.classify(line)
+            tracker.feed(line)
+            if kind is None and (line in quiet or not tail.keep(line)):
+                continue
+            if kind == "alert":
+                c = wbpplog.diagnose_text(line)
+                st.alert = c[0]["text"] if c else re.sub(r"^\W*(\[[^\]]*\]\s*)?", "", line)
+                st.alert_raw = line
+                log("  ⚠ PixInsight: " + line)
+            elif kind == "hint":
+                h = wbpplog.hint_text(line, max_path)
+                if h not in st.hints and not line.rstrip().endswith("Problems found before the execution:"):
+                    st.hints.append(h)
+                log("    PI (Hinweis): " + line)
+            else:
+                log("    PI: " + line)
     while True:
         code = runner.poll()
         key, d, total = stage_progress(outdir, n)
@@ -670,11 +782,12 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
             _finish_step(st, settings.workdir, n)
             _set_step(st, key, d, total)
             log("  → %s" % steps.BY_KEY[key]["title"])
-        for line in tail.new_lines():
-            log("    PI: " + line)
-            if wbpplog.ALERT.search(line):
-                st.alert = line
-                log("  ⚠ PixInsight meldet: " + line)
+        read_lines()
+        if key == "calibrate":                  # Zählung aus dem Protokoll – Ordner enthalten auch kalibrierte Flats
+            d, total = tracker.lights_done, n
+            st.substeps = tracker.as_list()
+        else:
+            st.substeps = []
         st.done, st.total = d, total
         st.eta_s = _eta(st, n, timing)
         st.stage = steps.BY_KEY[key]["title"]
@@ -689,13 +802,12 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     st.message = "PixInsight beendet – werte Ergebnis aus …"
     st.logdir = os.path.join(outdir, "logs")
     save()
-    for line in tail.new_lines():               # letzte Zeilen nach dem Ende
-        log("    PI: " + line)
+    read_lines(final=True)                      # letzte Zeilen nach dem Ende
     _finish_step(st, settings.workdir, n)
     logbook.event("pixinsight_exit", run=name, code=code, code_hex="0x%08X" % (code & 0xFFFFFFFF) if code else "0",
                   duration_s=round(time.time() - t0, 1), command=cmd[:3000], wbpp_logs=os.path.join(outdir, "logs"),
-                  master=find_master(outdir))
-    master = find_master(outdir)
+                  master=find_master(outdir, since=t_attempt))
+    master = find_master(outdir, since=t_attempt)
     if not master:
         causes = wbpplog.diagnose(outdir)
         st.causes = causes
@@ -738,6 +850,23 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
             o["name"], k["noise"], ('%.2f"' % k["fwhm_as"]) if k.get("fwhm_as") else ("%.2f px" % k["fwhm_px"] if k.get("fwhm_px") else "–"),
             k["stars"], k["ecc"] if k["ecc"] is not None else "–", k["gradient_pct"]))
     st.steps_done.append("quality")
+    bad = fwhm_implausible(run.get("star_stats") or orig_run.get("star_stats"), outputs)
+    if bad:
+        log("  WARNUNG: " + bad)
+        for o in outputs:
+            _discard_file(o["file"])
+        _discard(master)
+        if not orig_run.get("_lock_retry"):
+            log("  → Neuer Versuch: Hotpixel werden entfernt und die Sternerkennung filtert stärker.")
+            wb = dict(orig_run.get("wbpp") or {}, hotPixelFilterRadius="2", noiseReductionFilterRadius="2")
+            wb.pop("usePipelineBuilderScript", None)
+            wb.pop("pipelineBuilderScriptFile", None)
+            return _one_run(plan, dict(orig_run, _lock_retry=True, _force_cosmetic=True, wbpp=wb,
+                                       _notes=notes + ["Erster Versuch unplausibel (%s) – neu gerechnet." % bad]),
+                            settings, jobdir, masters, finaldir, st, log, save, cancel, runner_factory)
+        st.failed_step = "register"
+        raise StackError("Der Stack ist unbrauchbar: %s Vermutlich hat PixInsight an Hotpixeln (Sensor) statt an den "
+                         "Sternen ausgerichtet. Abhilfe: passende Darks wählen, beim Aufnehmen dithern." % bad)
     finals = [o["file"] for o in outputs]
     st.finals += finals
     logbook.event("stack_run", project=os.path.basename(plan["workdir"]), run=name, lights=n, hours=run.get("hours"),
@@ -753,6 +882,11 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
             full = os.path.join(outdir, d)
             if os.path.isdir(full) and d not in ("master", "logs"):
                 shutil.rmtree(full, ignore_errors=True)
+        for old in glob.glob(glob.escape(outdir) + ".versuch-*"):      # frühere Versuche: nur Protokolle behalten
+            for d in os.listdir(old):
+                full = os.path.join(old, d)
+                if d != "logs" and os.path.isdir(full):
+                    shutil.rmtree(full, ignore_errors=True)
         shutil.rmtree(os.path.join(jobdir, "_lights", safe_file(name)), ignore_errors=True)
         shutil.rmtree(os.path.join(jobdir, "_cosmetic", safe_file(name)), ignore_errors=True)
         log("  Zwischendateien gelöscht")
@@ -932,7 +1066,7 @@ def _check_registration(run: dict, outdir: str, master: str, notes: list, log) -
         _discard(master)
         if not run.get("_lock_retry"):
             log("  → Neuer Versuch: Hotpixel werden entfernt und die Sternerkennung filtert stärker.")
-            wb = dict(run.get("wbpp") or {}, hotPixelFilterRadius="3", noiseReductionFilterRadius="2")
+            wb = dict(run.get("wbpp") or {}, hotPixelFilterRadius="2", noiseReductionFilterRadius="2")
             wb.pop("usePipelineBuilderScript", None)
             wb.pop("pipelineBuilderScriptFile", None)
             return dict(run, _lock_retry=True, _force_cosmetic=True, wbpp=wb,
@@ -963,11 +1097,53 @@ def _check_registration(run: dict, outdir: str, master: str, notes: list, log) -
 
 
 def _discard(master: str):
-    """Verworfenen Master umbenennen (darf nicht als Ergebnis gefunden werden)."""
+    """Verworfenes Ergebnis umbenennen – **alle** Varianten (normal, _autocrop, Drizzle, Kanäle), damit keine davon
+    später als Ergebnis gefunden wird (Bericht 2 §13)."""
+    for m in glob.glob(os.path.join(os.path.dirname(master), "masterLight*.xisf")):
+        try:
+            os.replace(m, m + ".verworfen")
+        except OSError:
+            pass
+
+
+def _discard_file(path: str):
     try:
-        os.replace(master, master + ".verworfen")
+        os.replace(path, path + ".verworfen")
     except OSError:
         pass
+
+
+def fwhm_implausible(stats: dict | None, outputs: list) -> str | None:
+    """Plausibilität nach dem Lauf (Bericht 2 §14): Sterne im Stack sind viel kleiner als in den Einzelbildern →
+    ausgerichtet an Hotpixeln. Gibt eine Begründung zurück oder None."""
+    ref = (stats or {}).get("fwhm_med")
+    if not ref:
+        return None
+    for o in outputs:
+        f = (o.get("kpi") or {}).get("fwhm_px")
+        if f and f < 0.5 * ref:
+            de = lambda x: ("%.1f" % x).replace(".", ",")          # noqa: E731
+            return "Sterne im Stack %s px statt %s px wie in den Einzelbildern (%s)." % (de(f), de(ref), o.get("name", ""))
+    return None
+
+
+def _isolate_attempt(outdir: str, log) -> None:
+    """Jeder Versuch bekommt einen leeren Ausgabeordner. Ein vorheriger Versuch wandert nach
+    ``<Lauf>.versuch-<n>`` (Protokolle bleiben für die Fehlersuche erhalten)."""
+    if not os.path.isdir(outdir) or not os.listdir(outdir):
+        return
+    k = 1
+    while os.path.exists("%s.versuch-%d" % (outdir, k)):
+        k += 1
+    dst = "%s.versuch-%d" % (outdir, k)
+    try:
+        os.replace(outdir, dst)
+        log("  Vorheriger Versuch nach %s verschoben" % os.path.basename(dst))
+    except OSError as e:                         # z. B. Datei noch gesperrt – dann wenigstens den Master verwerfen
+        for m in glob.glob(os.path.join(outdir, "master", "masterLight*.xisf")):
+            _discard(m)
+            break
+        log("  Hinweis: vorheriger Versuch nicht verschoben (%s) – alte Masters verworfen" % e)
 
 
 def _set_step(st: Status, key: str, done: int, total: int):
@@ -990,11 +1166,11 @@ def _finish_step(st: Status, workdir: str, n: int):
 def _eta(st: Status, n: int, timing: dict) -> float | None:
     """Restzeit des aktuellen Schritts: aus dem Tempo (gezählte Schritte) oder aus Erfahrungswerten."""
     el = time.time() - st.step_started
-    if st.total and st.done >= 2 and el > 20:
-        return max(0.0, (st.total - st.done) * el / st.done)
+    if st.total and st.done >= 3 and el > 20:
+        return max(1.0, (st.total - st.done) * el / st.done)
     per = timing.get(st.step)
-    if per:
-        return max(0.0, per * n - el)
+    if per and per * n - el > 5:            # Erfahrungswert überschritten → ehrlich „wird geschätzt …“ statt 0 s
+        return per * n - el
     return None
 
 

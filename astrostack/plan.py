@@ -218,3 +218,65 @@ def _choices(cands: list, kind: str) -> list:
 def _frames_of(cand):
     """Kandidat aus calibcheck → Frame-Objekte (über die gespeicherte Referenz)."""
     return cand.get("_frames", []) if cand else []
+
+
+# ---------------------------------------------------------------- Sternerkennung für StarAlignment (Bericht 2 §14)
+
+def _pctl(vals, q):
+    v = sorted(x for x in vals if x is not None)
+    if not v:
+        return None
+    k = (len(v) - 1) * q
+    lo, hi = int(k), min(int(k) + 1, len(v) - 1)
+    return v[lo] + (v[hi] - v[lo]) * (k - lo)
+
+
+def light_stats(frames: list[dict]) -> dict | None:
+    """Kennzahlen der gewählten Lights aus der Analyse (FWHM in Originalpixeln, Exzentrizität, Sterne)."""
+    fw = [f.get("fwhm") for f in frames if f.get("fwhm")]
+    if len(fw) < 3:
+        return None
+    ec = [f.get("ecc") for f in frames if f.get("ecc") is not None]
+    ns = [f.get("nstars") for f in frames if f.get("nstars")]
+    r = lambda x, d=2: None if x is None else round(float(x), d)          # noqa: E731
+    return dict(n=len(fw), fwhm_p10=r(_pctl(fw, .1)), fwhm_med=r(_pctl(fw, .5)), fwhm_p90=r(_pctl(fw, .9)),
+                ecc_med=r(_pctl(ec, .5), 3), ecc_p90=r(_pctl(ec, .9), 3), nstars_med=r(_pctl(ns, .5), 0))
+
+
+SA_DEFAULT_DISTORTION = 0.6         # WBPP-Voreinstellung für maxStarDistortion
+
+
+def star_detection(stats: dict | None) -> dict | None:
+    """StarAlignment-Parameter aus den gemessenen Sternen ableiten – nur wenn die Voreinstellungen nicht passen.
+
+    * maxStarDistortion: StarAlignment verwirft Sterne mit Fläche/umschreibendes Quadrat < Grenze. Ein runder Stern
+      hat π/4 ≈ 0,785, ein ovaler 0,785·√(1−e²). Bei e ≈ 0,7 fällt ein Großteil der echten Sterne unter 0,6 – übrig
+      bleiben runde Hotpixel. Grenze daher knapp unter dem Wert der ovalsten 10 % (nie über 0,6, nie unter 0,3).
+    * minStructureSize, hotPixelFilterRadius, noiseReductionFilterRadius: bei großen Sternen (FWHM > 4 px) winzige
+      Strukturen (Hotpixel, Rauschen) nicht als Sterne zählen.
+    * structureLayers: groß genug für die Sterne (2^L ≥ 2·FWHM).
+    Ergebnis: dict(params=…, why=…, stats=…) oder None (Voreinstellungen passen bzw. keine Messwerte)."""
+    import math
+    if not stats or not stats.get("fwhm_med"):
+        return None
+    p, why = {}, []
+    e90 = stats.get("ecc_p90")
+    if e90 is not None:
+        d = 0.785 * math.sqrt(max(0.0, 1 - e90 * e90)) - 0.1
+        if d < SA_DEFAULT_DISTORTION - 0.02:
+            p["maxStarDistortion"] = "%.2f" % max(0.3, d)
+            why.append("leicht ovale Sterne (Exzentrizität bis %s)" % ("%.2f" % e90).replace(".", ","))
+    fmed, f10, f90 = stats["fwhm_med"], stats.get("fwhm_p10") or stats["fwhm_med"], stats.get("fwhm_p90") or stats["fwhm_med"]
+    if fmed > 4:
+        p["hotPixelFilterRadius"] = "2"
+        p["noiseReductionFilterRadius"] = "2" if fmed > 6 else "1"
+        mss = int((f10 / 2.5) ** 2)
+        if mss >= 2:
+            p["minStructureSize"] = str(min(mss, 64))
+        why.append("große Sterne (FWHM %s px)" % ("%.1f" % fmed).replace(".", ","))
+    layers = max(5, math.ceil(math.log2(max(2.0, 2 * f90))))
+    if layers > 5:
+        p["structureLayers"] = str(min(layers, 8))
+    if not p:
+        return None
+    return dict(params=p, why=" und ".join(why) or "angepasst an die gemessenen Sterne", stats=stats)
