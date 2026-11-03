@@ -48,7 +48,7 @@ def test_unmapped_params_are_named_not_silently_dropped():
 
 def test_weighting_options_map_to_siril_weight():
     assert siril.map_wbpp(dict(options=dict(weighting="psf_signal")), _run())["weight"] == "wfwhm"
-    assert siril.map_wbpp(dict(options=dict(weighting="psf_snr")), _run())["weight"] == "wnoise"
+    assert siril.map_wbpp(dict(options=dict(weighting="psf_snr")), _run())["weight"] == "noise"
     assert siril.map_wbpp({"options": {}}, _run())["weight"] == "wfwhm"
 
 
@@ -70,10 +70,10 @@ def test_unknown_expert_key_is_reported():
 
 def test_script_contains_mapped_options():
     s = siril.build_script(dict(outdir="/o", lights="/o/l", flat=None, bias=None, dark=None, osc=False,
-                                findstar=dict(sigma=0.65, roundness="0.45"), weight="wnoise", rejmaps=True,
+                                findstar=dict(sigma=0.65, roundness="0.45"), weight="noise", rejmaps=True,
                                 cosmetic=False))
     assert "setfindstar -roundness=0.45 -sigma=0.65" in s
-    assert "-weight=wnoise" in s and "-rejmaps" in s
+    assert "-weight=noise" in s and "-rejmaps" in s
     plain = siril.build_script(dict(outdir="/o", lights="/o/l", flat=None, bias=None, dark=None, osc=False,
                                     cosmetic=False))
     assert "setfindstar" not in plain and "-rejmaps" not in plain and "-weight=wfwhm" in plain

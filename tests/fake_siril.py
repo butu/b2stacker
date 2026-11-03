@@ -161,6 +161,9 @@ def run_script(workdir: str, script: str) -> int:
                 _write("%s_%05d.fit" % (out, k), data, hdr)
             _write_seq(out + "_", len(frames))
         elif cmd == "stack":
+            weights = [a.split("=", 1)[1] for a in args if a.startswith("-weight=")]
+            if any(w not in ("wfwhm", "nbstars", "noise") for w in weights):   # Siril 1.4.4 kennt nur diese
+                return _fail(i, cmd, "Unknown argument to -weight=%s, aborting." % weights[0])
             sel = _selected(args[0])
             files = [f for i, f in enumerate(_seq_files(args[0]), 1) if not sel or i in sel]
             if not files:

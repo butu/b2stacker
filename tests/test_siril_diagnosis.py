@@ -26,6 +26,14 @@ def test_script_error_line_is_quoted_without_log_prefix():
     assert not causes[-1]["text"].startswith("log:")
 
 
+def test_normal_memory_lines_do_not_blame_ram():
+    lines = ["log: Running command: stack", "End of command stack, memory difference: 0 MB",
+             "no memory cgroup controller detected", "log: Error in line 23 ('stack'): invalid arguments."]
+    texts = [c["text"] for c in siril._causes(lines)]
+    assert not any("Arbeitsspeicher" in t for t in texts)
+    assert any("Error in line 23" in t for t in texts)
+
+
 def test_unknown_error_gives_no_invented_cause():
     assert siril._causes(["log: Running command: convert"]) == []
 

@@ -269,7 +269,6 @@ class SirilRunner:
     def __init__(self, inst: Install, script: str, workdir: str, dirs):
         # Siril löst den Skriptpfad relativ zum (mit -d gewechselten) Arbeitsordner auf → absolut übergeben
         self.args = inst.command(dirs, ["-d", os.path.abspath(workdir), "-s", os.path.abspath(script)])
-        self.flatpak = inst.flatpak
         self.proc = None
         self.thread = None
         self._out: list[str] = []
@@ -310,8 +309,6 @@ class SirilRunner:
                 os.killpg(self.proc.pid, signal.SIGKILL)
             except OSError:
                 self.proc.kill()
-        if self.flatpak:                 # Sandbox-Prozess kann die Gruppe verlassen → Flatpak selbst beenden
-            subprocess.run(["flatpak", "kill", FLATPAK_ID], capture_output=True)
         try:
             self.proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
@@ -357,7 +354,7 @@ def _stage_set(stg, cs: dict | None, folder: str, prefix: str) -> dict | None:
 BAYER_INDEX = {"RGGB": 0, "BGGR": 1, "GBRG": 2, "GRBG": 3}     # Siril: debayer.pattern
 
 # WBPP-Stellschrauben → Siril. Näherungen sind markiert; was Siril nicht umsetzt, steht im Lauf-Log.
-WEIGHT_MAP = {"psf_signal": "wfwhm", "psf_snr": "wnoise", "snr": "wnoise"}   # Näherung: Siril hat keine PSF-Gewichtung
+WEIGHT_MAP = {"psf_signal": "wfwhm", "psf_snr": "noise", "snr": "noise"}   # Näherung: Siril hat keine PSF-Gewichtung (Siril 1.4: wfwhm|nbstars|noise)
 FINDSTAR_MAP = {                    # WBPP-Sternerkennung → setfindstar
     "maxStarDistortion": ("roundness", "Näherung: Siril misst Rundheit statt Fläche/Quadrat"),
     "minStructureSize": ("minA", "Näherung: kleinste Sternfläche statt Strukturgröße"),
@@ -485,7 +482,8 @@ def _causes(lines: list[str], code: int | None = None) -> list[dict]:
         ("not found", "Eine Datei fehlt oder ist nicht lesbar (Pfad, Netzlaufwerk, Flatpak-Freigabe)."),
         ("dimension", "Bildgrößen sind unterschiedlich – Lights und Kalibrierbilder müssen gleich groß sein."),
         ("out of memory", "Zu wenig Arbeitsspeicher – andere Programme schließen."),
-        ("memory", "Zu wenig Arbeitsspeicher – andere Programme schließen."),
+        ("bad_alloc", "Zu wenig Arbeitsspeicher – andere Programme schließen."),
+        # „memory“ allein steht in normalen Siril-Zeilen („memory difference: 0 MB“) → kein Stichwort
     ]
     for needle, msg in rules:
         if needle in text:
@@ -632,7 +630,7 @@ def siril_processes() -> list[dict]:
             args = open(os.path.join(d, "cmdline"), "rb").read().split(b"\0")
         except (OSError, ValueError):
             continue
-        if not any(os.path.basename(a) == b"siril-cli" or a == b"--command=siril-cli" for a in args):
+        if not args or os.path.basename(args[0]) != b"siril-cli":      # nur die CLI selbst, nicht flatpak/bwrap
             continue
         try:
             rss = int(open(os.path.join(d, "statm")).read().split()[1]) * os.sysconf("SC_PAGE_SIZE")
