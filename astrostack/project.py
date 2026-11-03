@@ -207,6 +207,16 @@ def run_report(roots, target: str | None, settings: Settings, log=print, progres
         if os.path.isdir(pdir_into):
             m = meta(pdir_into)
             known = {discover.target_key(n) for n in (m.get("objects") or []) if n}
+            # Lights, die schon Frames dieses Projekts sind, gehören per Definition dazu (Bericht 0.8 §10),
+            # egal welchen Objektnamen der Scan rät – nur neue Lights brauchen eine Zuordnung.
+            try:
+                own = {os.path.normcase(os.path.abspath(f["path"])) for f in frames(pdir_into) if f.get("type") == "light"}
+            except Exception:  # noqa: BLE001 – noch nie analysiert
+                own = set()
+            for g in inv.lights:
+                if own and all(os.path.normcase(os.path.abspath(f.path)) in own for f in g.frames):
+                    known.add(discover.target_key(g.target))
+                    known |= {discover.target_key(n) for n in g.names}
             # A project created for one object stores that object as its target, while planning
             # projects keep their own title there.
             if discover.target_key(m.get("target")) in {discover.target_key(g.target) for g in inv.lights}:
@@ -283,9 +293,14 @@ def run_report(roots, target: str | None, settings: Settings, log=print, progres
         objs = sorted({n for g in groups for n in g.names})
         if is_new and objs and m0.get("target") != objs[0]:
             save_meta(pdir, name=m0["name"])
-            mm = meta(pdir)
-            mm["target"] = groups[0].target
-            mm["objects"] = objs
+        # Zusammengelegte Objekte merken, damit spätere Analysen (neuer Bias-Ordner, Neu analysieren) sie wiederfinden
+        mm = meta(pdir)
+        merged = sorted(set(mm.get("objects") or []) | set(objs) |
+                        {k for k, v in (assign or {}).items() if v and discover.target_key(v) == discover.target_key(groups[0].target)})
+        if is_new or merged != sorted(mm.get("objects") or []):
+            if is_new:
+                mm["target"] = groups[0].target
+            mm["objects"] = merged
             _write(os.path.join(pdir, "project.json"), mm)
         # Release as the last step: a failed report/edit or a concurrent sources/override write stays blocked.
         with _STATE_LOCK:

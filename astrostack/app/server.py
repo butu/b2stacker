@@ -378,7 +378,8 @@ def start_stack(name: str) -> dict:
                          on_status=lambda x: job.set_progress(
                              stage=x.stage, step=x.step, run=x.run, run_index=x.run_index, runs_total=x.runs_total,
                              run_steps=x.run_steps, steps_done=x.steps_done, done=x.done, total=x.total,
-                             eta_s=x.eta_s, message=x.message))
+                             eta_s=x.eta_s, message=x.message, alert=x.alert, causes=x.causes,
+                             failed_step=x.failed_step, logdir=x.logdir))
         return st.as_dict()
     job = JOBS.submit("stack", "Stacking " + target, s.workdir, fn, project=name)
     return job.as_dict()
@@ -735,6 +736,23 @@ def start_requality(name: str, stack_id: str) -> dict:
     return JOBS.submit("quality", "Kennzahlen " + rec.get("run", ""), s.workdir, fn, project=name).as_dict()
 
 
+def start_selftest(folder: str) -> dict:
+    """Selbsttest mit echtem PixInsight: legt nur einen neuen Testordner an, stackt ihn und schreibt einen Bericht."""
+    folder = (folder or "").strip().strip('"')
+    if not folder or not os.path.isdir(folder):
+        raise ValueError("Ordner für den Selbsttest nicht gefunden: %s" % (folder or "–"))
+    s = settings()
+
+    def fn(job):
+        from .. import selftest
+        res = selftest.run(s, folder, log=job.write, cancel=job.cancel,
+                           progress=lambda **kw: job.set_progress(**kw))
+        logbook.event("selftest", ok=res.get("ok"), report=res.get("report"), environment=res.get("environment"),
+                      steps=res.get("steps"), stack=res.get("stack"), cosmetic=res.get("cosmetic"))
+        return res
+    return JOBS.submit("selftest", "Selbsttest", s.workdir, fn).as_dict()
+
+
 def quit_app() -> dict:
     """Programm beenden (Knopf in den Einstellungen) – wichtig, wenn kein eigenes Fenster läuft."""
     from . import window
@@ -977,6 +995,12 @@ class Handler(BaseHTTPRequestHandler):
                 moved = project.move_projects(b["old"], settings().workdir, b.get("projects", []))
                 logbook.event("move_projects", old=b["old"], new=settings().workdir, moved=moved)
                 return self._json({"moved": moved})
+            if parts == ["api", "selftest"]:
+                return self._json(start_selftest(b.get("folder", "")))
+            if parts == ["api", "ui-event"]:          # Diagnose aus dem Fenster (z. B. "Auftrag fertig gesehen")
+                kind = "".join(c for c in str(b.get("kind", "event")) if c.isalnum() or c == "_")[:40]
+                logbook.event("ui_" + kind, **{k: str(v)[:300] for k, v in b.items() if k != "kind"})
+                return self._json({"ok": True})
             if parts == ["api", "focus"]:
                 from . import window
                 return self._json({"ok": window.focus()})

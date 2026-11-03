@@ -442,6 +442,9 @@ table.why td:nth-child(2){font-weight:600}
 .tl.done .ic{background:var(--ok-bg);color:var(--ok)}
 .tl.now .ic{background:var(--accent);color:#fff;box-shadow:0 0 0 5px rgba(53,132,228,.22)}
 .tl.now{color:#fff;font-weight:700}
+.tl.fail .ic{background:var(--err-bg);color:var(--err)}
+.tl.fail{color:var(--err);font-weight:700}
+.alertline{display:flex;gap:8px;align-items:flex-start;color:var(--err);font-size:13.5px;margin-top:8px}
 .nowbox{display:grid;grid-template-columns:44px 1fr auto;gap:14px;align-items:start;background:var(--panel);border-radius:12px;padding:14px}
 .nowbox .big-ic{width:44px;height:44px;border-radius:12px;background:var(--info-bg);color:var(--info-2);display:grid;place-items:center}
 .nowbox .big-ic svg.i{width:22px;height:22px}
@@ -553,6 +556,7 @@ iframe.report{width:100%;border:0;display:block;background:transparent;min-heigh
   <div class="sep"></div>
   <button class="mi" id="setBtn">Einstellungen</button>
   <button class="mi" id="menuUpd">Nach Updates suchen</button>
+  <button class="mi" id="menuSelf">Selbsttest …</button>
   <button class="mi" id="menuAbout">Über b2stacker</button>
 </div>
 <div class="pop" id="ctxPop" hidden style="width:250px"></div>
@@ -780,6 +784,12 @@ $('#zOut').innerHTML=ic('zoom-out');$('#zIn').innerHTML=ic('zoom-in');
 $('#menuBtn').onclick=e=>openPop('menuPop',e.currentTarget);
 $('#menuUpd').onclick=()=>{closePops();openUpdate();checkUpdate();};
 $('#menuAbout').onclick=()=>{closePops();openUpdate();};
+$('#menuSelf').onclick=async()=>{closePops();
+  if(!await ask('Selbsttest starten?','b2stacker legt im gewählten Ordner einen neuen Unterordner „b2stacker-selbsttest, mit Komma“ mit kleinen Testbildern an (ca. 50 MB), analysiert und stackt ihn mit PixInsight (wenige Minuten) und schreibt einen Bericht. Vorhandene Dateien werden nicht verändert.\n\nAm aussagekräftigsten auf dem Netzlaufwerk, auf dem deine Aufnahmen liegen.','Ordner wählen …'))return;
+  let f='';try{f=(await api('/api/pick-folder',{initial:(S.settings.sources||[])[0]||''})).path||'';}
+  catch(e){f=await askText('Selbsttest','Ordner für die Testdaten','', 'z. B. \\\\JUPITER\\disk2','Starten')||'';}
+  if(!f)return;
+  try{await startJob('/api/selftest',{folder:f},'Selbsttest');}catch(e){toast(e.message,true)}};
 $('#sortBtn').innerHTML=ic('sort');
 $('#searchBox').insertAdjacentHTML('afterbegin',ic('search'));
 $('#homeNav').innerHTML=ic('grid')+'Alle Projekte';
@@ -837,14 +847,16 @@ async function pollSys(){
     renderChips(); updateMeters();
     if(y.job&&(cur.view==='job'||cur.view==='project'))renderJob();
     if(wasActive&&!y.job)await refresh();
-  }catch(e){}
+  }catch(e){const t=Date.now();if(!pollSys.err||t-pollSys.err>60000){pollSys.err=t;uiEvent('poll_error',{error:String(e&&e.message||e),view:cur.view});}}
   setTimeout(pollSys,2500);
 }
 setInterval(refresh,15000);
 
 function trackJobs(list){
   (list||[]).forEach(j=>{const was=JOBSEEN[j.id];JOBSEEN[j.id]=j.state;
-    if(was&&['queued','running'].includes(was)&&!['queued','running'].includes(j.state))onJobFinished(j);});
+    if(was&&['queued','running'].includes(was)&&!['queued','running'].includes(j.state)){
+      uiEvent('job_done_seen',{job:j.id,state:j.state,view:cur.view});
+      try{onJobFinished(j);}catch(e){uiEvent('job_done_error',{job:j.id,error:String(e)});toast('Auftrag beendet – Ansicht konnte nicht wechseln: '+e.message,true);if(cur.view==='job')renderJob();}}});
 }
 const ptitle=n=>n?(((S&&S.projects)||[]).find(p=>p.name===n)||{}).title||n:'';
 const queuedJobs=()=>((S&&S.jobs)||[]).filter(j=>j.state==='queued');
@@ -903,18 +915,21 @@ setTimeout(pollUpdate,1500);
 
 // ---------- Kopfzeile: Auftrag + Systemstatus
 const jobActive=()=>!!(S&&S.job&&['queued','running'].includes(S.job.state));
-const JOBNAME={stack:'Stacking läuft',analyze:'Analyse läuft',scan:'Ordner werden durchsucht',previews:'Vorschauen werden vorbereitet',assets:'Bilder werden vorbereitet',quality:'Kennzahlen werden gemessen'};
+const JOBNAME={selftest:'Selbsttest läuft',stack:'Stacking läuft',analyze:'Analyse läuft',scan:'Ordner werden durchsucht',previews:'Vorschauen werden vorbereitet',assets:'Bilder werden vorbereitet',quality:'Kennzahlen werden gemessen'};
 function jobProgress(j){
   const p=j.progress||{};
   const defs=!STEPS?[]:j.kind==='stack'?STEPS.stack:j.kind==='analyze'?STEPS.analyze:j.kind==='scan'?STEPS.analyze.slice(0,1)
     :j.kind==='assets'?[{key:'assets',title:'Bilder vorbereiten',icon:'image',what:'Bildbestand und Vorschauen werden lokal gespeichert.',why:''}]
+    :j.kind==='selftest'?[{key:'scan',title:'Testdaten anlegen',icon:'folder',what:'Kleine Testbilder in einem Ordner mit Komma (Flats in zwei Kamerastellungen).',why:''},
+      {key:'measure',title:'Analysieren',icon:'star',what:'Testbilder werden wie echte Aufnahmen vermessen.',why:''},
+      {key:'stack',title:'Stacken mit PixInsight',icon:'layers',what:'Das echte PixInsight stackt die Testbilder.',why:''}]
     :j.kind==='previews'?[{key:'previews',title:'Vorschauen vorbereiten',icon:'image',what:'Miniaturen und Bildschirmvorschauen werden lokal gespeichert.',why:''}]
     :[{key:'quality',title:'Qualität messen',icon:'gauge',what:'Kennzahlen werden berechnet.',why:''}];
   const keys=j.kind==='stack'?(p.run_steps&&p.run_steps.length?p.run_steps:defs.map(d=>d.key)):defs.map(d=>d.key);
   const curKey=p.step||(['quality','previews','assets'].includes(j.kind)?j.kind:null);
   const ci=keys.indexOf(curKey);
   const pct=p.total?Math.round(100*p.done/p.total):null;
-  const overall=keys.length?Math.min(100,Math.round(100*((Math.max(ci,0))+(pct!=null?pct/100:0.3))/keys.length)):null;
+  const overall=p.final||!['queued','running'].includes(j.state)?100:keys.length?Math.min(100,Math.round(100*((Math.max(ci,0))+(pct!=null?pct/100:0.3))/keys.length)):null;
   return {p,defs,keys,curKey,ci,pct,overall};
 }
 function renderChips(){
@@ -1128,8 +1143,9 @@ function jobCard(j){
   const g=jobProgress(j),p=g.p,defs=g.defs,keys=g.keys,curKey=g.curKey,ci=g.ci,pct=g.pct;
   const doneSet=new Set(p.steps_done||[]);
   const tl=keys.map((k,i)=>{const d=defs.find(x=>x.key===k)||{title:k,icon:'info'};
-    const st=!active&&j.state==='done'?'done':(doneSet.has(k)||(ci>=0&&i<ci))?'done':(k===curKey&&active?'now':'');
-    return `<div class="tl ${st}" title="${esc(d.what||'')}"><div class="ic">${st==='done'?ic('check'):ic(d.icon)}</div>${esc(d.title)}</div>`}).join('');
+    const failK=j.state==='failed'?(p.failed_step||curKey):null;
+    const st=!active&&j.state==='done'?'done':k===failK?'fail':(doneSet.has(k)||(ci>=0&&i<ci))?'done':(k===curKey&&active?'now':'');
+    return `<div class="tl ${st}" title="${esc(d.what||'')}"><div class="ic">${st==='done'?ic('check'):st==='fail'?ic('close'):ic(d.icon)}</div>${esc(d.title)}${st==='fail'?'<br>fehlgeschlagen':''}</div>`}).join('');
   const d=defs.find(x=>x.key===curKey);
   const runInfo=j.kind==='stack'&&p.runs_total?`Lauf ${p.run_index} von ${p.runs_total}: <b>${esc(p.run||'')}</b> · `:'';
   const stateTxt={queued:'wartet',running:'läuft',done:'fertig',failed:'fehlgeschlagen',cancelled:'abgebrochen'}[j.state];
@@ -1141,20 +1157,36 @@ function jobCard(j){
     ${keys.length>1?`<div class="timeline">${tl}</div>`:''}
     ${active&&d?`<div class="nowbox"><div class="big-ic">${ic(d.icon)}</div>
       <div><b>${esc(d.title)}</b>${p.total?` <span style="opacity:.6">· ${p.done} von ${p.total}</span>`:''}${p.target?` <span style="opacity:.6">· ${esc(p.target)}</span>`:''}
-        <div class="what">${esc(d.what)}</div>${d.why?`<div class="why">Wozu: ${esc(d.why)}</div>`:''}
+        <div class="what">${esc(p.message&&/beendet/.test(p.message)?p.message:d.what)}</div>${d.why?`<div class="why">Wozu: ${esc(d.why)}</div>`:''}
+        ${p.alert?`<div class="alertline">${ic('warn','s14')}<span>PixInsight meldet: ${esc(p.alert)}</span></div>`:''}
         <div class="progress ${pct==null?'indet':''}"><div style="width:${pct??0}%"></div></div></div>
       <div class="eta"><span class="small" style="opacity:.6">noch ca.</span><b>${p.eta_s!=null?dur(p.eta_s):'…'}</b><span class="small" style="opacity:.6">läuft seit ${dur(p.step_elapsed_s)}</span></div></div>`:''}
-    ${j.state==='failed'?`<div class="banner err"><span class="errc" style="display:flex">${ic('error','s18')}</span><div class="grow"><div class="bt">Fehler</div><div class="bx">${esc(j.error)}</div></div></div>`:''}
+    ${j.state==='failed'?failBanner(j,p):''}
+    ${j.state==='cancelled'?`<div class="banner"><div class="grow"><div class="bt">Abgebrochen</div><div class="bx">Bisher Erledigtes bleibt erhalten.</div></div></div>`:''}
     <details ${j.state==='failed'||UI.log?'open':''} id="jobLogBox"><summary class="lnk plain small" style="opacity:.75">${ic('down','s14')} Protokoll${(j.log||[]).length?` <span style="opacity:.6;font-weight:400">· ${(j.log||[]).length>=120?'letzte 120 Zeilen':(j.log||[]).length+' Zeilen'}</span>`:''}</summary>
       <pre class="log" id="jobLog">${esc((j.log||[]).join('\n')||(active?'Noch keine Meldungen – sie erscheinen, sobald der erste Schritt beginnt.':'Keine Meldungen.'))}</pre></details></div>`;
 }
+function failBanner(j,p){
+  const causes=(p.causes||(j.result&&j.result.causes)||[]).filter(c=>c&&c.text);
+  const errs=causes.filter(c=>c.level==='error'),warns=causes.filter(c=>c.level!=='error');
+  const step=(jobProgress(j).defs.find(x=>x.key===p.failed_step)||{}).title;
+  return `<div class="banner err" style="align-items:flex-start"><span class="errc" style="display:flex;margin-top:2px">${ic('error','s18')}</span>
+    <div class="grow" style="display:flex;flex-direction:column;gap:6px"><div class="bt">${esc(j.kind==='stack'?'Stacking':'Auftrag')} fehlgeschlagen${step?' beim '+esc(step):''}.</div>
+      <div class="bx">${esc(j.error||'')}</div>
+      ${errs.slice(1).concat(warns).map(c=>`<div class="bx" style="opacity:.75">• ${esc(c.text)}</div>`).join('')}
+      <div class="row" style="gap:6px;margin-top:4px">${j.project?`<button class="btn sm" onclick='openProject(${jsArg(j.project)}).then(()=>goTab("plan"))'>Kalibrierdaten ändern</button>`:''}
+        ${p.logdir?`<button class="btn sm" onclick='openDir(${jsArg(p.logdir)})'>${ic('folder-open')} WBPP-Protokoll öffnen</button>`:''}
+        ${j.kind==='stack'&&j.project?`<button class="btn sm" onclick='retryStack(${jsArg(j.project)})'>${ic('refresh')} Erneut versuchen</button>`:''}</div></div></div>`;
+}
+async function retryStack(name){try{await startJob('/api/project/'+encodeURIComponent(name)+'/stack',{},'Stacking');}catch(e){toast(e.message,true)}}
+function uiEvent(kind,data){try{fetch('/api/ui-event',{method:'POST',headers:{'Content-Type':'application/json','X-Astrostack':'1'},body:JSON.stringify(Object.assign({kind},data||{}))}).catch(()=>{});}catch(e){}}
 function renderJob(){
   const j=S&&S.job; if(!j){if(cur.view==='job')go('new');return;}
   const active=['queued','running'].includes(j.state);
   const lg0=$('#jobLog'),atEnd=!lg0||lg0.scrollTop+lg0.clientHeight>=lg0.scrollHeight-8;
   if(cur.view==='job'){
     const Q=queuedJobs().filter(q=>q.id!==j.id), done=((S&&S.jobs)||[]).filter(x=>x.id!==j.id&&!['queued','running'].includes(x.state));
-    $('#view').innerHTML=`<div style="display:flex;flex-direction:column;gap:6px"><h1>${j.kind==='stack'?'Stacking':j.kind==='analyze'?'Analyse':j.kind==='scan'?'Ordner durchsuchen':j.kind==='assets'?'Bilder vorbereiten':j.kind==='previews'?'Vorschauen vorbereiten':'Kennzahlen'}</h1>
+    $('#view').innerHTML=`<div style="display:flex;flex-direction:column;gap:6px"><h1>${j.kind==='stack'?'Stacking':j.kind==='analyze'?'Analyse':j.kind==='scan'?'Ordner durchsuchen':j.kind==='assets'?'Bilder vorbereiten':j.kind==='previews'?'Vorschauen vorbereiten':j.kind==='selftest'?'Selbsttest':'Kennzahlen'}</h1>
       <p style="margin:0;opacity:.7">${active?'Du kannst das Fenster offen lassen und nebenbei etwas anderes machen.':j.state==='done'?'Fertig.':''}</p></div>`+jobCard(j)+
       (!active&&j.kind==='analyze'&&Array.isArray(j.result)&&j.result.length?`<section class="sec"><div class="sechd"><div><h2>Ergebnis</h2></div></div><div class="row">${j.result.map(r=>`<button class="btn primary" onclick='openProject(${jsArg(r.project)})'>${esc(r.target)} öffnen ${ic('right')}</button>`).join('')}</div></section>`:'')+
       (Q.length?`<section class="sec">${secHd('Warteschlange','Startet automatisch nacheinander. Entfernen bricht nichts Laufendes ab.')}<div class="card" style="padding:6px">${Q.map((q,i)=>`<div class="qrow"><span class="qnum">${i+1}</span>

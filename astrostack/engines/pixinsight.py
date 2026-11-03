@@ -23,7 +23,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from .. import hotpix, logbook, stackqa, steps, system, wbpplog
+from .. import hotpix, logbook, stackqa, staging, steps, system, wbpplog
 from ..fitsmeta import BIAS, DARK, FLAT
 
 IMAGE_EXT = (".fits", ".fit", ".fts", ".xisf")
@@ -77,6 +77,10 @@ class Status:
     runs_total: int = 0
     run_steps: list = field(default_factory=list)
     steps_done: list = field(default_factory=list)
+    alert: str = ""                   # letzte Fehlermeldung von PixInsight (live)
+    causes: list = field(default_factory=list)    # verständliche Ursachen bei Fehlschlag
+    failed_step: str = ""
+    logdir: str = ""
 
     def as_dict(self):
         return dict(self.__dict__)
@@ -151,7 +155,9 @@ def fix_calibration(paths: list[str], ftype: str, cache_dir: str) -> list[str]:
             out.append(p)
             continue
         cur = str(hdr.get("IMAGETYP", hdr.get("FRAME", ""))).lower()
-        master = "master" in cur or os.path.basename(low).startswith("master")
+        from .. import fitsmeta
+        master = "master" in cur or os.path.basename(low).startswith("master") or \
+            fitsmeta.from_header(hdr, p).is_master                 # u. a. APP-Masters (MB-/MD-/MF-, NCOMBINE)
         target = want_master if master else want
         if ftype.lower() in cur and (not master or "master" in cur):
             out.append(p)
@@ -547,8 +553,8 @@ def run_plan(plan: dict, settings, log=print, on_status=None, cancel: threading.
     except Cancelled:
         st.state, st.error = "cancelled", "vom Benutzer abgebrochen"
         _log("Abgebrochen.")
-    except StackError as e:
-        st.state, st.error = "failed", str(e)
+    except (StackError, staging.StagingError) as e:
+        st.state, st.error, st.failed_step = "failed", str(e), st.step
         _log("FEHLER: " + str(e))
         logbook.event("error", project=project_name, run_id=stamp, run=st.run, step=st.step, message=str(e))
     except Exception as e:  # noqa: BLE001 – alles melden statt still sterben
@@ -624,25 +630,31 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
         log("  WARNUNG: keine Flats – Vignettierung und Staub bleiben im Bild.")
     run = _cosmetic(plan, run, settings, jobdir, calib, st, log, save, cancel)
     script = settings.wbpp_script
-    fg = [g for g in (run.get("flat_groups") or []) if g.get("lights")]
-    linkbase = os.path.join(jobdir, "_grp", safe_file(name))
-    if len(fg) > 1:
-        log("  Kamera-Stellung wechselt zwischen den Nächten → %d Gruppen mit eigenen Flats:" % len(fg))
-        for g in fg:
-            log("    Gruppe %s: Nächte %s · Flats %s (%d)" % (g["key"], ", ".join(g["nights"]), g.get("flat_set") or "keine",
-                                                          len(g["flats"])))
-        lights_l, flats_l = build_group_links(fg, linkbase, lambda p: fix_calibration(p, FLAT, cache), log)
-        run = dict(run, lights=lights_l)
-        calib["flats"] = flats_l
-        run.setdefault("wbpp", {})
-        run["wbpp"] = dict(run["wbpp"], groupingKeywordsEnabled="true", keywords="%s pre" % GROUP_KEYWORD)
-        logbook.event("flat_groups", run=name, groups=[dict(key=g["key"], nights=g["nights"], flats=len(g["flats"]),
-                                                             flat_set=g.get("flat_set")) for g in fg])
+    _preflight_calibration(run, calib, log)
+    # Bereitstellen (Auswahl, Flat-Gruppen, Sonderzeichen, Länge) – zentral in staging.prepare.
+    # Reste eines vorherigen Versuchs (Wiederholung ohne fehlregistrierte Frames) zuerst entfernen.
+    remove_link_tree(os.path.join(jobdir, "_grp"))
+    fg = [dict(g, flats=fix_calibration(g.get("flats", []), FLAT, cache)) for g in (run.get("flat_groups") or [])]
+    lay = staging.prepare(dict(run, flat_groups=fg), calib, ref, jobdir, os.path.join(settings.workdir, "cache"),
+                          MAX_CMDLINE, log=log,
+                          cmd_len=lambda L: len(",".join(wbpp_items(plan, dict(run, lights=L.lights), outdir, L.reference, L.calib))))
+    if lay.grouping:
+        log("  Kamera-Stellung wechselt zwischen den Nächten → %d Gruppen mit eigenen Flats:" % len(lay.groups))
+        for g in lay.groups:
+            log("    Gruppe %s: Nächte %s · %d Lights · Flats %s (%d)" % (g.key, ", ".join(g.nights), len(g.lights),
+                                                                       g.flat_set or "keine", len(g.flats)))
+        run = dict(run, wbpp=dict(run.get("wbpp") or {}, groupingKeywordsEnabled="true", keywords="%s pre" % GROUP_KEYWORD))
+        logbook.event("flat_groups", run=name, groups=[dict(key=g.key, nights=g.nights, lights=len(g.lights),
+                                                             flats=len(g.flats), flat_set=g.flat_set) for g in lay.groups])
+    for note in lay.notes:
+        log("  " + note)
+    log("  " + lay.summary())
+    logbook.event("staging", run=name, grouping=lay.grouping, lights=len(lay.lights), **lay.stats)
+    if len(lay.lights) != n:                       # Invariante: genau die gewählten Lights
+        raise StackError("Interner Fehler: %d Lights bereitgestellt, %d gewählt." % (len(lay.lights), n))
+    run = dict(run, lights=lay.lights)
+    calib, ref = lay.calib, lay.reference
     items = wbpp_items(plan, run, outdir, ref, calib)
-    if len(",".join(items)) > MAX_CMDLINE:
-        log("  Sehr viele Einzeldateien – verlinke Lights in einen Arbeitsordner …")
-        staged = stage_lights(run["lights"], os.path.join(jobdir, "_lights", safe_file(name)), log)
-        items = wbpp_items(plan, dict(run, lights=staged), outdir, ref, calib)
     runner = runner_factory()
     cmd = runner.start(script, items)
     log("  PixInsight gestartet")
@@ -660,6 +672,9 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
             log("  → %s" % steps.BY_KEY[key]["title"])
         for line in tail.new_lines():
             log("    PI: " + line)
+            if wbpplog.ALERT.search(line):
+                st.alert = line
+                log("  ⚠ PixInsight meldet: " + line)
         st.done, st.total = d, total
         st.eta_s = _eta(st, n, timing)
         st.stage = steps.BY_KEY[key]["title"]
@@ -671,14 +686,23 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
         if cancel.wait(3):
             runner.kill()
             raise Cancelled("abgebrochen")
+    st.message = "PixInsight beendet – werte Ergebnis aus …"
+    st.logdir = os.path.join(outdir, "logs")
+    save()
+    for line in tail.new_lines():               # letzte Zeilen nach dem Ende
+        log("    PI: " + line)
     _finish_step(st, settings.workdir, n)
     logbook.event("pixinsight_exit", run=name, code=code, code_hex="0x%08X" % (code & 0xFFFFFFFF) if code else "0",
                   duration_s=round(time.time() - t0, 1), command=cmd[:3000], wbpp_logs=os.path.join(outdir, "logs"),
                   master=find_master(outdir))
     master = find_master(outdir)
     if not master:
-        raise StackError("%s Kein Master entstanden – Details in %s" % (
-            crash_text(code) if code else "WBPP lief durch, aber", os.path.join(outdir, "logs")))
+        causes = wbpplog.diagnose(outdir)
+        st.causes = causes
+        errs = [c["text"] for c in causes if c["level"] == "error"]
+        why = errs[0] if errs else (crash_text(code) if code else "PixInsight lief durch, hat aber keinen Master erzeugt.")
+        logbook.event("stack_diagnosis", run=name, causes=causes)
+        raise StackError("Stacking fehlgeschlagen beim %s: %s" % (steps.BY_KEY.get(st.step, {}).get("title", "Stacken"), why))
     log("  Master: %s (%s)" % (os.path.basename(master), _elapsed(time.time() - t0)))
     notes = list(orig_run.get("_notes") or [])
     if run.get("_cc_pixinsight"):
@@ -690,8 +714,8 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
             log("  WARNUNG: PixInsight hat die Hotpixel-Korrektur nicht ausgeführt (%s) – Stack wird mit "
                 "b2stacker-eigener Hotpixel-Entfernung neu gerechnet." % (
                     "Parameter nicht übernommen" if cc["applied"] else "Pipeline-Script nicht aktiv"))
+            mark_pi_cosmetic_broken(settings, "Parameter nicht übernommen" if cc["applied"] else "Pipeline-Script nicht aktiv")
             _discard(master)
-            remove_link_tree(os.path.join(jobdir, "_grp", safe_file(name)))
             return _one_run(plan, dict(orig_run, _force_cosmetic=True,
                                        _notes=notes + ["PixInsight-Hotpixel-Korrektur nicht verfügbar – b2stacker-Ersatz verwendet."]),
                             settings, jobdir, masters, finaldir, st, log, save, cancel, runner_factory)
@@ -770,6 +794,63 @@ def cc_check(outdir: str) -> dict:
     return {"log": log, "applied": applied, "params_ok": params_ok, "done": done, "ok": applied and params_ok and done}
 
 
+MIN_RAW_CALIB = 3
+CALIB_NAMES = {"bias": "Bias", "darks": "Darks", "darkflats": "Dark-Flats", "flats": "Flats"}
+
+
+def _preflight_calibration(run: dict, calib: dict, log) -> None:
+    """Vor PixInsight prüfen: Roh-Kalibrierbilder unter 3 Stück kann WBPP nicht integrieren (Bericht 0.8 §8)."""
+    from .. import fitsmeta
+    sets = [(k, v) for k, v in calib.items() if v]
+    for g in run.get("flat_groups") or []:
+        if g.get("lights") and g.get("flats"):
+            sets.append(("flats", g["flats"]))
+    for kind, paths in sets:
+        masters = 0
+        for p in paths:
+            try:
+                masters += bool(fitsmeta.from_header(_header(p), p).is_master)
+            except Exception:  # noqa: BLE001
+                pass
+        raw = len(paths) - masters
+        if masters == 0 and 0 < raw < MIN_RAW_CALIB:
+            name = CALIB_NAMES.get(kind, kind)
+            raise StackError("Nur %d %s-Bild%s – PixInsight braucht mindestens %d Rohbilder, um daraus einen Master zu "
+                             "machen. Ist „%s“ vielleicht schon ein fertiger Master (z. B. aus Astro Pixel Processor)? "
+                             "Unter Stacken → Kalibrierung den Satz ändern oder weitere Bilder hinzufügen." % (
+                                 raw, name, "" if raw == 1 else "er", MIN_RAW_CALIB, os.path.basename(paths[0])))
+
+
+def _cc_marker(settings) -> str:
+    return os.path.join(settings.workdir, "cache", "pixinsight-cosmetic-broken.json")
+
+
+def pi_cosmetic_broken(settings) -> bool:
+    """Hat die Hotpixel-Korrektur in genau dieser PixInsight-Installation schon einmal versagt?"""
+    try:
+        d = json.load(open(_cc_marker(settings), encoding="utf-8"))
+        return d.get("pixinsight") == settings.pixinsight and d.get("mtime") == _pi_mtime(settings)
+    except (OSError, ValueError):
+        return False
+
+
+def _pi_mtime(settings):
+    try:
+        return int(os.path.getmtime(settings.pixinsight))
+    except OSError:
+        return None
+
+
+def mark_pi_cosmetic_broken(settings, reason: str) -> None:
+    try:
+        os.makedirs(os.path.dirname(_cc_marker(settings)), exist_ok=True)
+        json.dump(dict(pixinsight=settings.pixinsight, mtime=_pi_mtime(settings), reason=reason,
+                       date=datetime.datetime.now().isoformat(timespec="seconds")),
+                  open(_cc_marker(settings), "w", encoding="utf-8"))
+    except OSError:
+        pass
+
+
 def _cosmetic(plan, run, settings, jobdir, calib, st, log, save, cancel) -> dict:
     """Ohne Darks: Hotpixel entfernen.
 
@@ -779,6 +860,9 @@ def _cosmetic(plan, run, settings, jobdir, calib, st, log, save, cancel) -> dict
     Bereinigung der Rohbilder in Python vor WBPP."""
     if not run.get("_force_cosmetic") and (calib.get("darks") or plan.get("options", {}).get("hot_pixels", True) is False):
         return run
+    if not run.get("_force_cosmetic") and pi_cosmetic_broken(settings):
+        log("  Hotpixel-Korrektur in PixInsight hat bei dieser Installation schon versagt → b2stacker-eigene Korrektur")
+        run = dict(run, _force_cosmetic=True)
     if not run.get("_force_cosmetic"):
         script = cc_builder_script(settings.workdir)
         st.run_steps = steps.stack_steps(run["mode"], run.get("is_osc", True), cosmetic="after")

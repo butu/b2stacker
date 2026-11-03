@@ -187,6 +187,15 @@ class JobManager:
                 logbook.error("Auftrag fehlgeschlagen: %s" % title, job=job.id, project=job.project)
                 job.write("FEHLER: " + job.error)
                 job.write(traceback.format_exc()[-1500:])
+        # Endzustand eindeutig: kein "laufender" Schritt bleibt stehen (Bericht 0.8 §6/§9)
+        prog = dict(job.progress or {})
+        if job.state == "failed":
+            prog["failed_step"] = prog.get("failed_step") or prog.get("step")
+        prog.update(final=True, eta_s=None, stage={"done": "Fertig", "cancelled": "Abgebrochen",
+                                                    "failed": "Fehlgeschlagen"}.get(job.state, job.state))
+        if isinstance(job.result, dict) and job.result.get("causes"):
+            prog["causes"] = job.result["causes"]
+        job.progress = prog
         job.write({"done": "Fertig.", "cancelled": "Abgebrochen.", "failed": "Fehlgeschlagen."}.get(job.state, job.state))
         job.finished = datetime.datetime.now().isoformat(timespec="seconds")
         job._fn = None

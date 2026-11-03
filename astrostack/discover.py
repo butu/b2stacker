@@ -7,6 +7,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
+from . import filters as flt
 from . import fitsmeta as fm
 from .catalog import canonical, open_catalog
 
@@ -201,7 +202,7 @@ def scan(roots: list[str], opt: ScanOptions | None = None, progress=None) -> Inv
         if m.type == fm.LIGHT and not m.is_master:
             if snap:                       # Testaufnahmen aus dem Snapshot-Ordner nie stacken
                 continue
-            target = m.object or _guess_target(m.path, roots)
+            target = m.object or _guess_target(m.path, roots, opt.custom_filters)
             tk = target_key(target)
             target = opt.target_map.get(tk, target)            # bestätigte Zuordnung (z. B. zusammengelegt)
             key = (target_key(target), m.filter, m.settings_key())
@@ -291,15 +292,45 @@ def _median_exp(frames):
     return round(v[len(v) // 2], 3) if v else None
 
 
-def _guess_target(path: str, roots: list[str]) -> str:
-    """Ohne OBJECT-Header: ersten Ordner unterhalb der Wurzel nehmen, der kein Datum/Typ/Filter ist."""
+# Ordner, die nie ein Objektname sind (Bericht 0.8 §5): Datumsangaben in allen gängigen Schreibweisen …
+_DATE_DIR = re.compile(r"(\d{4}-\d{2}-\d{2}.*|\d{1,2}\.\d{1,2}\.(\d{2}|\d{4})?.*|\d{1,2}\.?-\d{1,2}\.\d{1,2}\.\d{2,4}.*|"
+                       r"\d{8}(?:[-_].*)?|\d{4}[._]\d{2}[._]\d{2}.*)")
+# … und Sammelbegriffe für Ordner mit Rohdaten
+_GENERIC_DIR = {"lights", "light", "raw", "subs", "frames", "fits", "data", "daten", "aufnahmen", "rohdaten", "autorun",
+                "plan", "sessions", "session", "night", "nacht", "c11", "pixinsight", "astro"}
+_NAME_OBJECT = re.compile(r"^light[_ -]+([^_]+?)[_ ]", re.I)         # ASIAIR/NINA: Light_IC434_180.0s_…
+
+
+def _object_from_name(path: str) -> str | None:
+    m = _NAME_OBJECT.match(os.path.basename(path))
+    if not m:
+        return None
+    name = m.group(1).strip()
+    if not name or re.fullmatch(r"[\d.,]+s?|bin\d+|gain\d+", name, re.I) or flt.classify(name) not in (flt.UNKNOWN,):
+        return None
+    return name
+
+
+def _folder_is_not_object(p: str, custom_filters: dict | None = None) -> bool:
+    low = p.lower().strip()
+    if p in (".", "") or _DATE_DIR.fullmatch(p.strip()) or low in _GENERIC_DIR:
+        return True
+    if fm.type_from_string(p)[0] != fm.UNKNOWN:
+        return True
+    return flt.classify(p, custom_filters) != flt.UNKNOWN          # RGB, Dual, IR, L-Pro, Ha, … (auch eigene Filter)
+
+
+def _guess_target(path: str, roots: list[str], custom_filters: dict | None = None) -> str:
+    """Ohne OBJECT-Header: zuerst der Objektname im Dateinamen (Light_IC434_…), dann der erste Ordner unterhalb der
+    Wurzel, der kein Datum, Bildtyp, Filter oder Sammelbegriff ist, sonst der Name der Wurzel selbst."""
+    n = _object_from_name(path)
+    if n:
+        return n
     for r in roots:
         if path.startswith(os.path.abspath(r)):
             rel = os.path.relpath(os.path.dirname(path), r).split(os.sep)
             for p in rel:
-                if p in (".", "") or re.fullmatch(r"\d{4}-\d{2}-\d{2}.*", p) or fm.type_from_string(p)[0] != fm.UNKNOWN:
-                    continue
-                if p.lower() in ("rgb", "hao3", "l", "r", "g", "b", "ha", "oiii", "sii"):
+                if _folder_is_not_object(p, custom_filters):
                     continue
                 return p
             return os.path.basename(os.path.abspath(r))
