@@ -171,6 +171,9 @@ def run_script(workdir: str, script: str) -> int:
             if os.environ.get("FAKESIRIL_NO_OUTPUT") != "1":
                 mean = np.mean([_read(f)[0] for f in files], axis=0)
                 _write(_opt(args, "-out", "result") + ".fit", mean, {"STACKCNT": len(files), "IMAGETYP": "Master Light"})
+                if "-rejmaps" in args:
+                    for stem in ("low", "high"):
+                        _write("%s_%s_rejmap.fit" % (_opt(args, "-out", "result"), stem), np.zeros_like(mean), {})
         else:
             return _fail(i, cmd, "unknown command name")
         print("progress: %s, %.2f%%" % (cmd, 100.0 * i / total), flush=True)

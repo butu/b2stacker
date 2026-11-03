@@ -229,7 +229,11 @@ def build_script(spec: dict) -> str:
         L.extend(["cd " + _quote(g["lights"]), "convert light %s" % _kv("-out", seq_light), "cd " + _quote(seq_light)])
         L.append("calibrate light_ %s -prefix=pp_" % " ".join(cal))
         seqs.append(_p(os.path.join(seq_light, "pp_light_")))
-    sigma_line = "setfindstar -sigma=%.2f" % spec["sigma"] if spec.get("sigma") else ""
+    findstar = dict(spec.get("findstar") or {})
+    if spec.get("sigma"):
+        findstar.setdefault("sigma", spec["sigma"])
+    sigma_line = "setfindstar " + " ".join(
+        "-%s=%s" % (k, ("%.2f" % v) if k == "sigma" else v) for k, v in sorted(findstar.items())) if findstar else ""
     ref = spec.get("reference")
     if ref:                                                # Referenzframes als eigene Sequenz (nicht kalibriert)
         L.extend(["cd " + _quote(ref), "convert ref %s" % _kv("-out", os.path.join(out, "seq_ref")), ])
@@ -250,8 +254,9 @@ def build_script(spec: dict) -> str:
     else:
         L.append("register %s -2pass -minpairs=10 -transf=homography -maxstars=2000" % seq)
         L.append("seqapplyreg %s -interp=lanczos4 -prefix=r_" % seq)
-    L.append("stack r_%s rej w 3 3 -norm=addscale -weight=wfwhm -output_norm -32b%s%s -out=result"
-             % (seq, " -rgb_equal" if spec.get("osc") else "", " -filter-included" if ref else ""))
+    L.append("stack r_%s rej w 3 3 -norm=addscale -weight=%s -output_norm -32b%s%s%s -out=result"
+             % (seq, spec.get("weight", "wfwhm"), " -rgb_equal" if spec.get("osc") else "",
+                " -filter-included" if ref else "", " -rejmaps" if spec.get("rejmaps") else ""))
     return "\n".join(L) + "\n"
 
 
@@ -332,6 +337,57 @@ def _stage_set(stg, cs: dict | None, folder: str, prefix: str) -> dict | None:
 
 
 BAYER_INDEX = {"RGGB": 0, "BGGR": 1, "GBRG": 2, "GRBG": 3}     # Siril: debayer.pattern
+
+# WBPP-Stellschrauben → Siril. Näherungen sind markiert; was Siril nicht umsetzt, steht im Lauf-Log.
+WEIGHT_MAP = {"psf_signal": "wfwhm", "psf_snr": "wnoise", "snr": "wnoise"}   # Näherung: Siril hat keine PSF-Gewichtung
+FINDSTAR_MAP = {                    # WBPP-Sternerkennung → setfindstar
+    "maxStarDistortion": ("roundness", "Näherung: Siril misst Rundheit statt Fläche/Quadrat"),
+    "minStructureSize": ("minA", "Näherung: kleinste Sternfläche statt Strukturgröße"),
+}
+NOT_MAPPED = {                      # keine Entsprechung in Siril → im Log nennen, nicht still weglassen
+    "localNormalization": "Lokale Normierung (Siril normiert global)",
+    "distortionCorrection": "Verzeichnungskorrektur (Siril registriert nur über Homografie)",
+    "lightsLargeScaleRejectionHigh": "Filter für Satelliten-/Flugzeugspuren",
+    "structureLayers": "Strukturebenen der Sternerkennung",
+    "peakResponse": "Peak-Antwort der Sternerkennung",
+    "noiseReductionFilterRadius": "Rauschfilter vor der Sternerkennung",
+}
+HANDLED = {"hotPixelFilterRadius": "Hotpixel entfernt b2stacker selbst (Cosmetic/CC)",
+           "generateRejectionMaps": "→ -rejmaps",
+           "subframeWeightingEnabled": "Gewichtung ist immer aktiv (-weight=)",
+           "imageRegistration": "Registrierung ist immer aktiv",
+           "integrate": "Stapeln ist immer aktiv"}
+
+
+def map_wbpp(plan: dict, run: dict, lock_retry: bool = False) -> dict:
+    """WBPP-Optionen und Sternerkennung → Siril-Befehle. → dict(findstar, weight, rejmaps, notes)."""
+    opt = plan.get("options", {})
+    wb = dict(run.get("wbpp") or {})
+    params = dict((run.get("star_detection") or {}).get("params") or {})
+    notes, findstar = [], {}
+    if "sensitivity" in params:          # höhere WBPP-Empfindlichkeit → kleineres sigma (Näherung)
+        findstar["sigma"] = min(3.0, max(0.3, round(2.0 - 1.5 * float(params.pop("sensitivity")), 2)))
+    if lock_retry:                       # strengere Sternerkennung nach Fehlregistrierung
+        findstar["sigma"] = min(5.0, findstar.get("sigma", 1.0) + 1.0)
+    for k, (siril_key, why) in FINDSTAR_MAP.items():
+        if k in params:
+            findstar[siril_key] = params.pop(k)
+            notes.append("Sternerkennung %s → setfindstar -%s (%s)" % (k, siril_key, why))
+    for k in sorted(params):
+        if k not in HANDLED:
+            notes.append("Sternerkennung %s: %s" % (k, NOT_MAPPED.get(k, "keine Entsprechung in Siril")))
+    for k in sorted(wb):
+        if k not in HANDLED:
+            notes.append("WBPP-Option %s=%s: %s" % (k, wb[k], NOT_MAPPED.get(k, "keine Entsprechung in Siril")))
+    if opt.get("local_normalization"):
+        notes.append("Local Normalization: " + NOT_MAPPED["localNormalization"])
+    if opt.get("distortion_correction"):
+        notes.append("Verzeichnungskorrektur: " + NOT_MAPPED["distortionCorrection"])
+    if opt.get("large_scale_rejection"):
+        notes.append("Satellitenspuren-Filter: " + NOT_MAPPED["lightsLargeScaleRejectionHigh"])
+    weight = WEIGHT_MAP.get(opt.get("weighting", "psf_signal"), "wfwhm")
+    rejmaps = str(wb.get("generateRejectionMaps", "true")).lower() != "false"
+    return dict(findstar=findstar, weight=weight, rejmaps=rejmaps, notes=notes)
 
 
 def bayer_override(paths: list[str], log=print) -> str | None:
@@ -494,7 +550,7 @@ def _drop_intermediates(outdir: str) -> None:
     for old in [outdir] + glob.glob(glob.escape(outdir) + ".versuch-*"):
         for d in os.listdir(old):
             full = os.path.join(old, d)
-            if os.path.isdir(full) and d != "logs":
+            if os.path.isdir(full) and d not in ("logs", "master"):      # master/: Rejection-Maps bleiben
                 shutil.rmtree(full, ignore_errors=True)
 
 
@@ -608,16 +664,13 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     for kind, key, prefix in (("bias", "bias", "bias"), ("dark", "darks", "dark"), ("darkflat", "darkflats", "darkflat")):
         d = os.path.join(raw, kind)
         spec[kind] = _stage_set(stg, _calib_spec(calib[key], prefix, d, log), d, prefix)
-    sd = run.get("star_detection") or {}
-    params = dict(sd.get("params") or {})
-    if "sensitivity" in params:                    # Näherung: höhere WBPP-Empfindlichkeit → kleineres sigma
-        spec["sigma"] = min(3.0, max(0.3, round(2.0 - 1.5 * float(params.pop("sensitivity")), 2)))
-        log("  Sternerkennung → setfindstar -sigma=%.2f (Näherung aus WBPP-sensitivity)" % spec["sigma"])
-    if params:
-        log("  Hinweis: Sternerkennung-Parameter ohne Siril-Entsprechung nicht übernommen: %s" % ", ".join(sorted(params)))
-    if run.get("_lock_retry"):                       # strengere Sternerkennung: höhere Schwelle
-        spec["sigma"] = min(5.0, (spec.get("sigma") or 1.0) + 1.0)
-        log("  Sternerkennung strenger → setfindstar -sigma=%.2f" % spec["sigma"])
+    mp = map_wbpp(plan, run, lock_retry=bool(run.get("_lock_retry")))
+    spec.update(findstar=mp["findstar"], weight=mp["weight"], rejmaps=mp["rejmaps"])
+    if mp["findstar"]:
+        log("  Sternerkennung → setfindstar %s" % " ".join("-%s=%s" % kv for kv in sorted(mp["findstar"].items())))
+    for note in mp["notes"]:
+        log("  Hinweis (WBPP → Siril): nicht übernommen – " + note if "→" not in note else
+            "  Hinweis (WBPP → Siril): " + note)
     os.makedirs(os.path.join(outdir, "seq_light"), exist_ok=True)     # Ziel von merge (Siril wechselt dorthin)
     ref_dir = None
     if ref_src:
@@ -733,6 +786,12 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     log("  Stack: %s (%s)" % (os.path.basename(result), pi._elapsed(time.time() - t0)))
     master_keep = os.path.join(outdir, "master.fit")          # bleibt nach der Bereinigung erhalten
     shutil.copy2(result, master_keep)
+    if spec["rejmaps"]:                                     # wie PixInsight: Rejection-Maps neben dem Master (master/)
+        for stem in ("low", "high"):
+            src = os.path.join(outdir, "seq_light", "result_%s_rejmap.fit" % stem)
+            if os.path.exists(src):
+                os.makedirs(os.path.join(outdir, "master"), exist_ok=True)
+                shutil.move(src, os.path.join(outdir, "master", "rejection_%s.fit" % stem))
     st.steps_done.append("integrate")
     pi._set_step(st, "finalize", 0, 0)
     save()
