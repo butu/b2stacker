@@ -23,7 +23,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from .. import hotpix, logbook, stackqa, steps, system, wbpplog
+from .. import hotpix, logbook, stackqa, staging, steps, system, wbpplog
 from ..fitsmeta import BIAS, DARK, FLAT
 
 IMAGE_EXT = (".fits", ".fit", ".fts", ".xisf")
@@ -547,7 +547,7 @@ def run_plan(plan: dict, settings, log=print, on_status=None, cancel: threading.
     except Cancelled:
         st.state, st.error = "cancelled", "vom Benutzer abgebrochen"
         _log("Abgebrochen.")
-    except StackError as e:
+    except (StackError, staging.StagingError) as e:
         st.state, st.error = "failed", str(e)
         _log("FEHLER: " + str(e))
         logbook.event("error", project=project_name, run_id=stamp, run=st.run, step=st.step, message=str(e))
@@ -624,25 +624,30 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
         log("  WARNUNG: keine Flats – Vignettierung und Staub bleiben im Bild.")
     run = _cosmetic(plan, run, settings, jobdir, calib, st, log, save, cancel)
     script = settings.wbpp_script
-    fg = [g for g in (run.get("flat_groups") or []) if g.get("lights")]
-    linkbase = os.path.join(jobdir, "_grp", safe_file(name))
-    if len(fg) > 1:
-        log("  Kamera-Stellung wechselt zwischen den Nächten → %d Gruppen mit eigenen Flats:" % len(fg))
-        for g in fg:
-            log("    Gruppe %s: Nächte %s · Flats %s (%d)" % (g["key"], ", ".join(g["nights"]), g.get("flat_set") or "keine",
-                                                          len(g["flats"])))
-        lights_l, flats_l = build_group_links(fg, linkbase, lambda p: fix_calibration(p, FLAT, cache), log)
-        run = dict(run, lights=lights_l)
-        calib["flats"] = flats_l
-        run.setdefault("wbpp", {})
-        run["wbpp"] = dict(run["wbpp"], groupingKeywordsEnabled="true", keywords="%s pre" % GROUP_KEYWORD)
-        logbook.event("flat_groups", run=name, groups=[dict(key=g["key"], nights=g["nights"], flats=len(g["flats"]),
-                                                             flat_set=g.get("flat_set")) for g in fg])
+    # Bereitstellen (Auswahl, Flat-Gruppen, Sonderzeichen, Länge) – zentral in staging.prepare.
+    # Reste eines vorherigen Versuchs (Wiederholung ohne fehlregistrierte Frames) zuerst entfernen.
+    remove_link_tree(os.path.join(jobdir, "_grp"))
+    fg = [dict(g, flats=fix_calibration(g.get("flats", []), FLAT, cache)) for g in (run.get("flat_groups") or [])]
+    lay = staging.prepare(dict(run, flat_groups=fg), calib, ref, jobdir, os.path.join(settings.workdir, "cache"),
+                          MAX_CMDLINE, log=log,
+                          cmd_len=lambda L: len(",".join(wbpp_items(plan, dict(run, lights=L.lights), outdir, L.reference, L.calib))))
+    if lay.grouping:
+        log("  Kamera-Stellung wechselt zwischen den Nächten → %d Gruppen mit eigenen Flats:" % len(lay.groups))
+        for g in lay.groups:
+            log("    Gruppe %s: Nächte %s · %d Lights · Flats %s (%d)" % (g.key, ", ".join(g.nights), len(g.lights),
+                                                                       g.flat_set or "keine", len(g.flats)))
+        run = dict(run, wbpp=dict(run.get("wbpp") or {}, groupingKeywordsEnabled="true", keywords="%s pre" % GROUP_KEYWORD))
+        logbook.event("flat_groups", run=name, groups=[dict(key=g.key, nights=g.nights, lights=len(g.lights),
+                                                             flats=len(g.flats), flat_set=g.flat_set) for g in lay.groups])
+    for note in lay.notes:
+        log("  " + note)
+    log("  " + lay.summary())
+    logbook.event("staging", run=name, grouping=lay.grouping, lights=len(lay.lights), **lay.stats)
+    if len(lay.lights) != n:                       # Invariante: genau die gewählten Lights
+        raise StackError("Interner Fehler: %d Lights bereitgestellt, %d gewählt." % (len(lay.lights), n))
+    run = dict(run, lights=lay.lights)
+    calib, ref = lay.calib, lay.reference
     items = wbpp_items(plan, run, outdir, ref, calib)
-    if len(",".join(items)) > MAX_CMDLINE:
-        log("  Sehr viele Einzeldateien – verlinke Lights in einen Arbeitsordner …")
-        staged = stage_lights(run["lights"], os.path.join(jobdir, "_lights", safe_file(name)), log)
-        items = wbpp_items(plan, dict(run, lights=staged), outdir, ref, calib)
     runner = runner_factory()
     cmd = runner.start(script, items)
     log("  PixInsight gestartet")
