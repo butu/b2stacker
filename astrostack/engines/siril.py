@@ -179,6 +179,8 @@ def build_script(spec: dict) -> str:
     groups (optional): [dict(sub, lights=Ordner, flat=…)] – je Gruppe eigener Master-Flat, dann merge."""
     out = spec["outdir"]
     L = ["requires 1.4.0", "setext fit"]
+    if spec.get("osc") and spec.get("bayer"):              # Header fehlt/widerspricht → Muster festlegen
+        L += ["set debayer.use_bayer_header=false", "set debayer.pattern=%d" % BAYER_INDEX[spec["bayer"]]]
     masters = {}
 
     def master_of(kind: str, s: dict, parent: str | None, sub: str = "") -> str | None:
@@ -315,12 +317,43 @@ def _calib_spec(paths: list[str], prefix: str, raw_dir: str, log) -> dict | None
     return dict(raw=raw_dir, prefix=prefix, paths=paths)
 
 
+def _seq_name(folder: str, prefix: str, i: int, src: str) -> str:
+    """Zielname für die Sequenz „prefix_NNNNN“. XISF behält seine Endung (Siril liest es direkt), FITS wird .fit."""
+    ext = ".xisf" if src.lower().endswith(".xisf") else ".fit"
+    return os.path.join(folder, "%s_%05d%s" % (prefix, i, ext))
+
+
 def _stage_set(stg, cs: dict | None, folder: str, prefix: str) -> dict | None:
-    """Rohbilder einer Kalibrierung als Sequenz „prefix_NNNNN.fit“ bereitstellen (Master: nur Pfad)."""
+    """Rohbilder einer Kalibrierung als Sequenz „prefix_NNNNN“ bereitstellen (Master: nur Pfad)."""
     if cs and cs.get("paths"):
         for i, p in enumerate(cs.pop("paths"), 1):
-            stg.place(p, os.path.join(folder, "%s_%05d.fit" % (prefix, i)))
+            stg.place(p, _seq_name(folder, prefix, i, p))
     return cs
+
+
+BAYER_INDEX = {"RGGB": 0, "BGGR": 1, "GBRG": 2, "GRBG": 3}     # Siril: debayer.pattern
+
+
+def bayer_override(paths: list[str], log=print) -> str | None:
+    """Bayer-Muster, das Siril erzwingen muss: Header fehlt oder die Lights widersprechen sich. None = Header passt."""
+    from .. import fitsmeta
+    pats = []
+    for p in paths:
+        try:
+            pats.append((fitsmeta.read_meta(p).bayer or "").upper() or None)
+        except Exception:  # noqa: BLE001 – unlesbarer Header zählt wie fehlend
+            pats.append(None)
+    known = [x for x in pats if x in BAYER_INDEX]
+    if known and len(known) == len(pats) and len(set(known)) == 1:
+        return None
+    pat = max(set(known), key=known.count) if known else "RGGB"
+    if not known:
+        log("  WARNUNG: Bayer-Muster fehlt im Header der Lights – %s angenommen (Farben können vertauscht sein)." % pat)
+    else:
+        log("  Bayer-Muster in den Headern uneinheitlich (%s) – einheitlich %s erzwungen." % (
+            ", ".join(sorted(set(known))), pat))
+    logbook.event("bayer_override", engine="siril", pattern=pat, headers=sorted({x or "-" for x in pats}))
+    return pat
 
 
 REF_MARK = "<Referenz>"       # Platzhalter für die zwei Referenzframes in der Registrierungsauswertung
@@ -560,7 +593,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
         lights_dir = os.path.join(raw, sub, "light")
         gl = g.lights if g else run["lights"]
         for i, p in enumerate(gl, 1):
-            stg.place(p, os.path.join(lights_dir, "light_%05d.fit" % i))
+            stg.place(p, _seq_name(lights_dir, "light", i, p))
         merged += gl
         gflats = g.flats if g else calib["flats"]
         flat_dir = os.path.join(raw, sub, "flat")
@@ -570,6 +603,8 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
         raise StackError("Interner Fehler: %d Lights bereitgestellt, %d gewählt." % (len(merged), n))
     spec = dict(outdir=outdir, osc=bool(run.get("is_osc")) and run.get("mode") in ("debayer", "extract"),
                 cosmetic=bool(calib["darks"]), groups=spec_groups)
+    if spec["osc"]:
+        spec["bayer"] = bayer_override(merged, log)
     for kind, key, prefix in (("bias", "bias", "bias"), ("dark", "darks", "dark"), ("darkflat", "darkflats", "darkflat")):
         d = os.path.join(raw, kind)
         spec[kind] = _stage_set(stg, _calib_spec(calib[key], prefix, d, log), d, prefix)

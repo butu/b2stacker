@@ -90,6 +90,12 @@ def _read(path: str):
         return np.asarray(h[0].data, dtype=np.float32), h[0].header.copy()
 
 
+def _xisf(path: str):
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from astrostack import xisf
+    return xisf.read_image(path)
+
+
 def _write(path: str, data, header=None) -> None:
     from astropy.io import fits
     hdr = fits.Header()
@@ -106,18 +112,21 @@ def run_script(workdir: str, script: str) -> int:
     for i, line in enumerate(lines, 1):
         cmd, *args = shlex.split(line)
         print("log: Running command: %s" % cmd, flush=True)
-        if cmd in ("requires", "setext", "setfindstar"):
+        if cmd in ("requires", "setext", "setfindstar", "set"):
             pass
         elif cmd == "cd":
             os.chdir(args[0])
         elif cmd == "convert":
-            files = sorted(glob.glob(args[0] + "_*.fit"))
+            files = sorted(glob.glob(args[0] + "_*.fit") + glob.glob(args[0] + "_*.xisf"))
             if not files:
                 return _fail(i, cmd, "no image found")
             out = _opt(args, "-out")
             os.makedirs(out, exist_ok=True)
             for f in files:
-                os.symlink(os.path.abspath(f), os.path.join(out, os.path.basename(f)))
+                if f.endswith(".xisf"):                        # Siril liest XISF und schreibt FITS (setext fit)
+                    _write(os.path.join(out, os.path.basename(f)[:-5] + ".fit"), _xisf(f), {})
+                else:
+                    os.symlink(os.path.abspath(f), os.path.join(out, os.path.basename(f)))
         elif cmd == "calibrate":
             seq = args[0]
             debayer = "-debayer" in args
