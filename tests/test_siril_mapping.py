@@ -90,3 +90,12 @@ def test_run_writes_rejection_maps_next_to_master_and_logs_gaps(tmp_path, cli):
     rej = os.path.join(os.path.dirname(st.runs["L"]["master"]), "master", "rejection_low.fit")
     assert os.path.exists(rej)
     assert any("nicht übernommen" in ln and "Local Normalization" in ln for ln in lines)
+
+
+def test_command_lines_use_shared_constants_exactly():
+    s = siril.build_script(dict(outdir="/o", lights="/o/l", flat=dict(master="/m/f.fit"), bias=None, dark=None,
+                                osc=False, cosmetic=False, weight="wfwhm", rejmaps=False))
+    assert "register pp_light_ -2pass -minpairs=10 -transf=homography -maxstars=2000" in s
+    assert "seqapplyreg pp_light_ -interp=lanczos4 -prefix=r_" in s
+    assert "stack r_pp_light_ rej w 3 3 -norm=addscale -weight=wfwhm -output_norm -32b -out=result" in s
+    assert siril.REJECTION == "rej w 3 3" and siril.REG_TRANSFORM == "-transf=homography" and siril.INTERP == "lanczos4"

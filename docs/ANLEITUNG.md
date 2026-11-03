@@ -102,7 +102,7 @@ Kalibrierung, Qualitätskennzahlen und Hinweise des Stacks, dazu „In PixInsigh
 
 Fertige Stacks liegen in `<Arbeitsverzeichnis>/projects/<Projekt>/final/` als
 `Ziel_Filter_Datum_Stunden.xisf`. Dualband an der Farbkamera wird danach in Ha + OIII bzw. SII + OIII geteilt
-(mit PixInsight; im Siril-Modus bleibt das Ergebnis vorerst ein Farbbild – siehe [Stacking mit Siril](#stacking-mit-siril)).
+(mit PixInsight und Siril gleichermaßen – siehe [Stacking mit Siril](#stacking-mit-siril)).
 
 ## 6. Aufträge und Warteschlange
 
@@ -184,8 +184,8 @@ Hotpixeln), wird der Lauf wie bei PixInsight einmal mit stärkerer Hotpixel-Korr
 
 - **Hotpixel:** Mit Darks übernimmt Siril die Korrektur. Ohne Darks entfernt b2stacker die Hotpixel vor dem
   Stacken selbst; die CosmeticCorrection von PixInsight entfällt.
-- **Dualband an der Farbkamera:** Siril stackt das Farbbild; die Aufteilung in Ha/OIII bzw. SII/OIII findet im
-  Siril-Modus derzeit nicht statt.
+- **Dualband an der Farbkamera:** Siril stackt das Farbbild und teilt es danach wie PixInsight in Ha/OIII bzw.
+  SII/OIII auf (eine Datei je Kanal).
 - **Protokoll:** Jeder Lauf schreibt sein Siril-Skript (`siril.ssf`) in `runs/<Zeit>/<Lauf>/`. Es gibt kein
   WBPP-Protokoll und keine PixInsight-Fensterprüfung.
 - **Öffnen:** „In Siril öffnen“ startet Siril mit den fertigen Stacks.

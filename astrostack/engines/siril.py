@@ -174,6 +174,12 @@ def _stack_seq(n_groups: int) -> str:
     return "lights_" if n_groups > 1 else "pp_light_"
 
 
+# Siril-Befehlsbausteine; planview.py zeigt dieselben Werte an.
+REJECTION = "rej w 3 3"              # winsorisiert, 3 σ / 3 σ
+REG_TRANSFORM = "-transf=homography"
+INTERP = "lanczos4"
+
+
 def build_script(spec: dict) -> str:
     """Skript für einen Lauf. spec: outdir, lights (Ordner), osc, bias/dark/darkflat/flat →
     dict(raw=Ordner mit Präfix-Sequenz|None, prefix, master=Pfad|None), cosmetic (bool), sigma (float),
@@ -195,9 +201,9 @@ def build_script(spec: dict) -> str:
         if kind == "flat":
             opt = (" " + _kv("-dark" if parent[0] == "dark" else "-bias", parent[1])) if parent else ""
             L.append("calibrate %s_%s -prefix=pp_" % (s["prefix"], opt))
-            L.append("stack pp_%s_ rej w 3 3 -norm=mul -output_norm -32b -out=master_%s" % (s["prefix"], kind))
+            L.append("stack pp_%s_ %s -norm=mul -output_norm -32b -out=master_%s" % (s["prefix"], REJECTION, kind))
         else:
-            L.append("stack %s_ rej w 3 3 -nonorm -32b -out=master_%s" % (s["prefix"], kind))
+            L.append("stack %s_ %s -nonorm -32b -out=master_%s" % (s["prefix"], REJECTION, kind))
         return _p(os.path.join(seq, "master_%s.fit" % kind))
 
     for kind in ("bias", "dark", "darkflat"):
@@ -249,14 +255,14 @@ def build_script(spec: dict) -> str:
         n = sum(g.get("n", 0) for g in groups)
         # Referenz = erster Referenzframe; Registrierung ohne -2pass, sonst würde Siril die Referenz neu wählen
         L.append("setref %s %d" % (seq, n + 1))
-        L.append("register %s -minpairs=10 -transf=homography -maxstars=2000" % seq)
-        L.append("seqapplyreg %s -interp=lanczos4 -prefix=r_" % seq)
+        L.append("register %s -minpairs=10 %s -maxstars=2000" % (seq, REG_TRANSFORM))
+        L.append("seqapplyreg %s -interp=%s -prefix=r_" % (seq, INTERP))
         L.append("unselect r_%s %d %d" % (seq, n + 1, n + 2))
     else:
-        L.append("register %s -2pass -minpairs=10 -transf=homography -maxstars=2000" % seq)
-        L.append("seqapplyreg %s -interp=lanczos4 -prefix=r_" % seq)
-    L.append("stack r_%s rej w 3 3 -norm=addscale -weight=%s -output_norm -32b%s%s%s -out=result"
-             % (seq, spec.get("weight", "wfwhm"), " -rgb_equal" if spec.get("osc") else "",
+        L.append("register %s -2pass -minpairs=10 %s -maxstars=2000" % (seq, REG_TRANSFORM))
+        L.append("seqapplyreg %s -interp=%s -prefix=r_" % (seq, INTERP))
+    L.append("stack r_%s %s -norm=addscale -weight=%s -output_norm -32b%s%s%s -out=result"
+             % (seq, REJECTION, spec.get("weight", "wfwhm"), " -rgb_equal" if spec.get("osc") else "",
                 " -filter-included" if ref else "", " -rejmaps" if spec.get("rejmaps") else ""))
     return "\n".join(L) + "\n"
 

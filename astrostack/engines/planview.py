@@ -9,9 +9,11 @@ _OPTION_NOT_MAPPED = {"local_normalization": "localNormalization",
                       "distortion_correction": "distortionCorrection",
                       "large_scale_rejection": "lightsLargeScaleRejectionHigh"}
 
-# Kommando aus siril.build_script; bei Änderungen dort mitziehen.
-SIRIL_REJECTION = "rej w 3 3 (winsorisiert, Sigma 3/3)"
-SIRIL_REGISTRATION = "Homografie, Lanczos4"
+from .siril import INTERP, REG_TRANSFORM, REJECTION
+
+SIRIL_REJECTION = REJECTION + " (winsorisiert, Sigma 3/3)"
+SIRIL_REGISTRATION = ("Homografie" if REG_TRANSFORM == "-transf=homography" else REG_TRANSFORM) + \
+    ", " + ("Lanczos4" if INTERP == "lanczos4" else INTERP)
 
 
 def _unsupported() -> dict:
