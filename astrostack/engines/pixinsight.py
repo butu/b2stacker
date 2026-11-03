@@ -255,11 +255,13 @@ def stage_progress(outdir: str, n_lights: int) -> tuple[str, int, int]:
 
 def estimate_max_path(outdir: str, lights: list[str]) -> int:
     """Längster Pfad, den WBPP beim Kalibrieren/Debayern/Registrieren erzeugt (Schätzung):
-    Lauf-Ordner + Zwischenordner + Gruppenordner (~60) + längster Dateiname + Suffix (_c_cc_d_r_lps.xisf)."""
+    Lauf-Ordner + Zwischenordner + Gruppenordner (z. B. ``Light_BIN-1_4144x2822_EXPOSURE-180.00s_FILTER-IR_CFA``,
+    ~52 Zeichen) + längster Dateiname + Suffix (``_c_cc_d_r.xisf``). Bericht 2: geschätzt 183, tatsächlich 175."""
     if not lights:
         return 0
     longest = max(len(os.path.splitext(os.path.basename(p))[0]) for p in lights)
-    return len(os.path.abspath(outdir)) + len("\\registered\\") + 60 + longest + len("_c_cc_d_r_lps.xisf")
+    base = outdir if re.match(r"^([A-Za-z]:)?[\\/]", outdir) else os.path.abspath(outdir)
+    return len(base) + len("\\calibrated\\") + 52 + 1 + longest + len("_c_cc_d_r.xisf")
 
 
 def crash_text(code: int) -> str:

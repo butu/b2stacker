@@ -384,6 +384,7 @@ def test_wbpp_diagnostics_are_hints_and_calibration_counts_lights(tmp_path, monk
         def __init__(self):
             super().__init__(long_paths=False)
     monkeypatch.setattr(pi.staging, "long_paths_enabled", lambda: False)
+    monkeypatch.setattr(pi, "estimate_max_path", lambda *a: 175)      # Temp-Pfade auf Windows-Runnern sind lang
     monkeypatch.setattr(pi.system, "pixinsight_processes", lambda: [])
     lines = []
     st = pi.run_plan(plan, s, log=lines.append, runner_factory=NoLong,
@@ -414,3 +415,23 @@ def test_calibration_substeps_from_wbpp_log():
     assert subs["master_flat"]["state"] == "done"            # vom nächsten Unterschritt abgelöst
     assert subs["cal_light"]["done"] == 5 and t.lights_done == 5 and subs["cal_light"]["state"] == "now"
     assert "unkritisch" in wbpplog.hint_text("** Warning: Diagnostics: Cannot create files with a path longer than 256 characters", 175)
+
+
+def test_too_long_paths_stop_before_pixinsight(tmp_path, monkeypatch):
+    """Bericht 2 §11: wirklich zu lange Pfade ohne LongPaths → klare Meldung vor dem Start, PixInsight startet nicht."""
+    build(str(tmp_path / "nas"))
+    s, pdir = analyse(tmp_path, monkeypatch, str(tmp_path / "nas"))
+    plan = select_only(pdir, lambda p: NIGHTS[0][0] in p)
+    monkeypatch.setattr(pi.staging, "long_paths_enabled", lambda: False)
+    monkeypatch.setattr(pi, "estimate_max_path", lambda *a: 300)
+    monkeypatch.setattr(pi.system, "pixinsight_processes", lambda: [])
+    ProcRunner.last = None
+    st = pi.run_plan(plan, s, log=lambda *a: None, runner_factory=ProcRunner)
+    assert st.state == "failed" and "300" in st.error and "Arbeitsverzeichnis" in st.error
+    assert ProcRunner.last is None
+
+
+def test_path_estimate_matches_report():
+    out = r"C:\Users\Martin\AstroStack\projects\NGC3486\runs\20261103-184152\IR"
+    est = pi.estimate_max_path(out, [r"\\JUPITER\disk2\Flat_35.0ms_Bin1_294MC_IR_gain120_20260215-220434_0009.fit"])
+    assert 170 <= est <= 215, est          # Lights bekommen längere Gruppenordner als die Flats im Bericht
