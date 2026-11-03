@@ -897,6 +897,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     alert = ""
     logdir = os.path.join(outdir, "logs")
     os.makedirs(logdir, exist_ok=True)
+    st.logdir = logdir                                # also set when cancelled before the end
     logf = open(os.path.join(logdir, "siril.log"), "a", encoding="utf-8")
     st.alert, st.hints, st.substeps = "", [], []
 
@@ -972,7 +973,6 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     key = state["key"]
     pi._finish_step(st, settings.workdir, n)  # letzter Schritt zählt als erledigt
     st.message = "Siril beendet – werte Ergebnis aus …"
-    st.logdir = logdir
     save()
     result = os.path.join(outdir, "seq_light", "result.fit")
     ok = code == 0 and os.path.exists(result)

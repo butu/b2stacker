@@ -22,3 +22,12 @@ def test_binary_gui_without_gui_binary_is_none(tmp_path, monkeypatch):
     monkeypatch.setattr(siril, "locate", lambda setting="": inst)
     with pytest.raises(FileNotFoundError, match="Siril-Oberfläche nicht gefunden"):
         siril.open_command(str(cli), [str(tmp_path / "m.fit")])
+
+
+def test_pixinsight_runner_factory_is_rejected_for_siril(tmp_path):
+    from astrostack import engines
+    from astrostack.engines.pixinsight import StackError
+    from astrostack.settings import Settings
+    s = Settings(engine="siril", siril="/nicht/da", workdir=str(tmp_path), keep_awake=False, open_results=False)
+    with pytest.raises(StackError, match="passt nicht zur Engine siril"):
+        engines.run_plan(dict(runs=[], workdir=str(tmp_path)), s, runner_factory=lambda: None)

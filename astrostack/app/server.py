@@ -48,12 +48,26 @@ def _safe(fn, default):
         return default
 
 
+_SIRIL_CHECK: dict = {}          # Pfad → (Zeitpunkt, Ergebnis): Statusabfragen starten keinen Siril-Prozess je Aufruf
+_SIRIL_CHECK_TTL = 30
+
+
+def _siril_status(path: str) -> dict:
+    hit = _SIRIL_CHECK.get(path)
+    if hit and time.time() - hit[0] < _SIRIL_CHECK_TTL:
+        return hit[1]
+    res = siril.check(path)
+    _SIRIL_CHECK[path] = (time.time(), res)
+    return res
+
+
 def state() -> dict:
     s = settings()
     free_ram, total_ram = _safe(system.ram_gb, (None, None))
     active = JOBS.active()
     last = JOBS.jobs[-1] if JOBS.jobs else None
-    siril_status = _safe(lambda: siril.check(s.siril), dict(ok=False, version=None, cmd=None, message=""))
+    siril_status = _safe(lambda: _siril_status(s.siril), dict(ok=False, version=None, cmd=None, message="")) \
+        if s.engine == "siril" else dict(ok=False, version=None, cmd=None, message="")
     return dict(
         version=__version__,
         app_window=_safe(lambda: __import__("astrostack.app.window", fromlist=["STATE"]).STATE.get("window") is not None, False),

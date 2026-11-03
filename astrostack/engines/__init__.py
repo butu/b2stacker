@@ -29,10 +29,25 @@ def engine_info(settings) -> dict:
         return dict(engine=settings.engine, engine_version=None)
 
 
+def _accepts(factory, n: int) -> bool:
+    import inspect
+    try:
+        inspect.signature(factory).bind(*([None] * n))
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 def run_plan(plan: dict, settings, **kw):
     """Stacking-Lauf an die in den Einstellungen gewählte Engine weiterreichen."""
     # Imports erst beim Aufruf: die Engine-Module ziehen Bild- und Speicher-Module nach sich.
     from .pixinsight import StackError
+    # Runner-Fabriken unterscheiden sich: PixInsight ohne Argumente, Siril (Skript, Ordner, Freigaben)
+    arity = {"pixinsight": 0, "siril": 3}.get(settings.engine)
+    factory = kw.get("runner_factory")
+    if factory is not None and arity is not None and not _accepts(factory, arity):
+        raise StackError("Die Runner-Fabrik passt nicht zur Engine %s (%d Argument(e) erwartet)."
+                         % (settings.engine, arity))
     if settings.engine == "siril":
         from . import siril
         return siril.run_plan(plan, settings, **kw)
