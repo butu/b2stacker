@@ -35,6 +35,10 @@ class Settings:
     open_results: bool = True                  # Ergebnisse am Ende in PixInsight öffnen
     min_free_ram_gb: float = 8.0
     language: str = "de"
+    # Ersatz-Standort, wenn die FITS-Daten keinen enthalten (Mondstand, Objekthöhe, Nachtgrenze)
+    site_lat: float | None = None
+    site_lon: float | None = None
+    site_elev: float | None = None
 
     @property
     def wbpp_script(self) -> str:

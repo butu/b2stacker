@@ -1,10 +1,16 @@
-# AstroStack
+# b2stacker (AstroStack)
 
 Rohdaten sichten, bewerten und mit **PixInsight** stacken – automatisch, nachvollziehbar,
-per Klick oder per KI.
+per Klick oder per KI. Originale werden nie verändert.
 
-> Status: **Stufe 1 benutzbar** – Analyse, Bericht, Plan, Oberfläche und Stacking mit WBPP.
-> Siehe [docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md).
+📖 **Dokumentation**
+
+| | |
+|---|---|
+| [Anleitung](docs/ANLEITUNG.md) | Bedienung Schritt für Schritt: Projekte, Frames, Stacken, Einstellungen, Selbsttest, NAS |
+| [Architektur](docs/ARCHITEKTUR.md) | Module, PixInsight-Anbindung, Dateibereitstellung, Ordnerstruktur, Tests |
+| [Erkenntnisse](docs/ERKENNTNISSE.md) | Erfahrungen aus echten Aufnahmen und WBPP-Eigenheiten (datiert) |
+| [Agent guide](AGENTS.md) | Kurzreferenz für KI-Agenten und Entwickler |
 
 ## Starten (Windows)
 
@@ -44,44 +50,27 @@ ein vorhandenes Tkinter. Ist keines verfügbar, nennt die Fehlermeldung die ben�
 Dialogprogramme; Ordnerpfade lassen sich zusätzlich direkt eintippen.
 
 Tests laufen mit `python -m pytest -q`; die JavaScript-Syntaxprüfungen benötigen
-zusätzlich Node.js. Die Tests erzeugen eigene FITS-Dateien und simulieren PixInsight-Aufrufe.
-Sie prüfen kein echtes WBPP-Stacking und keinen Windows-Programm-Build.
+zusätzlich Node.js. Die Tests erzeugen eigene FITS-Dateien. Ein nachgebautes PixInsight
+(`tests/fake_pixinsight.py`) läuft als eigener Prozess mit der echten Kommandozeile und bildet die
+WBPP-Eigenheiten nach (Komma-Trennung, Längengrenze, Flat-Gruppen, Mindestanzahl Kalibrierbilder).
+Auf jedem Branch laufen die Tests zusätzlich unter Windows, auch über eine echte Netzwerkfreigabe
+(`.github/workflows/tests-windows.yml`). Echtes WBPP prüft nur der Selbsttest in der App.
 
-## Ablauf
+## Ablauf in Kürze
 
-Die Startseite zeigt alle Projekte als Kacheln mit Vorschau des neuesten Stacks (Suche und Sortierung links).
+1. **Neues Projekt** – Ordner wählen (NINA, ASIAIR, Ekos, SharpCap, APT …). Lights und Kalibrierdaten werden an
+   den FITS-Daten erkannt, egal wie die Ordner heißen; fertige Master (auch Astro Pixel Processor) werden übernommen.
+2. **Analyse und Bericht** – jeder Frame wird vermessen (FWHM, Sterne, Rauschen, Mond, Höhe …), dazu Rig-Diagnose
+   und Kalibrier-Prüfung.
+3. **Frames sichten** – verwenden oder weglassen, mit Filtern, Sortierung und Tastatur (V/N/A).
+4. **Stacken** – Plan je Filter-Lauf mit Begründung: Kalibrierung, Referenz, **nur die besten X % Frames** per
+   Schieberegler (Stunden werden sofort neu gerechnet), Platz- und RAM-Prüfung. PixInsight läuft unsichtbar im
+   Hintergrund; Aufträge laufen in einer Warteschlange.
+5. **Ergebnisse** – in `<Arbeitsverzeichnis>/projects/<Ziel>/final/`, mit Qualitätskennzahlen, Vorschau und
+   Spickzettel für die Bearbeitung.
 
-1. **Neues Projekt** – einen oder mehrere Ordner wählen (NINA, ASIAIR, Ekos, SharpCap, APT …), optional ein Titel.
-   Lights, Flats, Bias und Darks (auch fertige Master) werden anhand der FITS-Header gefunden, egal wie die
-   Ordner heißen. Schreibweisen desselben Objekts („Sh2-82“, „Sh 2-82“, „SH2_82“) gelten als ein Ziel; werden
-   mehrere Ziele gefunden, fragt das Programm nach (zusammenlegen, getrennt, bestehendes Projekt, weglassen) –
-   Ziele mit fast gleichen Koordinaten werden als „vermutlich dasselbe Feld“ markiert.
-   Ordner mit `_rejected`, `_verworfen`, `_alt` im Namen gelten als aussortiert.
-   Ein Planungsprojekt lässt sich auch ohne Lights und Quellordner anlegen. Vorhandene
-   PSD-, TIFF- und JPEG-Dateien können verknüpft werden; Dateien direkt im Projekt- oder
-   Quellordner und dessen `final/` werden ebenfalls angezeigt. Die Originale bleiben an ihrem Ort.
-2. **Bericht** – jeder Frame wird vermessen (FWHM, Exzentrizität, Sterne, Hintergrund, Rauschen,
-   Mond, Höhe), dazu Rig-Diagnose (Fokus, Nachführung, Dithering, Verkippung, Taupunkt) und
-   Kalibrier-Prüfung (Flat-Helligkeit, Farbabfall, Auslesemodus, fehlende Flats).
-   Im Reiter **Frames** stehen auch Darks, Flats, Bias und Dark-Flats. Ein Häkchen bedeutet
-   „verwenden“. Filter für auffällige oder fehlerhafte Bilder und Sortierungen nach Nacht,
-   Sternanzahl, Sternform, HFR, FWHM und Bewertung helfen beim Sichten. In der Großansicht:
-   Pfeiltasten zum Blättern, Leertaste zum An-/Abwählen, Esc zum Schließen.
-   Nach Änderungen an Quellordnern oder Frame-Auswahl ist vor dem Stacking eine Neuanalyse nötig.
-3. **Stacking-Plan** – Vorschlag mit Begründung, Läufe ein/aus, Referenz, Optionen,
-   Speicher- und RAM-Anzeige.
-4. **Los – stacken** – PixInsight läuft unsichtbar im Hintergrund, der PC bleibt wach. Der Ablauf wird Schritt
-   für Schritt angezeigt – mit Erklärung, was gerade passiert und wozu, und geschätzter Restzeit.
-   Vorher wird geprüft: Platz, Arbeitsspeicher, ob PixInsight schon offen ist.
-5. **Nachbearbeitung des Stacks** – Farbsäume (R/B-Versatz) werden an den Sternen gemessen und korrigiert,
-   Dualband (HaO3, L-eXtreme, SII/OIII …) wird in Ha + OIII bzw. SII + OIII geteilt.
-6. **Ergebnisse** – in `<Arbeitsverzeichnis>/projects/<Ziel>/final/` als `Ziel_Filter_Datum_Stunden.xisf`.
-   Jeder Stack bekommt Qualitätskennzahlen (Rauschen, Schärfe, Sterne, Sternform, Farbversatz, Verlauf) und
-   eine Vorschau. Die **Übersicht** zeigt alle Stacks eines Projekts und ihren Verlauf als Diagramm.
-7. **Spickzettel Bearbeitung** – empfohlene Reihenfolge in PixInsight (DBE, SPCC, BXT, NXT …) mit Begründung.
-
-Flats/Bias/Darks lassen sich im Plan selbst wählen (auch eigene Ordner). Wurde die Kamera zwischen Nächten
-gedreht, bekommt jede Nachtgruppe automatisch ihre eigenen Flats.
+Scheitert etwas, nennt b2stacker Schritt und Ursache in Klartext. Mit **Menü → Selbsttest** lässt sich prüfen, ob
+alles auf dem eigenen Rechner (inkl. NAS) funktioniert. Details: [Anleitung](docs/ANLEITUNG.md).
 
 ## Protokoll (Fehlersuche, auch für KI-Agenten)
 

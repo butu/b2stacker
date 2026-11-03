@@ -97,6 +97,24 @@ def _r(x, n=1):
     return round(x, n) if x is not None else None
 
 
+SITE_LIMITS = {"site_lat": (-90, 90, "Breitengrad"), "site_lon": (-180, 180, "Längengrad"),
+               "site_elev": (-500, 9000, "Höhe")}
+
+
+def _site_value(k: str, v):
+    """Ersatz-Standort: leer = keiner; Komma als Dezimalzeichen erlaubt; Grenzen prüfen."""
+    if v is None or str(v).strip() == "":
+        return None
+    try:
+        f = float(str(v).strip().replace(",", "."))
+    except ValueError:
+        raise ValueError("%s: „%s“ ist keine Zahl" % (SITE_LIMITS[k][2], v)) from None
+    lo, hi, label = SITE_LIMITS[k]
+    if not lo <= f <= hi:
+        raise ValueError("%s muss zwischen %g und %g liegen" % (label, lo, hi))
+    return f
+
+
 def save_settings(data: dict) -> dict:
     with SETTINGS_LOCK:
         s = settings()
@@ -105,13 +123,17 @@ def save_settings(data: dict) -> dict:
             if not hasattr(s, k):
                 raise ValueError("unbekannte Einstellung: " + k)
             cur = getattr(s, k)
-            if isinstance(cur, bool):
+            if k in ("site_lat", "site_lon", "site_elev"):
+                v = _site_value(k, v)
+            elif isinstance(cur, bool):
                 v = bool(v)
             elif isinstance(cur, int):
                 v = int(v)
             elif isinstance(cur, float):
                 v = float(v)
             setattr(s, k, v)
+        if (s.site_lat is None) != (s.site_lon is None):
+            raise ValueError("Für den Ersatz-Standort Breiten- und Längengrad angeben (oder beide leer lassen)")
         if s.workdir:
             os.makedirs(s.workdir, exist_ok=True)
         s.save()
@@ -370,10 +392,8 @@ def start_stack(name: str) -> dict:
         project.assert_stack_ready(pdir)
         plan = project.apply_edits(pdir)
         plan["workdir"] = pdir
-        pct = project.top_percent(plan)
-        if pct < 100:
-            for line in project.apply_top_percent(pdir, plan, pct):
-                job.write(line)
+        for line in project.apply_top_percent(pdir, plan):
+            job.write(line)
         st = pi.run_plan(plan, s, log=job.write, cancel=job.cancel,
                          on_status=lambda x: job.set_progress(
                              stage=x.stage, step=x.step, run=x.run, run_index=x.run_index, runs_total=x.runs_total,
@@ -588,6 +608,7 @@ def project_detail(name: str) -> dict:
             a["preview_error"] = err or "Vorschau nicht vorbereitet"
         asset_rows.append(a)
     asset_state = assets.state(pdir)
+    plan = project.with_ranking(pdir, dict(plan, runs=[dict(r) for r in plan.get("runs", [])]))
     return dict(name=name, meta=project.meta(pdir), plan=plan, sources=project.sources(pdir),
                 analysis_required=ex["analysis_required"], assets=asset_rows,
                 asset_scan_locations=ex["asset_scan_locations"],
@@ -1037,7 +1058,7 @@ class Handler(BaseHTTPRequestHandler):
                 if action == "plan":
                     if any("calib" in (v or {}) for v in (b.get("runs") or {}).values()):
                         logbook.event("calib_choice", project=name, change=b.get("runs"))
-                    return self._json(project.save_edits(pdir, b))
+                    return self._json(project.with_ranking(pdir, project.save_edits(pdir, b)))
                 if action == "override":
                     project.set_override(pdir, b["path"], b.get("value"))
                     return self._json(_selection_delta(pdir, b["path"]))
