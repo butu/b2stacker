@@ -3,7 +3,7 @@
 Interpretiert die Befehle, die engines/siril.py erzeugt (Verhalten grob nach Siril 1.4.4):
 * ``siril-cli --version`` → ``siril 1.4.4``
 * ``siril-cli -d <dir> -s <skript.ssf>`` (Skriptpfad absolut, wie in der Engine)
-* ``requires``, ``setext``, ``cd``, ``setfindstar`` (no-op), ``convert <name> -out=<dir>``,
+* ``requires``, ``setext``, ``cd``, ``setfindstar`` (no-op), ``convert <name> -out=<dir>``, ``merge <seq>… <out>``,
   ``calibrate <seq>_ [-bias= -dark= -flat= -cc= -cfa -equalize_cfa -debayer] -prefix=P``,
   ``register <seq>_``, ``seqapplyreg <seq>_ -prefix=P``, ``stack <seq>_ … -out=N``.
 * Ausgabe wie Siril: ``log: Running command: <cmd>``, ``progress: …, NN.NN%``; bei Fehler
@@ -123,6 +123,14 @@ def run_script(workdir: str, script: str) -> int:
                 data, hdr = _read(f)
                 _write(pre + os.path.basename(f), data, hdr)
             _write_seq(pre + args[0], len(_seq_files(args[0])))
+        elif cmd == "merge":                                   # Sequenzen hintereinander → eine neue Sequenz
+            out, frames = args[-1], []
+            for src in args[:-1]:
+                frames += _seq_files(src)
+            for k, f in enumerate(frames, 1):
+                data, hdr = _read(f)
+                _write("%s_%05d.fit" % (out, k), data, hdr)
+            _write_seq(out + "_", len(frames))
         elif cmd == "stack":
             sel = _selected(args[0])
             files = [f for i, f in enumerate(_seq_files(args[0]), 1) if not sel or i in sel]

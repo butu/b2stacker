@@ -166,19 +166,25 @@ def _kv(key: str, path: str) -> str:
     return '"%s"' % token
 
 
+def _stack_seq(n_groups: int) -> str:
+    """Name der Sequenz, die registriert und gestapelt wird (ohne Merge: Lichter der einzigen Gruppe)."""
+    return "lights_" if n_groups > 1 else "pp_light_"
+
+
 def build_script(spec: dict) -> str:
-    """Skript für einen Lauf. spec: outdir, lights (Ordner), light_ext, osc, bias/dark/darkflat/flat →
-    dict(raw=Ordner mit Präfix-Sequenz|None, prefix, master=Pfad|None), cosmetic (bool), wcs=..."""
+    """Skript für einen Lauf. spec: outdir, lights (Ordner), osc, bias/dark/darkflat/flat →
+    dict(raw=Ordner mit Präfix-Sequenz|None, prefix, master=Pfad|None), cosmetic (bool), sigma (float),
+    groups (optional): [dict(sub, lights=Ordner, flat=…)] – je Gruppe eigener Master-Flat, dann merge."""
     out = spec["outdir"]
     L = ["requires 1.4.0", "setext fit"]
     masters = {}
 
-    def master_of(kind: str, s: dict, parent: str | None) -> str | None:
+    def master_of(kind: str, s: dict, parent: str | None, sub: str = "") -> str | None:
         if s.get("master"):
             return _p(s["master"])
         if not s.get("raw"):
             return None
-        seq = os.path.join(out, "seq_" + kind)
+        seq = os.path.join(out, sub, "seq_" + kind)
         L.extend(["cd " + _quote(s["raw"]), "convert %s %s" % (s["prefix"], _kv("-out", seq)), "cd " + _quote(seq)])
         # Siril hängt an konvertierte Sequenzen „_“ an: Sequenz „bias“ → Befehle nutzen „bias_“
         if kind == "flat":
@@ -198,32 +204,37 @@ def build_script(spec: dict) -> str:
         flat_dark = ("bias", masters["bias"])
     else:
         flat_dark = None
-    if spec.get("flat"):
-        if spec["flat"].get("master"):
-            masters["flat"] = _p(spec["flat"]["master"])
-        else:
-            masters["flat"] = master_of("flat", spec["flat"], flat_dark)
-    # Lights (Original-Dateien werden verknüpft/kopiert, nie verändert)
-    seq_light = os.path.join(out, "seq_light")
-    L.extend(["cd " + _quote(spec["lights"]), "convert light %s" % _kv("-out", seq_light), "cd " + _quote(seq_light)])
-    cal = []
+    common = []
     if masters.get("bias"):
-        cal.append(_kv("-bias", masters["bias"]))
+        common.append(_kv("-bias", masters["bias"]))
     if masters.get("dark"):
-        cal.append(_kv("-dark", masters["dark"]))
-    if masters.get("flat"):
-        cal.append(_kv("-flat", masters["flat"]))
+        common.append(_kv("-dark", masters["dark"]))
     if masters.get("dark") and spec.get("cosmetic", True):
-        cal.append("-cc=dark %.1f %.1f" % (pi.CC_COLD_SIGMA, pi.CC_HOT_SIGMA))
+        common.append("-cc=dark %.1f %.1f" % (pi.CC_COLD_SIGMA, pi.CC_HOT_SIGMA))
     if spec.get("osc"):
-        cal += ["-cfa", "-equalize_cfa", "-debayer"]
-    L.append("calibrate light_ %s -prefix=pp_" % " ".join(cal))
+        common += ["-cfa", "-equalize_cfa", "-debayer"]
+    groups = spec.get("groups") or [dict(sub="", lights=spec["lights"], flat=spec.get("flat"))]
+    seqs = []
+    for g in groups:
+        sub = g.get("sub", "")
+        cal = list(common)
+        if g.get("flat"):
+            cal.append(_kv("-flat", master_of("flat", g["flat"], flat_dark, sub)))
+        seq_light = os.path.join(out, sub, "seq_light")
+        # Lights (Original-Dateien werden verknüpft/kopiert, nie verändert)
+        L.extend(["cd " + _quote(g["lights"]), "convert light %s" % _kv("-out", seq_light), "cd " + _quote(seq_light)])
+        L.append("calibrate light_ %s -prefix=pp_" % " ".join(cal))
+        seqs.append(_p(os.path.join(seq_light, "pp_light_")))
     if spec.get("sigma"):
         L.append("setfindstar -sigma=%.2f" % spec["sigma"])
-    L.append("register pp_light_ -2pass -minpairs=10 -transf=homography -maxstars=2000")
-    L.append("seqapplyreg pp_light_ -interp=lanczos4 -prefix=r_")
-    L.append("stack r_pp_light_ rej w 3 3 -norm=addscale -weight=wfwhm -output_norm -32b%s -out=result"
-             % (" -rgb_equal" if spec.get("osc") else ""))
+    seq = _stack_seq(len(seqs))
+    if len(seqs) > 1:                                      # Gruppen → eine Sequenz in Auswahlreihenfolge der Gruppen
+        L.append("cd " + _quote(os.path.join(out, "seq_light")))
+        L.append("merge %s lights" % " ".join(_quote(s) for s in seqs))
+    L.append("register %s -2pass -minpairs=10 -transf=homography -maxstars=2000" % seq)
+    L.append("seqapplyreg %s -interp=lanczos4 -prefix=r_" % seq)
+    L.append("stack r_%s rej w 3 3 -norm=addscale -weight=wfwhm -output_norm -32b%s -out=result"
+             % (seq, " -rgb_equal" if spec.get("osc") else ""))
     return "\n".join(L) + "\n"
 
 
@@ -289,6 +300,14 @@ def _calib_spec(paths: list[str], prefix: str, raw_dir: str, log) -> dict | None
     return dict(raw=raw_dir, prefix=prefix, paths=paths)
 
 
+def _stage_set(stg, cs: dict | None, folder: str, prefix: str) -> dict | None:
+    """Rohbilder einer Kalibrierung als Sequenz „prefix_NNNNN.fit“ bereitstellen (Master: nur Pfad)."""
+    if cs and cs.get("paths"):
+        for i, p in enumerate(cs.pop("paths"), 1):
+            stg.place(p, os.path.join(folder, "%s_%05d.fit" % (prefix, i)))
+    return cs
+
+
 def _causes(lines: list[str]) -> list[dict]:
     """Verständliche Ursachen aus der Siril-Ausgabe (englische Meldungen, siehe docs/ERKENNTNISSE.md)."""
     text = "\n".join(lines).lower()
@@ -347,10 +366,10 @@ def parse_registration(text: str, lights: list[str]) -> list[dict]:
     return regs
 
 
-def _check_registration(run: dict, outdir: str, notes: list, log) -> dict | None:
+def _check_registration(run: dict, outdir: str, seq_name: str, notes: list, log) -> dict | None:
     """Registrierung aus der Siril-Sequenz prüfen. Wie PixInsight: Lauf ohne falsche Frames wiederholen (einmal)
     bzw. bei „am Sensor ausgerichtet“ mit Hotpixel-Entfernung und strengerer Sternerkennung neu rechnen."""
-    seq = os.path.join(outdir, "seq_light", "r_pp_light_.seq")
+    seq = os.path.join(outdir, "seq_light", "r_%s.seq" % seq_name)
     try:
         regs = parse_registration(open(seq, encoding="utf-8", errors="replace").read(), run["lights"])
         bad = wbpplog.judge(regs, wbpplog.light_info(run["lights"]))
@@ -391,8 +410,10 @@ def _check_registration(run: dict, outdir: str, notes: list, log) -> dict | None
 
 def _drop_intermediates(outdir: str) -> None:
     for old in [outdir] + glob.glob(glob.escape(outdir) + ".versuch-*"):
-        for d in ("raw", "seq_light", "seq_bias", "seq_dark", "seq_darkflat", "seq_flat"):
-            shutil.rmtree(os.path.join(old, d), ignore_errors=True)
+        for d in os.listdir(old):
+            full = os.path.join(old, d)
+            if os.path.isdir(full) and d != "logs":
+                shutil.rmtree(full, ignore_errors=True)
 
 
 def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, cancel, runner_factory) -> str:
@@ -424,8 +445,6 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     pi._preflight_calibration(run, calib, log)
     if not calib["flats"]:
         log("  WARNUNG: keine Flats – Vignettierung und Staub bleiben im Bild.")
-    if run.get("flat_groups"):
-        raise StackError("Flat-Gruppen (Kamera-Stellung je Nacht) sind für Siril noch nicht umgesetzt.")
     if run.get("reference") not in (None, "", "auto"):
         log("  WARNUNG: Referenz „%s“ wird mit Siril noch nicht übernommen – Siril wählt die Referenz selbst. "
             "Masters mehrerer Filter sind dadurch nicht zwingend deckungsgleich." % run.get("reference"))
@@ -435,28 +454,49 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     if (not calib["darks"] or run.get("_force_cosmetic")) and plan.get("options", {}).get("hot_pixels", True) is not False:
         run = pi._cosmetic(plan, dict(run, _force_cosmetic=True), settings, jobdir, calib, st, log, save, cancel)
 
+    # Flat-Gruppen (Kamera-Stellung je Nacht): je Gruppe eigene Flats, danach eine gemeinsame Sequenz
+    groups = None
+    if run.get("flat_groups"):
+        fg = [dict(g, flats=pi.fix_calibration(g.get("flats", []), FLAT, cache)) for g in run["flat_groups"]]
+        groups = staging.plan_groups(dict(run, flat_groups=fg), run["lights"]) or None
+    multi = bool(groups) and len(groups) > 1
+    if multi:
+        log("  Kamera-Stellung wechselt zwischen den Nächten → %d Gruppen mit eigenen Flats:" % len(groups))
+        for g in groups:
+            log("    Gruppe %s: Nächte %s · %d Lights · Flats %s (%d)" % (
+                g.key, ", ".join(g.nights) or "–", len(g.lights), g.flat_set or "keine", len(g.flats)))
+            if not g.flats:
+                log("    WARNUNG: Gruppe %s ohne Flats – ihre Lights werden nicht flat-korrigiert." % g.key)
+        logbook.event("flat_groups", run=name, engine="siril", groups=[dict(
+            key=g.key, nights=g.nights, lights=len(g.lights), flats=len(g.flats), flat_set=g.flat_set) for g in groups])
+    elif groups:
+        calib["flats"] = list(groups[0].flats)
+
     # Bereitstellen: Lights und Rohkalibrierung als Sequenzen (Original-Dateien bleiben unverändert)
     raw = os.path.join(outdir, "raw")
     stg = staging.Stager(jobdir, os.path.join(settings.workdir, "cache"), log)
-    lights = []
-    for i, p in enumerate(run["lights"], 1):
-        dst = os.path.join(raw, "light", "light_%05d.fit" % i)          # setext fit: Siril liest nur diese Endung
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        lights.append(stg.place(p, dst))
-    if len(lights) != n:
-        raise StackError("Interner Fehler: %d Lights bereitgestellt, %d gewählt." % (len(lights), n))
-    spec = dict(outdir=outdir, lights=os.path.join(raw, "light"), osc=bool(run.get("is_osc")) and
-                run.get("mode") in ("debayer", "extract"), cosmetic=bool(calib["darks"]))
-    spec["lights_prefix"] = "light"
-    for kind, key, prefix in (("bias", "bias", "bias"), ("dark", "darks", "dark"),
-                              ("darkflat", "darkflats", "darkflat"), ("flat", "flats", "flat")):
-        cs = _calib_spec(calib[key], prefix, os.path.join(raw, kind), log)
-        if cs and cs.get("paths"):
-            d = os.path.join(raw, kind)
-            os.makedirs(d, exist_ok=True)
-            for i, p in enumerate(cs.pop("paths"), 1):
-                stg.place(p, os.path.join(d, "%s_%05d.fit" % (prefix, i)))
-        spec[kind] = cs
+    if multi:
+        set_groups = [(g, "g%d" % k) for k, g in enumerate(groups, 1)]
+    else:
+        set_groups = [(groups[0] if groups else None, "")]
+    spec_groups, merged = [], []
+    for g, sub in set_groups:
+        lights_dir = os.path.join(raw, sub, "light")
+        gl = g.lights if g else run["lights"]
+        for i, p in enumerate(gl, 1):
+            stg.place(p, os.path.join(lights_dir, "light_%05d.fit" % i))
+        merged += gl
+        gflats = g.flats if g else calib["flats"]
+        flat_dir = os.path.join(raw, sub, "flat")
+        spec_groups.append(dict(sub=sub, lights=lights_dir,
+                                flat=_stage_set(stg, _calib_spec(gflats, "flat", flat_dir, log), flat_dir, "flat")))
+    if len(merged) != n:
+        raise StackError("Interner Fehler: %d Lights bereitgestellt, %d gewählt." % (len(merged), n))
+    spec = dict(outdir=outdir, osc=bool(run.get("is_osc")) and run.get("mode") in ("debayer", "extract"),
+                cosmetic=bool(calib["darks"]), groups=spec_groups)
+    for kind, key, prefix in (("bias", "bias", "bias"), ("dark", "darks", "dark"), ("darkflat", "darkflats", "darkflat")):
+        d = os.path.join(raw, kind)
+        spec[kind] = _stage_set(stg, _calib_spec(calib[key], prefix, d, log), d, prefix)
     sd = run.get("star_detection") or {}
     params = dict(sd.get("params") or {})
     if "sensitivity" in params:                    # Näherung: höhere WBPP-Empfindlichkeit → kleineres sigma
@@ -467,11 +507,14 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     if run.get("_lock_retry"):                       # strengere Sternerkennung: höhere Schwelle
         spec["sigma"] = min(5.0, (spec.get("sigma") or 1.0) + 1.0)
         log("  Sternerkennung strenger → setfindstar -sigma=%.2f" % spec["sigma"])
+    os.makedirs(os.path.join(outdir, "seq_light"), exist_ok=True)     # Ziel von merge (Siril wechselt dorthin)
+    to_orig = dict(zip(run["lights"], orig_run["lights"]))           # Cosmetic-Kopien → Original-Lights
+    reg_lights = [to_orig.get(p, p) for p in merged]                  # Registrierung in Siril-Reihenfolge
     script_text = build_script(spec)
     script = os.path.join(outdir, "siril.ssf")
     open(script, "w", encoding="utf-8").write(script_text)
     log("  Skript: %s (%d Zeilen)" % (script, script_text.count("\n")))
-    logbook.event("staging", run=name, grouping=False, lights=len(lights), **stg.stats)
+    logbook.event("staging", run=name, grouping=multi, lights=len(merged), **stg.stats)
     dirs = [outdir, settings.workdir] + [os.path.dirname(p) for p in run["lights"]] + \
         [os.path.dirname(p) for k in calib for p in (calib[k] or [])]
     inst = locate(settings.siril)
@@ -566,7 +609,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
         logbook.event("stack_diagnosis", run=name, causes=causes)
         raise StackError("Stacking fehlgeschlagen beim %s: %s" % (steps.BY_KEY.get(key, {}).get("title", "Stacken"), why))
     notes = list(orig_run.get("_notes") or [])
-    retry = _check_registration(orig_run, outdir, notes, log)
+    retry = _check_registration(dict(orig_run, lights=reg_lights), outdir, _stack_seq(len(groups or [])), notes, log)
     if retry is not None:
         return _one_run(plan, retry, settings, jobdir, masters, finaldir, st, log, save, cancel, runner_factory)
     log("  Stack: %s (%s)" % (os.path.basename(result), pi._elapsed(time.time() - t0)))
