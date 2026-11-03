@@ -172,3 +172,15 @@
 - Plausibilitätsgrenze: Stack-FWHM 2,44 px gegenüber 7,7 px in den Einzelbildern → an Hotpixeln ausgerichtet.
 - WBPP 3.x meldet vor dem Start „Diagnostics: Cannot create files with a path longer than 256 characters“, sobald
   LongPathsEnabled aus ist – unabhängig von den tatsächlichen Pfaden (hier max. 175 Zeichen).
+
+## 2026-11-03 – Siril 1.4 als Stacking-Engine (lokal mit Flatpak Siril 1.4.4 geprüft)
+- Skript-Befehle `requires 1.4.0`, `setext fit`, `convert <name> -out=<dir>` (Symlinks), `calibrate <seq>_`, `stack <seq>_ rej w 3 3 … -32b -out=<name>`.
+- Sequenznamen: nach `convert` heißt die Sequenz `<name>_` (Unterstrich). Alle Befehle müssen `bias_`, `light_`, `pp_light_` schreiben.
+- Quotes: `-out="/pfad"` legt einen Ordner mit Anführungszeichen im Namen an. Richtig ist ein quotiertes Token `"-out=/pfad"`.
+- `log` ist in Siril ein Bildbefehl (logarithmische Streckung), kein Ausgabebefehl. `echo` existiert in 1.4.4 nicht.
+  Schritt-Erkennung deshalb über `Running command: <befehl>` im Protokoll.
+- Skriptpfad relativ zu `-d` (CWD) wird nicht gefunden → `-s` immer absolut übergeben.
+- Synthetische Sterne (FWHM ~5 px, schwache S/N): Default-`setfindstar` fand 10 Sterne → „Not enough star pairs“. Mit `-sigma=0.5` ~40 Sterne. Die Sternerkennung muss aus WBPP-`sensitivity` abgeleitet werden.
+- Stderr: `Error in g_unlink()`, `Removed GPid`, `Reading sequence failed` kommen bei Erfolg vor und sind harmlos.
+- Flatpak: `--filesystem=<dir>` für jeden Arbeits-/Quellordner nötig; `--env=LC_ALL=C` übergeben, damit Meldungen englisch sind.
+- Ausgabe `result.fit`: BITPIX -32, `STACKCNT` gesetzt, Mono 2D, RGB (`-rgb_equal`) mit NAXIS3=3.

@@ -153,3 +153,11 @@ Einstellungen: `%APPDATA%\AstroStack\settings.json` (bzw. `~/.config/astrostack/
 - `.github/workflows/tests-windows.yml` läuft auf jedem Branch unter Windows, inklusive `\\localhost\C$` als
   echte Netzwerkfreigabe. `build-exe.yml` baut und veröffentlicht auf `main`.
 - Echtes WBPP prüft nur der **Selbsttest** in der App; sein Bericht liegt in `<workdir>/selbsttest/`.
+
+## Motor Siril (engines/siril.py)
+- Ablauf je Lauf: Lights per `convert` in `<job>/<lauf>/seq_light` (Symlinks/Kopie über `staging.Stager`), Master-Kalibrierung aus Rohbildern (`stack … rej w 3 3`) oder fertige Master direkt, `calibrate light_` (mit `-bias/-dark/-flat`, `-cc=dark 3 3` nur bei Darks; OSC `-cfa -equalize_cfa -debayer`), `register pp_light_ -2pass`, `seqapplyreg`, `stack r_pp_light_ … -32b [-rgb_equal]`.
+- Das Skript wird als `siril.ssf` im Lauf-Ordner abgelegt; der Aufruf ist `siril-cli -d <lauf> -s <skript>` mit `LC_ALL=C`.
+- Erfolg = Exit 0 **und** `result.fit`. Schritte kommen aus den `Running command:`-Zeilen, Fortschritt aus `progress: … NN%`.
+- Gemeinsamer Rahmen mit PixInsight: `engines.pixinsight.run_frame` (Jobdir, status.json, Protokoll, Energiesparsperre, Schleife über Läufe).
+- Mapping WBPP → Siril: `sensitivity` → `setfindstar -sigma` (Näherung `2.0 − 1.5·s`). Andere Sternerkennungs-Parameter werden im Protokoll als „nicht übernommen“ genannt.
+- Grenzen (Stand Phase 2a): keine Flat-Gruppen, keine externe Referenz (Warnung im Protokoll), keine Hotpixel-Entfernung ohne Darks, keine Registrierungs-/FWHM-Wiederholung, kein Lauf-Abbruch durch laufende Siril-Instanzen.
