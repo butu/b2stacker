@@ -608,7 +608,11 @@ def _check_registration(run: dict, outdir: str, seq_name: str, ref_frames: int, 
                   stats=[dict(file=os.path.basename(r["file"]), fwhm=r.get("fwhm"), nstars=r.get("nstars"),
                               roundness=r.get("roundness"), bglvl=r.get("bglvl")) for r in frames if "file" in r])
     if not bad:
-        log("  Registrierung geprüft: alle %d Frames plausibel" % len(frames))
+        if ref_frames:      # externe Referenz hat keine Lights-Herkunft → Sensor-Muster nicht prüfbar
+            log("  Registrierung geprüft: %d Frames ohne Befund – Sensor-Prüfung nicht prüfbar (externe Referenz)"
+                % len(frames))
+        else:
+            log("  Registrierung geprüft: alle %d Frames plausibel" % len(frames))
         return None
     if lock:
         log("  WARNUNG: %d Bilder aus anderen Nächten/von der anderen Meridianseite liegen „perfekt“ (0,0 px) auf der "

@@ -156,3 +156,17 @@ def test_registration_without_rows_is_not_reported_as_plausible(tmp_path):
                                      logs.append) is None
     assert any("nicht geprüft" in m for m in logs)
     assert not any("plausibel" in m for m in logs)
+
+
+def test_external_reference_without_sensor_check_is_not_called_plausible(tmp_path):
+    seq_dir = tmp_path / "seq_light"
+    seq_dir.mkdir()
+    rows = "".join("R0 4.6 4.6 0.77 0 0.02 38 H 1 0 0 0 1 0 0 0 1\n" for _ in range(5))
+    (seq_dir / "lights_.seq").write_text("S 'lights_' 1 5 5 5 3 6 0 0 0\nL 1\n" +
+                                         "".join("I %d 1\n" % i for i in range(1, 6)) + rows)
+    logs = []
+    lights = [str(tmp_path / ("light_%d.fit" % i)) for i in range(3)]
+    assert siril._check_registration(dict(name="L", lights=lights), str(tmp_path), "lights_", 2, [],
+                                     logs.append) is None
+    assert any("nicht prüfbar (externe Referenz)" in m for m in logs)
+    assert not any("plausibel" in m for m in logs)
