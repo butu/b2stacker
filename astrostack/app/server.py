@@ -178,7 +178,8 @@ def _pick_file_dialog(initial: str = "", kind: str = ""):
     if kind == "image":
         title, types = "Bild wählen", [("Bilder", IMAGE_PATTERNS), ("Alle Dateien", "*.*")]
     elif kind == "siril":
-        title, types = "siril-cli bzw. Siril wählen", [("Programme", "*.exe"), ("Alle Dateien", "*.*")]
+        title, types = "siril-cli bzw. Siril wählen", [("Programme", "*.exe"), ("Alle Dateien", "*.*")] \
+            if sys.platform == "win32" else [("Alle Dateien", "*")]
     else:
         title, types = "PixInsight.exe wählen", [("Programme", "*.exe"), ("Alle Dateien", "*.*")]
     p = filedialog.askopenfilename(initialdir=d or None, title=title, filetypes=types)
@@ -834,10 +835,7 @@ def open_in_engine(paths: list[str]):
     """Ergebnisse in der gewählten Engine öffnen (PixInsight oder Siril)."""
     s = settings()
     if s.engine == "siril":           # Siril-Modus: Ergebnisse nie in PixInsight öffnen
-        inst = siril.locate(s.siril)
-        if inst is None or inst.gui is None:
-            raise FileNotFoundError("Siril nicht gefunden – Pfad in den Einstellungen prüfen.")
-        subprocess.Popen(list(inst.gui) + paths)
+        subprocess.Popen(siril.open_command(s.siril, paths))
         return
     if not os.path.exists(s.pixinsight):
         raise FileNotFoundError("PixInsight nicht gefunden: " + s.pixinsight)

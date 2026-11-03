@@ -51,8 +51,20 @@ class Install:
         """Vollständiger Aufruf. Flatpak sieht nur freigegebene Ordner → jeder Arbeitsordner einzeln."""
         if not self.flatpak:
             return list(self.cli) + list(args)
-        fs = ["--filesystem=" + d for d in sorted({os.path.abspath(d) for d in dirs if d})]
-        return ["flatpak", "run", "--env=LC_ALL=C", "--env=LANGUAGE=en"] + fs + ["--command=siril-cli", FLATPAK_ID] + list(args)
+        return ["flatpak", "run", "--env=LC_ALL=C", "--env=LANGUAGE=en"] + _grants(dirs) + \
+            ["--command=siril-cli", FLATPAK_ID] + list(args)
+
+    def gui_command(self, dirs, files: list[str]) -> list[str] | None:
+        """Aufruf der Siril-Oberfläche mit Dateien. None = keine Oberfläche gefunden (nur siril-cli)."""
+        if self.gui is None:
+            return None
+        if not self.flatpak:
+            return list(self.gui) + list(files)
+        return ["flatpak", "run"] + _grants(dirs) + [FLATPAK_ID] + list(files)
+
+
+def _grants(dirs) -> list[str]:
+    return ["--filesystem=" + d for d in sorted({os.path.abspath(d) for d in dirs if d})]
 
 
 def _flatpak_install() -> Install | None:
@@ -121,6 +133,18 @@ def version_of(inst: Install) -> str | None:
         return None
     _VERSION_CACHE[key] = m.group(0)
     return m.group(0)
+
+
+def open_command(setting: str, files: list[str]) -> list[str]:
+    """Befehl, um Ergebnisse in der Siril-Oberfläche zu öffnen. Fehlt sie, ist das eine klare Meldung."""
+    inst = locate(setting)
+    if inst is None:
+        raise FileNotFoundError("Siril nicht gefunden – Pfad in den Einstellungen prüfen.")
+    cmd = inst.gui_command([os.path.dirname(os.path.abspath(f)) for f in files], files)
+    if cmd is None:
+        raise FileNotFoundError("Siril-Oberfläche nicht gefunden – im Einstellungsfeld das Siril-Programm "
+                                "(nicht nur siril-cli) eintragen.")
+    return cmd
 
 
 def check(setting: str = "") -> dict:
@@ -844,7 +868,8 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     logbook.event("staging", run=name, grouping=multi, lights=len(merged), **stg.stats)
     dirs = [outdir, settings.workdir] + ([os.path.dirname(ref_src)] if ref_src else []) + \
         [os.path.dirname(p) for p in run["lights"]] + \
-        [os.path.dirname(p) for k in calib for p in (calib[k] or [])]
+        [os.path.dirname(p) for k in calib for p in (calib[k] or [])] + \
+        [os.path.dirname(p) for g in (run.get("flat_groups") or []) for p in (g.get("flats") or [])]
     inst = locate(settings.siril)
     if inst is None:
         raise StackError(check(settings.siril)["message"])
@@ -1027,8 +1052,12 @@ def run_plan(plan: dict, settings, log=print, on_status=None, cancel=None, runne
             raise StackError(check(settings.siril)["message"])
 
     def opener(finals):
-        if inst.gui:
-            subprocess.Popen(list(inst.gui) + list(finals))
+        try:
+            cmd = open_command(settings.siril, list(finals))
+        except FileNotFoundError as e:
+            log("  Hinweis: Ergebnis nicht geöffnet – %s" % e)
+            return
+        subprocess.Popen(cmd)
 
     return pi.run_frame(plan, settings, one_run=_one_run, runner_factory=runner_factory, preflight=preflight,
                         opener=opener, log=log, on_status=on_status, cancel=cancel, status_file=status_file,
