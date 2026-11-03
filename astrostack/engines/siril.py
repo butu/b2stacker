@@ -696,7 +696,9 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     mp = map_wbpp(plan, run, lock_retry=bool(run.get("_lock_retry")))
     spec.update(findstar=mp["findstar"], weight=mp["weight"], rejmaps=mp["rejmaps"])
     if mp["findstar"]:
-        log("  Sternerkennung → setfindstar %s" % " ".join("-%s=%s" % kv for kv in sorted(mp["findstar"].items())))
+        log("  Sternerkennung %s → setfindstar %s" % (
+            "strenger" if run.get("_lock_retry") else "angepasst",
+            " ".join("-%s=%s" % kv for kv in sorted(mp["findstar"].items()))))
     for note in mp["notes"]:
         log("  Hinweis (WBPP → Siril): nicht übernommen – " + note if "→" not in note else
             "  Hinweis (WBPP → Siril): " + note)
