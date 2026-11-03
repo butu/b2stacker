@@ -612,6 +612,89 @@ def _light_shape(p: str) -> tuple:
     return (int(h["NAXIS2"]), int(h["NAXIS1"]))
 
 
+def siril_processes() -> list[dict]:
+    """Laufende siril-cli-Prozesse (Linux: /proc, auch Flatpak-Sandbox; Windows: tasklist). → [{pid, mem_mb}]"""
+    if sys.platform == "win32":
+        try:
+            out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq siril-cli.exe", "/FO", "CSV", "/NH"],
+                                 capture_output=True, timeout=15, creationflags=_NO_WINDOW).stdout
+            return system.parse_tasklist(_decode(out))
+        except Exception:  # noqa: BLE001 – Statusabfrage darf nie die Oberfläche blockieren
+            return []
+    if not sys.platform.startswith("linux"):
+        return []
+    found, me = [], os.getpid()
+    for d in glob.glob("/proc/[0-9]*"):
+        try:
+            pid = int(os.path.basename(d))
+            if pid == me:
+                continue
+            args = open(os.path.join(d, "cmdline"), "rb").read().split(b"\0")
+        except (OSError, ValueError):
+            continue
+        if not any(os.path.basename(a) == b"siril-cli" or a == b"--command=siril-cli" for a in args):
+            continue
+        try:
+            rss = int(open(os.path.join(d, "statm")).read().split()[1]) * os.sysconf("SC_PAGE_SIZE")
+        except (OSError, ValueError, IndexError):
+            rss = 0
+        found.append(dict(pid=pid, mem_mb=rss / 1024 ** 2))
+    return found
+
+
+def siril_max_path(outdir: str) -> int:
+    """Längster Pfad, den Siril im Arbeitsordner erzeugt: Sequenzen sind mit kurzen Namen angelegt (light_00001)."""
+    base = outdir if re.match(r"^([A-Za-z]:)?[\\/]", outdir) else os.path.abspath(outdir)
+    return len(base) + len("\\seq_light\\r_pp_light_00001.fit")
+
+
+LOG_LINES_PER_COMMAND = 20       # Siril-Ausgabe je Befehl im Lauf-Log; alles Weitere steht in siril.log
+
+
+def phases_from_script(script_text: str, n: int, n_flats: int) -> list[dict]:
+    """Befehlszeilen → Unterschritte (Master bauen, Kalibrieren, Registrieren, Stapeln) in Befehlsreihenfolge."""
+    import shlex
+    phases = []
+    for i, ln in enumerate(l for l in script_text.splitlines() if l.strip()):
+        f = shlex.split(ln)
+        cmd = f[0]
+        key, title, total = None, None, 0
+        if cmd == "stack" and "-out=master_" in ln:
+            kind = ln.split("-out=master_")[1].split()[0]
+            key, title = "master_" + kind, "Master-%s erstellen" % {"darkflat": "Dark-Flat"}.get(kind, kind.capitalize())
+        elif cmd == "calibrate":
+            key, title, total = ("cal_flat", "Flats kalibrieren", n_flats) if f[1].startswith("flat_") else \
+                ("cal_light", "Lights kalibrieren", n)
+        elif cmd == "register":
+            key, title, total = "register", "Registrieren", n
+        elif cmd == "stack" and "-out=result" in ln:
+            key, title, total = "integrate", "Stapeln", n
+        if key:
+            phases.append(dict(key=key, title=title, total=total, cmd=i))
+    subs = []
+    for p in phases:
+        if subs and subs[-1]["key"] == p["key"] and subs[-1]["last"] == p["cmd"] - 1:
+            subs[-1]["last"] = p["cmd"]
+        else:
+            subs.append(dict(key=p["key"], title=p["title"], total=p["total"], first=p["cmd"], last=p["cmd"]))
+    return subs
+
+
+def substep_view(subs: list[dict], cmd_idx: int, pct: float | None) -> list[dict]:
+    """Stand der Unterschritte: fertige, aktueller (mit Zähler aus dem Siril-Fortschritt) – Befehlsindex 0-basiert."""
+    view = []
+    for s in subs:
+        if s["first"] > cmd_idx:
+            break
+        if s["last"] < cmd_idx:
+            state, done = "done", s["total"]
+        else:
+            state = "now"
+            done = int(s["total"] * pct / 100) if (pct is not None and s["total"]) else 0
+        view.append(dict(key=s["key"], title=s["title"], state=state, done=done, total=s["total"]))
+    return view
+
+
 def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, cancel, runner_factory) -> str:
     name = run["name"]
     orig_run = run
@@ -623,6 +706,11 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     missing = [p for p in run["lights"] if not os.path.exists(p)]
     if missing:
         raise StackError("%d Lights fehlen, z. B. %s" % (len(missing), missing[0]))
+    others = siril_processes()
+    if others:      # ein headless siril-cli eines abgebrochenen Laufs würde Speicher und Dateien belegen
+        raise StackError("Siril läuft bereits (%d Instanz(en), %s MB). Bitte beenden – sonst teilen sich die Läufe "
+                         "Arbeitsspeicher und Dateien." % (
+                             len(others), "/".join("%.0f" % (o["mem_mb"] or 0) for o in others)))
     free = system.free_disk_gb(outdir)
     need = run.get("gb") or 0
     if free is not None and free < need:
@@ -721,6 +809,15 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     inst = locate(settings.siril)
     if inst is None:
         raise StackError(check(settings.siril)["message"])
+    max_path = siril_max_path(outdir)
+    if staging.long_paths_enabled() is False and max_path > 256:
+        raise StackError("Die Zwischendateien von Siril würden Pfade mit ca. %d Zeichen bekommen – Windows erlaubt "
+                         "ohne „lange Pfade“ nur 256. Abhilfe: ein kürzeres Arbeitsverzeichnis wählen (z. B. D:\\b2) "
+                         "oder lange Pfade in Windows aktivieren (einmalig, Administrator: LongPathsEnabled = 1)."
+                         % max_path)
+    if staging.long_paths_enabled() is False and max_path > 236:
+        log("  WARNUNG: längster Zwischenpfad ca. %d von 256 Zeichen – knapp. Kürzeres Arbeitsverzeichnis empfohlen."
+            % max_path)
     make = runner_factory or (lambda s, w, d: SirilRunner(inst, s, w, d))
     runner = make(script, outdir, dirs)
     t0 = time.time()
@@ -735,7 +832,8 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     logf = open(os.path.join(logdir, "siril.log"), "a", encoding="utf-8")
     st.alert, st.hints, st.substeps = "", [], []
 
-    state = dict(key="check", pct=None)
+    state = dict(key="check", pct=None, cmd=-1, shown=0, hidden=0)
+    subs = phases_from_script(open(script, encoding="utf-8").read(), n, len(calib.get("flats") or []))
 
     def set_step(nk: str):
         if nk != state["key"] and nk in steps.BY_KEY:
@@ -752,6 +850,11 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
             cmd = _RUNNING.search(ln)                     # Siril meldet jeden Befehl → Schritt daraus ableiten
             if cmd:
                 c = cmd.group(1)
+                state["cmd"] += 1
+                state["pct"] = None
+                if state["hidden"]:
+                    log("    … %d weitere Siril-Ausgaben unterdrückt (siril.log)" % state["hidden"])
+                state["shown"], state["hidden"] = 0, 0
                 if c in ("convert", "calibrate"):
                     set_step("calibrate")
                 elif c in ("register", "seqapplyreg"):
@@ -770,7 +873,11 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
                 st.alert, st.alert_raw = alert, ln
                 log("  ⚠ Siril: " + ln)
             elif not any(x in low for x in NOISE):           # bei Erfolg harmlos, nur in siril.log
-                log("    Siril: " + ln)
+                if state["shown"] < LOG_LINES_PER_COMMAND:    # gedrosselt: Stapel-Ausgaben füllen sonst das Protokoll
+                    state["shown"] += 1
+                    log("    Siril: " + ln)
+                else:
+                    state["hidden"] += 1
 
     code = None
     while True:
@@ -780,6 +887,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
         if state["pct"] is not None:
             st.done = int(n * state["pct"] / 100)
         st.total = n
+        st.substeps = substep_view(subs, state["cmd"], state["pct"])
         st.eta_s = pi._eta(st, n, timing)
         st.stage = steps.BY_KEY.get(key, {}).get("title", key)
         st.message = "%s · Lauf läuft seit %s" % (st.stage, pi._elapsed(time.time() - t0))

@@ -176,6 +176,8 @@ def run_script(workdir: str, script: str) -> int:
                         _write("%s_%s_rejmap.fit" % (_opt(args, "-out", "result"), stem), np.zeros_like(mean), {})
         else:
             return _fail(i, cmd, "unknown command name")
+        for k in range(int(os.environ.get("FAKESIRIL_CHATTY", "0"))):   # viele Ausgabezeilen wie bei großen Stapeln
+            print("log: chatty output %d for %s" % (k, cmd), flush=True)
         print("progress: %s, %.2f%%" % (cmd, 100.0 * i / total), flush=True)
     return 0
 

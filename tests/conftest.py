@@ -72,3 +72,12 @@ os.environ.setdefault("B2_NO_UPDATE_CHECK", "1")   # Tests nie gegen GitHub prü
 def _isolated_preview_cache(tmp_path, monkeypatch):
     # Default cache otherwise lives in the user profile; every test gets a throwaway cache.
     monkeypatch.setenv("ASTROSTACK_PREVIEW_CACHE", str(tmp_path / "preview-cache"))
+
+
+@pytest.fixture(autouse=True)
+def _no_foreign_siril(request, monkeypatch):
+    # Laufende siril-cli-Instanzen des Entwicklers würden Siril-Läufe blockieren; nur der Prozess-Test prüft echt.
+    if request.node.get_closest_marker("real_siril_processes"):
+        return
+    from astrostack.engines import siril
+    monkeypatch.setattr(siril, "siril_processes", lambda: [])
