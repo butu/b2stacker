@@ -259,7 +259,7 @@ def estimate_max_path(outdir: str, lights: list[str]) -> int:
     ~52 Zeichen) + längster Dateiname + Suffix (``_c_cc_d_r.xisf``). Bericht 2: geschätzt 183, tatsächlich 175."""
     if not lights:
         return 0
-    longest = max(len(os.path.splitext(os.path.basename(p))[0]) for p in lights)
+    longest = max(len(os.path.splitext(re.split(r"[\\/]", p)[-1])[0]) for p in lights)
     base = outdir if re.match(r"^([A-Za-z]:)?[\\/]", outdir) else os.path.abspath(outdir)
     return len(base) + len("\\calibrated\\") + 52 + 1 + longest + len("_c_cc_d_r.xisf")
 

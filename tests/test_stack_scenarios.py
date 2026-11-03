@@ -432,6 +432,6 @@ def test_too_long_paths_stop_before_pixinsight(tmp_path, monkeypatch):
 
 
 def test_path_estimate_matches_report():
-    out = r"C:\Users\Martin\AstroStack\projects\NGC3486\runs\20261103-184152\IR"
-    est = pi.estimate_max_path(out, [r"\\JUPITER\disk2\Flat_35.0ms_Bin1_294MC_IR_gain120_20260215-220434_0009.fit"])
+    out = "C:\\Users\\Martin\\AstroStack\\projects\\NGC3486\\runs\\20261103-184152\\IR"
+    est = pi.estimate_max_path(out, ["\\\\JUPITER\\disk2\\Flat_35.0ms_Bin1_294MC_IR_gain120_20260215-220434_0009.fit"])
     assert 170 <= est <= 215, est          # Lights bekommen längere Gruppenordner als die Flats im Bericht
