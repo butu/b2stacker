@@ -144,9 +144,9 @@ def test_two_of_three_groups_selected_drops_third_and_its_flats(tmp_path, monkey
     assert sorted(got["groups"]) == ["1", "2"]
 
 
-def test_without_symlinks_copies_once_and_reuses_cache(tmp_path, monkeypatch):
+def test_without_symlinks_copies_once_and_reuses_cache(tmp_path, monkeypatch, where):
     """Kein Entwicklermodus, anderes Laufwerk: nur gewählte Dateien werden kopiert – beim zweiten Lauf aus dem Cache."""
-    root = str(tmp_path / "nas")
+    root = where
     build(root)
     s, pdir = analyse(tmp_path, monkeypatch, root)
     plan = select_only(pdir, lambda p: NIGHTS[0][0] in p)
@@ -171,18 +171,51 @@ def test_without_symlinks_copies_once_and_reuses_cache(tmp_path, monkeypatch):
     assert len(got2["files"]["light"]) == 3
 
 
-def test_single_raw_bias_fails_like_wbpp(tmp_path, monkeypatch):
-    """Bericht 0.8 §8/§9: nur 1 Bias → WBPP integriert nichts; der Lauf muss fehlschlagen (nicht hängen)."""
+def test_single_raw_bias_stops_before_pixinsight(tmp_path, monkeypatch):
+    """Bericht 0.8 §8: nur 1 Roh-Bias → klare Meldung vor dem Start, PixInsight rechnet nicht umsonst."""
     root = str(tmp_path / "nas")
     build(root, bias=1)
     s, pdir = analyse(tmp_path, monkeypatch, root)
     plan = select_only(pdir, lambda p: NIGHTS[0][0] in p)
+    monkeypatch.setattr(pi.system, "pixinsight_processes", lambda: [])
+    ProcRunner.last = None
+    st = pi.run_plan(plan, s, log=lambda *a: None, runner_factory=ProcRunner)
+    assert st.state == "failed" and "Nur 1 Bias-Bild" in st.error and "Master" in st.error, st.error
+    assert ProcRunner.last is None                             # PixInsight nie gestartet
+
+
+def test_wbpp_failure_is_explained_and_marks_step(tmp_path, monkeypatch):
+    """Bericht 0.8 §9: scheitert WBPP trotzdem, nennt b2stacker die Ursache aus dem WBPP-Protokoll."""
+    root = str(tmp_path / "nas")
+    build(root, bias=1)
+    s, pdir = analyse(tmp_path, monkeypatch, root)
+    plan = select_only(pdir, lambda p: NIGHTS[0][0] in p)
+    monkeypatch.setattr(pi, "_preflight_calibration", lambda *a: None)
     st, got, _cmd, _j = stack(s, plan, monkeypatch)
     assert st.state == "failed" and not got["ok"]
     assert any("only 1 active" in e for e in got["errors"])
-    # verständliche Ursache statt "Kein Master entstanden"
     assert "Master-Bias" in st.error and "nur 1 Bias-Bild" in st.error, st.error
     assert st.failed_step and st.causes and st.logdir
+
+
+def test_app_master_bias_is_passed_as_master(tmp_path, monkeypatch):
+    """Bericht 0.8 §8: MB-…fits aus Astro Pixel Processor ist ein Master, kein einzelnes Roh-Bias."""
+    root = str(tmp_path / "nas")
+    build(root, bias=0)
+    from astropy.io import fits
+    import numpy as np
+    mb = f"{root}/C11/Rohsummenstacks/28.12.2024/MB-IG_120.0-E_0.001s-ZWO_ASI294MC_Pro-4144x2822-all_channels-all_sessions.fits"
+    os.makedirs(os.path.dirname(mb), exist_ok=True)
+    hdu = fits.PrimaryHDU(np.full((256, 384), 500, dtype=np.float32))
+    hdu.header["SOFTWARE"] = "Astro Pixel Processor by Aries Productions"
+    hdu.header["INSTRUME"] = NINA_LIGHT["INSTRUME"]
+    hdu.writeto(mb)
+    s, pdir = analyse(tmp_path, monkeypatch, root)
+    plan = select_only(pdir, lambda p: NIGHTS[0][0] in p)
+    plan["runs"][0]["bias"] = [mb]                           # wie im Bericht: Master als Bias-Satz zugeordnet
+    st, got, _cmd, _j = stack(s, plan, monkeypatch)
+    assert st.state == "done", st.error
+    assert got["files"].get("master_bias") and not got["files"].get("bias"), got["files"]
 
 
 def test_staging_invariants_unit(tmp_path):

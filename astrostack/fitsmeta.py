@@ -18,6 +18,8 @@ from datetime import datetime, timezone
 from . import filters as flt
 
 LIGHT, FLAT, DARK, BIAS, DARKFLAT, UNKNOWN = "light", "flat", "dark", "bias", "darkflat", "unknown"
+APP_PREFIX = re.compile(r"^(MDF|MB|MD|MF|BPM)-", re.I)
+APP_KINDS = {"MB": "bias", "MD": "dark", "MF": "flat", "MDF": "darkflat", "BPM": None}
 FITS_EXT = (".fits", ".fit", ".fts")
 XISF_EXT = (".xisf",)
 
@@ -255,8 +257,32 @@ def from_header(h, path: str) -> FrameMeta:
 
     raw_type = _s(h, "IMAGETYP", "FRAME", "FRAMETYP", "IMAGETYPE")
     t, master = type_from_string(raw_type)
-    m.is_master = master or os.path.basename(path).lower().startswith("master")
+    base = os.path.basename(path)
+    m.is_master = master or base.lower().startswith("master")
     m.exposure = _f(h, "EXPTIME", "EXPOSURE", "EXP")
+    # Fertige Masters aus Astro Pixel Processor: MB-/MD-/MF-/MDF- im Dateinamen, meist ohne IMAGETYP (Bericht 0.8 §8)
+    app = APP_PREFIX.match(base)
+    sw_all = (_s(h, "SOFTWARE", "SWCREATE", "CREATOR", "PROGRAM") or "").lower()
+    if app:
+        kind = APP_KINDS[app.group(1).upper()]
+        if kind is None:                                  # BPM-: Bad-Pixel-Map – nie als Kalibrierbild
+            m.type, m.type_reason = UNKNOWN, "app-bpm"
+            m.warnings.append("Bad-Pixel-Map aus Astro Pixel Processor – wird nicht verwendet")
+            m.source = detect_source(h, path)
+            return m
+        t, master = kind, True
+        m.is_master = True
+        m.type_reason = "app"
+        if m.exposure is None:
+            e = re.search(r"-E_?(\d+(?:\.\d+)?)s", base)
+            m.exposure = float(e.group(1)) if e else None
+    elif "astro pixel processor" in sw_all and not raw_type and str(h.get("BITPIX", "")) == "-32":
+        m.is_master = True
+    try:
+        if int(h.get("NCOMBINE") or 0) > 1:
+            m.is_master = True
+    except (TypeError, ValueError):
+        pass
     if t != UNKNOWN:
         m.type, m.type_reason = t, "header"
     if m.exposure is not None and m.exposure <= 0.001 and not m.is_master and m.type in (LIGHT, UNKNOWN, DARK):
@@ -271,6 +297,9 @@ def from_header(h, path: str) -> FrameMeta:
     m.object = _s(h, "OBJECT", "OBJNAME", "TARGET")
     m.filter = _s(h, "FILTER", "FILTER1", "FILTNAME", "INSFLNAM")
     m.gain = _f(h, "GAIN", "EGAIN_SET", "CAM-GAIN")
+    if m.gain is None:                                      # APP: "…-IG_120.0-…" im Dateinamen
+        g = re.search(r"(?:^|[-_])IG_(\d+(?:\.\d+)?)", base)
+        m.gain = float(g.group(1)) if g else None
     m.offset = _f(h, "OFFSET", "BLKLEVEL", "BLACKLEV", "PEDESTAL")
     m.readout = _s(h, "READOUTM", "READMODE", "READOUT")
     m.usb = _f(h, "USBLIMIT", "USBTRAFF", "USB")

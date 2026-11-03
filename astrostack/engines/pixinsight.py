@@ -155,7 +155,9 @@ def fix_calibration(paths: list[str], ftype: str, cache_dir: str) -> list[str]:
             out.append(p)
             continue
         cur = str(hdr.get("IMAGETYP", hdr.get("FRAME", ""))).lower()
-        master = "master" in cur or os.path.basename(low).startswith("master")
+        from .. import fitsmeta
+        master = "master" in cur or os.path.basename(low).startswith("master") or \
+            fitsmeta.from_header(hdr, p).is_master                 # u. a. APP-Masters (MB-/MD-/MF-, NCOMBINE)
         target = want_master if master else want
         if ftype.lower() in cur and (not master or "master" in cur):
             out.append(p)
@@ -628,6 +630,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
         log("  WARNUNG: keine Flats – Vignettierung und Staub bleiben im Bild.")
     run = _cosmetic(plan, run, settings, jobdir, calib, st, log, save, cancel)
     script = settings.wbpp_script
+    _preflight_calibration(run, calib, log)
     # Bereitstellen (Auswahl, Flat-Gruppen, Sonderzeichen, Länge) – zentral in staging.prepare.
     # Reste eines vorherigen Versuchs (Wiederholung ohne fehlregistrierte Frames) zuerst entfernen.
     remove_link_tree(os.path.join(jobdir, "_grp"))
@@ -711,8 +714,8 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
             log("  WARNUNG: PixInsight hat die Hotpixel-Korrektur nicht ausgeführt (%s) – Stack wird mit "
                 "b2stacker-eigener Hotpixel-Entfernung neu gerechnet." % (
                     "Parameter nicht übernommen" if cc["applied"] else "Pipeline-Script nicht aktiv"))
+            mark_pi_cosmetic_broken(settings, "Parameter nicht übernommen" if cc["applied"] else "Pipeline-Script nicht aktiv")
             _discard(master)
-            remove_link_tree(os.path.join(jobdir, "_grp", safe_file(name)))
             return _one_run(plan, dict(orig_run, _force_cosmetic=True,
                                        _notes=notes + ["PixInsight-Hotpixel-Korrektur nicht verfügbar – b2stacker-Ersatz verwendet."]),
                             settings, jobdir, masters, finaldir, st, log, save, cancel, runner_factory)
@@ -791,6 +794,63 @@ def cc_check(outdir: str) -> dict:
     return {"log": log, "applied": applied, "params_ok": params_ok, "done": done, "ok": applied and params_ok and done}
 
 
+MIN_RAW_CALIB = 3
+CALIB_NAMES = {"bias": "Bias", "darks": "Darks", "darkflats": "Dark-Flats", "flats": "Flats"}
+
+
+def _preflight_calibration(run: dict, calib: dict, log) -> None:
+    """Vor PixInsight prüfen: Roh-Kalibrierbilder unter 3 Stück kann WBPP nicht integrieren (Bericht 0.8 §8)."""
+    from .. import fitsmeta
+    sets = [(k, v) for k, v in calib.items() if v]
+    for g in run.get("flat_groups") or []:
+        if g.get("lights") and g.get("flats"):
+            sets.append(("flats", g["flats"]))
+    for kind, paths in sets:
+        masters = 0
+        for p in paths:
+            try:
+                masters += bool(fitsmeta.from_header(_header(p), p).is_master)
+            except Exception:  # noqa: BLE001
+                pass
+        raw = len(paths) - masters
+        if masters == 0 and 0 < raw < MIN_RAW_CALIB:
+            name = CALIB_NAMES.get(kind, kind)
+            raise StackError("Nur %d %s-Bild%s – PixInsight braucht mindestens %d Rohbilder, um daraus einen Master zu "
+                             "machen. Ist „%s“ vielleicht schon ein fertiger Master (z. B. aus Astro Pixel Processor)? "
+                             "Unter Stacken → Kalibrierung den Satz ändern oder weitere Bilder hinzufügen." % (
+                                 raw, name, "" if raw == 1 else "er", MIN_RAW_CALIB, os.path.basename(paths[0])))
+
+
+def _cc_marker(settings) -> str:
+    return os.path.join(settings.workdir, "cache", "pixinsight-cosmetic-broken.json")
+
+
+def pi_cosmetic_broken(settings) -> bool:
+    """Hat die Hotpixel-Korrektur in genau dieser PixInsight-Installation schon einmal versagt?"""
+    try:
+        d = json.load(open(_cc_marker(settings), encoding="utf-8"))
+        return d.get("pixinsight") == settings.pixinsight and d.get("mtime") == _pi_mtime(settings)
+    except (OSError, ValueError):
+        return False
+
+
+def _pi_mtime(settings):
+    try:
+        return int(os.path.getmtime(settings.pixinsight))
+    except OSError:
+        return None
+
+
+def mark_pi_cosmetic_broken(settings, reason: str) -> None:
+    try:
+        os.makedirs(os.path.dirname(_cc_marker(settings)), exist_ok=True)
+        json.dump(dict(pixinsight=settings.pixinsight, mtime=_pi_mtime(settings), reason=reason,
+                       date=datetime.datetime.now().isoformat(timespec="seconds")),
+                  open(_cc_marker(settings), "w", encoding="utf-8"))
+    except OSError:
+        pass
+
+
 def _cosmetic(plan, run, settings, jobdir, calib, st, log, save, cancel) -> dict:
     """Ohne Darks: Hotpixel entfernen.
 
@@ -800,6 +860,9 @@ def _cosmetic(plan, run, settings, jobdir, calib, st, log, save, cancel) -> dict
     Bereinigung der Rohbilder in Python vor WBPP."""
     if not run.get("_force_cosmetic") and (calib.get("darks") or plan.get("options", {}).get("hot_pixels", True) is False):
         return run
+    if not run.get("_force_cosmetic") and pi_cosmetic_broken(settings):
+        log("  Hotpixel-Korrektur in PixInsight hat bei dieser Installation schon versagt → b2stacker-eigene Korrektur")
+        run = dict(run, _force_cosmetic=True)
     if not run.get("_force_cosmetic"):
         script = cc_builder_script(settings.workdir)
         st.run_steps = steps.stack_steps(run["mode"], run.get("is_osc", True), cosmetic="after")
