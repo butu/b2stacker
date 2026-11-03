@@ -533,6 +533,8 @@ iframe.report{width:100%;border:0;display:block;background:transparent;min-heigh
   .issue .ih{grid-template-columns:1fr auto 16px}.issue .ia{display:none}.issue .ix{padding-left:16px}
   .nrow .nd{grid-template-columns:1fr}.nowbox{grid-template-columns:1fr}.eta{text-align:left}.trow{grid-template-columns:auto 1fr}.trow>div:last-child{grid-column:1/-1}
   .meter{grid-template-columns:1fr auto}.meter .mb{grid-column:1/-1;grid-row:2}}
+.topsl{display:flex;flex-direction:column;gap:4px;flex:1 1 220px;min-width:200px;align-items:stretch}
+.topsl input[type=range]{width:100%;accent-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -2069,11 +2071,16 @@ function runCalLevel(r){
   if(!r.flat_ok||!(r.bias||[]).length||(r.flat_groups||[]).some(g=>!g.flats.length||!g.flat_ok))return 'warning';
   return 'good';
 }
+// „Nur die besten Frames“ je Lauf – gleiche Regel wie project.keep_count/apply_top_percent
+function runTop(r,op){const v=r.top_percent??(op||{}).top_percent??100;return Math.max(5,Math.min(100,Math.round(Number(v)||100)));}
+function topKeep(n,p){return p>=100?n:Math.min(n,Math.max(Math.min(n,3),Math.ceil(n*p/100)));}
+function topHours(r,p){const n=r.lightCount||0,k=topKeep(n,p),ex=r.rank_exp||[];
+  if(p>=100||!n)return r.hours||0; if(ex.length===n)return ex.slice(0,k).reduce((a,b)=>a+b,0)/3600; return (r.hours||0)*k/n;}
+function topText(r,p){const n=r.lightCount||0,k=topKeep(n,p);return p>=100?`alle ${n} Lights · ${fmt(r.hours,1)} h`:`beste ${k} von ${n} Lights · ${fmt(topHours(r,p),1)} von ${fmt(r.hours,1)} h`;}
 function renderPlan(b){
   const plan=P.plan, runs=plan.runs, op=plan.options||{}, F=P.facts||{};
   const runOpts=r=>['auto',...runs.filter(x=>x.name!==r.name).map(x=>'master:'+x.name)];
   const runLabel=n=>{const x=runs.find(y=>y.name===n);return x&&x.label||n};
-  const top=Number(op.top_percent||100), topN=r=>Math.min(r.lightCount,Math.max(Math.min(r.lightCount,3),Math.ceil(r.lightCount*top/100)));
   UI.cal=UI.cal||{};UI.ropt=UI.ropt||{};
   const optOn=k=>op[k]!==false&&(op[k]||k==='fix_fringes'||k==='hot_pixels');
   const custom=OPTS.some(([k,t,d,rec])=>!!optOn(k)!==!!rec&&k!=='hot_pixels'&&k!=='fix_fringes')||(op.weighting&&op.weighting!=='psf_signal');
@@ -2086,11 +2093,11 @@ function renderPlan(b){
       const cl=runCalLevel(r),L=lvl(cl),co=UI.cal[r.name],oo=UI.ropt[r.name];
       return `<div class="run ${r.enabled===false?'off':''}">
       <div class="rtop"><div class="chan" style="padding:0;flex:1 1 220px"><div class="cn">${fsw(r.label||r.name)}<div><span class="row" style="gap:4px;opacity:1;font-size:inherit"><b>${esc(r.label||r.name)}</b><button class="editbtn" data-rren="${i}" title="Lauf umbenennen – z. B. „IR“ in „RGB“">${ic('edit','s14')}</button></span>
-          <span>${r.label?'erkannt als „'+esc(r.name)+'“ · ':''}${esc(RUNMODE(r))}${un>=0.05?' · '+fmt(un,1)+' h nicht verwendet':''}${top<100&&r.enabled!==false?` · beste ${topN(r)} von ${r.lightCount} Lights`:''}</span></div></div></div>
-        <div class="facts3"><div><span>Belichtung</span><b>${fmt(r.hours,1)} h</b></div><div><span>Lights</span><b>${r.lightCount}</b></div><div><span>Nächte</span><b>${r.nights.length}</b></div></div>
+          <span>${r.label?'erkannt als „'+esc(r.name)+'“ · ':''}${esc(RUNMODE(r))}${un>=0.05?' · '+fmt(un,1)+' h nicht verwendet':''}${runTop(r,op)<100&&r.enabled!==false?` · <span data-toptxt="${i}">beste ${topKeep(r.lightCount,runTop(r,op))} von ${r.lightCount} Lights</span>`:''}</span></div></div></div>
+        <div class="facts3"><div><span>Belichtung</span><b data-toph="${i}">${fmt(topHours(r,runTop(r,op)),1)} h</b></div><div><span>Lights</span><b>${r.lightCount}</b></div><div><span>Nächte</span><b>${r.nights.length}</b></div></div>
         <label class="switch" title="Lauf ein/aus"><input type="checkbox" data-run="${i}" ${r.enabled!==false?'checked':''}><span></span></label></div>
       <div class="rfoot"><button class="rft ${co?'open':''}" data-tcal="${esc(r.name)}"><span style="display:flex;color:var(--${L[2]==='ok'?'ok':L[2]})">${ic(L[3],'s14')}</span>Kalibrierung${chev(co)}</button>
-        <button class="rft ${oo?'open':''}" data-topt="${esc(r.name)}"><span>Optionen</span><span style="opacity:.55">${r.reference&&r.reference!=='auto'?'Referenz: '+esc(runLabel(r.reference.slice(7))):'empfohlen'}</span>${chev(oo)}</button></div>
+        <button class="rft ${oo?'open':''}" data-topt="${esc(r.name)}"><span>Optionen</span><span style="opacity:.55">${[runTop(r,op)<100?'beste '+runTop(r,op)+' %':'',r.reference&&r.reference!=='auto'?'Referenz: '+esc(runLabel(r.reference.slice(7))):''].filter(Boolean).join(' · ')||'empfohlen'}</span>${chev(oo)}</button></div>
       ${co?`<div class="rbody"><div class="small" style="opacity:.7">Flats, Bias und Darks entfernen Fehler von Optik und Kamera. b2stacker wählt sie passend zu Filter und Kamerastellung.</div>
         ${(r.flat_groups||[]).length>1?`<div class="small warnc">${ic('target','tiny')} Kamera zwischen den Nächten gedreht (${r.rotation&&r.rotation.source==='rotator'?'laut Rotator im Header':'am Sternfeld gemessen'}) – jede Gruppe bekommt eigene Flats.</div>
           ${r.flat_groups.map(g=>`<div class="fgrp"><b>Gruppe ${esc(g.key)}</b><span style="opacity:.7">${g.angle!=null?fmt(g.angle,1)+'°':''}</span><span style="opacity:.8;min-width:0">Nächte ${g.nights.map(ddm).join(', ')}</span>
@@ -2105,6 +2112,9 @@ function renderPlan(b){
         ${calRow(i,r,'darkflats','Dark-Flats',r.darkflat_set,0,(r.darkflats||[]).length?`<span class="pill ok">${r.darkflats.length}</span>`:'<span class="pill neutral">keine</span><span style="opacity:.6">meist nicht nötig</span>')}
       </div>`:''}
       ${oo?`<div class="rbody" style="padding:0;gap:0;background:rgba(0,0,0,.12);border-radius:0 0 14px 14px">
+        <div class="optrow" style="flex-wrap:wrap"><div class="ot" style="flex:1 1 260px"><span class="on">Nur die besten Frames</span><span class="od">Schiebe nach links, um schwächere Lights wegzulassen – gereiht nach Signal/Rauschen und Sternschärfe aus der Analyse. Deine Auswahl in „Frames“ bleibt unverändert.</span></div>
+          <div class="topsl"><input type="range" min="5" max="100" step="5" value="${runTop(r,op)}" data-top="${i}" aria-label="Anteil der besten Lights für ${esc(r.label||r.name)}">
+          <span class="small"><b data-topp="${i}">${runTop(r,op)} %</b> · <span data-topt2="${i}">${topText(r,runTop(r,op))}</span></span></div></div>
         <div class="optrow" style="flex-wrap:wrap"><div class="ot" style="flex:1 1 260px"><span class="on">Referenz</span><span class="od">Frame, auf den alle anderen ausgerichtet werden. Ein Master eines anderen Laufs hält mehrere Filter deckungsgleich.</span></div>
           <select data-ref="${i}">${runOpts(r).map(o=>`<option value="${esc(o)}" ${o===(r.reference||'auto')?'selected':''}>${o==='auto'?'Bester Frame':'Master von '+esc(runLabel(o.slice(7)))}</option>`).join('')}</select></div>
         <div class="optrow"><div class="ot"><span class="on">Platzbedarf</span><span class="od">Zwischendateien und Arbeitsspeicher für diesen Lauf.</span></div><span class="small" style="white-space:nowrap">~${fmt(r.gb,0)} GB · ~${fmt(r.ram_gb,0)} GB RAM</span></div>
@@ -2112,9 +2122,6 @@ function renderPlan(b){
         <div class="optrow"><div class="ot"><span class="od">${esc(r.why||'')}</span></div></div></div>`:''}
     </div>`}).join('')}</div></section>
   <section class="sec">${secHd('Optionen','Gelten für alle Läufe. Die Voreinstellung passt für die meisten Aufnahmen.')}
-    <div class="panel optrow" style="flex-wrap:wrap;border-radius:12px"><div class="ot" style="flex:1 1 300px"><span class="on">Welche Lights stacken?${top<100?'<span class="pill warn">Probe-Stack</span>':''}</span>
-      <span class="od">Für einen schnellen ersten Stack oder zum Qualitätsvergleich nur die besten Frames je Lauf nehmen – gereiht nach Signal/Rauschen und Sternschärfe aus der Analyse. Deine Auswahl in „Frames“ bleibt unverändert.</span></div>
-      <select data-opt-sel="top_percent" aria-label="Anteil der Lights">${[100,90,75,50,25,10].map(v=>`<option value="${v}" ${top===v?'selected':''}>${v===100?'Alle gewählten Lights':'Nur die besten '+v+' %'}</option>`).join('')}${[100,90,75,50,25,10].includes(top)?'':`<option value="${top}" selected>Nur die besten ${top} %</option>`}</select></div>
     <button class="panel clickable collhd ${UI.opts?'open':''}" id="optHd"><span style="flex:1;text-align:left;font-size:14.5px">${custom?'Angepasst':'Empfohlene Einstellungen'}</span>
       <span class="small" style="opacity:.6">${OPTS.filter(([k])=>optOn(k)).length} von ${OPTS.length} aktiv · ${esc({psf_signal:'PSF Signal',psf_snr:'PSF SNR',snr:'SNR'}[op.weighting||'psf_signal'])}</span>${chev(UI.opts)}</button>
     ${UI.opts?`<div class="panel collbd" style="background:var(--panel)">
@@ -2136,7 +2143,11 @@ function renderPlan(b){
   b.querySelectorAll('[data-run]').forEach(c=>c.onchange=()=>savePlan({runs:{[runs[+c.dataset.run].name]:{enabled:c.checked}}}));
   b.querySelectorAll('[data-ref]').forEach(c=>c.onchange=()=>savePlan({runs:{[runs[+c.dataset.ref].name]:{reference:c.value}}}));
   b.querySelectorAll('[data-opt]').forEach(c=>c.onchange=()=>savePlan({options:{[c.dataset.opt]:c.checked}}));
-  b.querySelectorAll('[data-opt-sel]').forEach(c=>c.onchange=()=>savePlan({options:{[c.dataset.optSel]:c.dataset.optSel==='top_percent'?Number(c.value):c.value}}));
+  b.querySelectorAll('[data-opt-sel]').forEach(c=>c.onchange=()=>savePlan({options:{[c.dataset.optSel]:c.value}}));
+  b.querySelectorAll('[data-top]').forEach(c=>{const i=+c.dataset.top,r=runs[i];
+    c.oninput=()=>{const p=+c.value;$(`[data-topp="${i}"]`).textContent=p+' %';$(`[data-topt2="${i}"]`).textContent=topText(r,p);
+      const h=$(`[data-toph="${i}"]`);if(h)h.textContent=fmt(topHours(r,p),1)+' h';};
+    c.onchange=()=>savePlan({runs:{[r.name]:{top_percent:+c.value}}});});
   b.querySelectorAll('[data-rren]').forEach(x=>x.onclick=async()=>{const r=runs[+x.dataset.rren];
     const v=await askText('Lauf umbenennen','Name',r.label||r.name,`Automatisch erkannt: „${r.name}“. Der Name erscheint in der Übersicht und im Dateinamen des Stacks. Leer lassen = automatischer Name.`);
     if(v===null)return;await savePlan({runs:{[r.name]:{label:v===r.name?'':v}}});toast(v&&v!==r.name?'Lauf heißt jetzt „'+v+'“':'Automatischer Name');});
@@ -2165,7 +2176,6 @@ function updateMeters(){
   if(needsAnalysis())bl.push('Quellordner geändert – erst „Neu analysieren“, danach kann gestackt werden.');
   if(!n.en.length)bl.push('Kein Lauf ausgewählt.');
   if(active)wn.push('Es läuft gerade ein Auftrag – das Stacking wird eingereiht und startet danach automatisch.');
-  const topP=Number((P.plan.options||{}).top_percent||100);
   if(S.ram_free_gb!=null&&S.ram_free_gb<Math.min(n.ram,S.settings.min_free_ram_gb))wn.push(`Wenig freier Arbeitsspeicher (${fmt(S.ram_free_gb,1)} GB). Andere Programme schließen.`);
   n.en.forEach(r=>{if(!r.flats.length)wn.push(`${r.name}: keine passenden Flats.`);else if(!r.flat_ok)wn.push(`${r.name}: Flats haben ein Problem – siehe Kalibrierung.`);if(!r.bias.length)wn.push(`${r.name}: kein Bias – Flats werden ungenauer kalibriert.`);
     const g=(r.flat_groups||[]);if(g.length>1&&g.some(x=>!x.flats.length))wn.push(`${r.name}: nicht für jede Kamerastellung eigene Flats.`);});
@@ -2173,7 +2183,7 @@ function updateMeters(){
   const gb=$('#goBox'); if(!gb)return;
   const title=bl.length?'Stacken gesperrt':wn.length?'Bereit mit Hinweisen':'Bereit';
   const col=bl.length?'var(--err)':wn.length?'var(--warn)':'var(--ok)';
-  const text=bl.length?bl.join(' '):(`Ergibt ${plural(outs.length,'Stack','Stacks')}: ${outs.join(', ')}. `+(topP<100?`Probe-Stack mit den besten ${topP} % der Lights. `:'')+(wn.length?wn.join(' '):'PixInsight läuft unsichtbar im Hintergrund, der PC bleibt wach. Fertige Dateien heißen z. B. '+P.plan.target.replace(/[^\w-]/g,'')+'_'+(n.en[0]?.name||'RGB')+'_'+new Date().toISOString().slice(0,10)+'_'+fmt(n.en[0]?.hours,1).replace(',','.')+'h.xisf'));
+  const text=bl.length?bl.join(' '):(`Ergibt ${plural(outs.length,'Stack','Stacks')}: ${outs.join(', ')}. `+(n.en.some(r=>runTop(r,P.plan.options)<100)?'Nur die besten Frames: '+n.en.filter(r=>runTop(r,P.plan.options)<100).map(r=>`${r.label||r.name} ${runTop(r,P.plan.options)} % (${fmt(topHours(r,runTop(r,P.plan.options)),1)} h)`).join(', ')+'. ':'')+(wn.length?wn.join(' '):'PixInsight läuft unsichtbar im Hintergrund, der PC bleibt wach. Fertige Dateien heißen z. B. '+P.plan.target.replace(/[^\w-]/g,'')+'_'+(n.en[0]?.name||'RGB')+'_'+new Date().toISOString().slice(0,10)+'_'+fmt(n.en[0]?.hours,1).replace(',','.')+'h.xisf'));
   const html=`<span style="display:flex;color:${col}">${ic(bl.length?'error':wn.length?'warn':'check','s18')}</span>
     <div class="gm"><b style="color:${col}">${title}</b><span>${esc(text)}</span></div>
     <button class="btn primary big" id="goBtn" ${bl.length?'disabled':''}>${ic(active?'clock':'play')} ${active?'Stacking einreihen':outs.length>1?outs.length+' Stacks erzeugen':'Stacken'}</button>`;
@@ -2295,6 +2305,9 @@ function openSettings(first){
   const s=S.settings;
   $('#setBody').innerHTML=(first?`<div class="banner info"><span class="infoc" style="display:flex">${ic('info','s18')}</span><div class="grow bx">Willkommen! Bitte kurz prüfen: Wo soll gearbeitet werden, und wo ist PixInsight installiert?</div></div>`:'')+
     SETF.filter(f=>f[2]!=='bool').map(([k,l,t,d,pick])=>`<div class="field"><label>${l}</label><div class="frow"><input type="${t}" data-k="${k}" value="${esc(s[k])}" ${t==='text'&&k!=='timezone'?'class="mono" style="font-size:13.5px"':''}>${pick?`<button class="btn" data-pickset="${k}" data-kind="${pick===true?'folder':pick}">Durchsuchen …</button>`:''}</div>${d?`<div class="d">${d}</div>`:''}${pick==='file'?`<div class="d" id="piCheck"></div>`:''}</div>`).join('')+
+    `<div class="field"><label>Ersatz-Standort</label><div class="frow">
+      ${[['site_lat','Breite','48,86'],['site_lon','Länge','15,01'],['site_elev','Höhe (m)','500']].map(([k,l,ph])=>`<input type="text" inputmode="decimal" data-site="${k}" aria-label="${l}" placeholder="${l}, z. B. ${ph}" value="${s[k]==null?'':esc(String(s[k]).replace('.',','))}" style="flex:1 1 0;min-width:0">`).join('')}</div>
+      <div class="d">Wird verwendet, wenn die FITS-Daten keinen Standort enthalten – für Mondstand, Objekthöhe und die Zuordnung zur Nacht. Breite/Länge in Grad (Osten positiv). Leer lassen = kein Ersatz. Wirkt bei der nächsten Analyse.</div></div>`+
     `<div>${SETF.filter(f=>f[2]==='bool').map(([k,l,t,d])=>`<label class="optline" style="cursor:pointer"><span class="grow"><div class="t">${l}</div>${d?`<div class="d">${d}</div>`:''}</span><span class="switch"><input type="checkbox" data-k="${k}" ${s[k]?'checked':''}><span></span></span></label>`).join('')}</div>`+
     `<div class="row" style="border-top:1px solid var(--div);padding-top:14px"><div class="small grow" style="opacity:.55">Gespeichert in ${esc(S.settings_file)} · Version ${esc(S.version)}</div>
       <button class="btn sm" id="updChk" title="Auf GitHub nach einer neuen Version suchen">${ic('refresh')} Nach Updates suchen</button>
@@ -2317,6 +2330,7 @@ async function checkPi(){
 }
 $('#setSave').onclick=async()=>{
   const d={};document.querySelectorAll('#setBody [data-k]').forEach(i=>{const f=SETF.find(x=>x[0]===i.dataset.k);d[i.dataset.k]=f[2]==='bool'?i.checked:f[2]==='number'?Number(i.value):i.value.trim();});
+  document.querySelectorAll('#setBody [data-site]').forEach(i=>d[i.dataset.site]=i.value.trim());
   try{const r=await api('/api/settings',d);S=r;setDlg.close();toast('Gespeichert');
     if(r.move_offer&&r.move_offer.projects.length&&await ask('Projekte verschieben?',`Im bisherigen Arbeitsverzeichnis\n${r.move_offer.old}\nliegen ${r.move_offer.projects.length} Projekt(e): ${r.move_offer.projects.join(', ')}.\n\nIns neue Arbeitsverzeichnis verschieben?`,'Verschieben')){
       const mv=await api('/api/move-projects',{old:r.move_offer.old,projects:r.move_offer.projects});toast(mv.moved.length+' Projekt(e) verschoben');}

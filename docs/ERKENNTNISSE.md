@@ -142,3 +142,19 @@
 - Kontrolle nach dem Lauf (`cc_check`): Log muss „applying b2stacker_CC process icon“, `useAutoDetect = true`,
   `hotAutoCheck = true` und „End cosmetic correction“ enthalten. Sonst einmal neu mit der Python-Bereinigung
   (`hotpix.py`, Notlösung).
+
+## Nachtrag 2026-11-03: Windows-Bericht zu b2stacker 0.8 (gelöst in 0.9)
+- **Komma im Ordnernamen** (`Bias, Darks, Flats`): PixInsight trennt `-r="script,arg,…"` an jedem Komma, ein
+  Escape gibt es nicht → zerrissene Argumente, WBPP fand die Kalibrierdaten nicht. Lösung: Bereitstellung über
+  Verknüpfungen mit sicherem Namen (`staging.py`), Originalordner bleiben unangetastet.
+- **Junctions auf Netzlaufwerk**: `mklink /J` auf ein UNC-Ziel → WinError 123. Junctions nur lokal; für Dateien
+  auf dem NAS Symlinks (Entwicklermodus) oder eine einmalige Kopie im Cache.
+- **Flat-Gruppen** müssen auf die gewählten Lights beschränkt werden, sonst bekommt WBPP Gruppen ohne Lights.
+- **Zu wenige Roh-Kalibrierbilder** (1 Bias): WBPP bricht die Integration ab, danach scheitert die
+  Flat-Kalibrierung. Mindestens 3 Rohbilder oder ein Master; wird jetzt vor dem Start geprüft.
+- **Astro Pixel Processor-Master** (`MB-…`, `MF-…`, `BITPIX -32`, kein `IMAGETYP`) wurden als Lights/unklar
+  gelesen; Erkennung an Dateipräfix, Software-Tag und `NCOMBINE`.
+- **ASIAIR ohne `OBJECT`**: Ordner wie `25.-27.12.2024` oder `Dual` wurden als Objekte gelesen → mehrere
+  Pseudo-Ziele. Objekt jetzt zuerst aus dem Dateinamen (`Light_IC434_180.0s_…`).
+- WBPP liest Gruppen-Kennwörter laut Adam-Block-Forum auch aus dem FITS-Header (Pfad hat Vorrang) – mögliche
+  spätere Option, um Flat-Gruppen ohne Verknüpfungen zu bilden.

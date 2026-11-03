@@ -10,6 +10,7 @@ Der Bildtyp wird in dieser Reihenfolge bestimmt:
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import asdict, dataclass, field
@@ -69,6 +70,7 @@ class FrameMeta:
     wind: float | None = None
     software: str | None = None
     hfr_from_name: float | None = None  # NINA-Muster $$HFR$$ am Dateianfang
+    site_fallback: bool = False         # Standort aus den Einstellungen statt aus dem Header
     excluded: bool = False              # liegt in _rejected/_alt/… → standardmäßig nicht verwenden
     warnings: list[str] = field(default_factory=list)
 
@@ -249,6 +251,29 @@ def _sexa(s: str | None, hours: bool) -> float | None:
 
 # ----------------------------------------------------------------------------- main
 
+_FB_CACHE: dict = {}
+
+
+def fallback_site():
+    """(lat, lon, elev) aus den Einstellungen oder None. Liest die Datei nur neu, wenn sie sich geändert hat."""
+    from .settings import Settings
+    p = Settings.path()
+    try:
+        key = (p, os.path.getmtime(p))
+    except OSError:
+        return None
+    if _FB_CACHE.get("key") != key:
+        try:
+            d = json.load(open(p, encoding="utf-8"))
+            lat, lon = d.get("site_lat"), d.get("site_lon")
+            val = (float(lat), float(lon), float(d.get("site_elev") or 0)) \
+                if lat not in (None, "") and lon not in (None, "") else None
+        except (OSError, ValueError, TypeError):
+            val = None
+        _FB_CACHE.update(key=key, val=val)
+    return _FB_CACHE["val"]
+
+
 def from_header(h, path: str) -> FrameMeta:
     """Header-Mapping (astropy Header oder dict) → FrameMeta."""
     m = FrameMeta(path=path)
@@ -332,6 +357,13 @@ def from_header(h, path: str) -> FrameMeta:
     m.site_lat = _f(h, "SITELAT", "OBSLAT", "LATITUDE") or _sexa(_s(h, "SITELAT"), False)
     m.site_lon = _f(h, "SITELONG", "OBSLONG", "LONGITUD") or _sexa(_s(h, "SITELONG"), False)
     m.site_elev = _f(h, "SITEELEV", "OBSALT", "ELEVATIO")
+    if m.site_lat is None or m.site_lon is None:
+        fb = fallback_site()
+        if fb:
+            m.site_lat, m.site_lon = fb[0], fb[1]
+            if m.site_elev is None:
+                m.site_elev = fb[2]
+            m.site_fallback = True
     m.ambient_temp = _f(h, "AMBTEMP", "AOCAMBT", "TEMPEXT")
     m.dew_point = _f(h, "DEWPOINT", "AOCDEW")
     m.humidity = _f(h, "HUMIDITY", "AOCHUM")

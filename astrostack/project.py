@@ -899,7 +899,7 @@ def _apply_edits(pdir: str, overrides: dict | None = None, write: bool = True) -
         plan.setdefault("options", {}).update(ed.get("options") or {})
         for r in plan["runs"]:
             e = (ed.get("runs") or {}).get(r["name"], {})
-            r.update({k: v for k, v in e.items() if k in ("enabled", "reference", "wbpp")})
+            r.update({k: v for k, v in e.items() if k in ("enabled", "reference", "wbpp", "top_percent")})
             _apply_label(r, e.get("label"))
             for kind, choice in (e.get("calib") or {}).items():
                 _apply_calib(r, kind, choice, cands)
@@ -934,12 +934,51 @@ def _apply_label(run: dict, label) -> None:
         run["outputs"] = [label]
 
 
-def top_percent(plan: dict) -> int:
+def _pct(v, default=100) -> int:
     try:
-        v = int(float((plan.get("options") or {}).get("top_percent") or 100))
+        v = int(round(float(v)))
     except (TypeError, ValueError):
-        v = 100
+        return default
     return max(5, min(100, v))
+
+
+def top_percent(plan: dict, run: dict | None = None) -> int:
+    """Anteil der besten Lights, die gestackt werden – je Lauf; ältere Pläne hatten einen Wert für alle."""
+    glob = _pct((plan.get("options") or {}).get("top_percent") or 100)
+    if run is not None and run.get("top_percent") not in (None, ""):
+        return _pct(run["top_percent"], glob)
+    return glob
+
+
+def any_top_percent(plan: dict) -> bool:
+    return any(top_percent(plan, r) < 100 for r in plan.get("runs", []) if r.get("enabled", True))
+
+
+def keep_count(n: int, pct: int) -> int:
+    import math
+    return n if pct >= 100 else max(min(n, 3), math.ceil(n * pct / 100))
+
+
+def _ranked(lights: list, scores: dict) -> list[int]:
+    """Indizes der Lights, beste zuerst (ohne Messwert ans Ende, sonst stabile Reihenfolge)."""
+    return sorted(range(len(lights)), key=lambda i: (lights[i] not in scores, -(scores.get(lights[i], (0, 0))[0]), i))
+
+
+def with_ranking(pdir: str, plan: dict) -> dict:
+    """Für den Regler „Nur die besten Frames“: Belichtung je Light in Güte-Reihenfolge (Sekunden).
+    Damit rechnet die Oberfläche die Stunden sofort nach, ohne Server-Aufruf."""
+    scores = _frame_scores(pdir)
+    for r in plan.get("runs", []):
+        lights = r.get("lights") or []
+        if not lights:
+            r["rank_exp"] = []
+            continue
+        exp = [scores.get(p, (0, None))[1] for p in lights]
+        if not all(exp):
+            avg = (r.get("hours") or 0) * 3600 / len(lights)
+            exp = [e or avg for e in exp]
+        r["rank_exp"] = [round(exp[i], 3) for i in _ranked(lights, scores)]
+    return plan
 
 
 def _frame_scores(pdir: str) -> dict:
@@ -963,28 +1002,29 @@ def _frame_scores(pdir: str) -> dict:
     return out
 
 
-def apply_top_percent(pdir: str, plan: dict, pct: int) -> list[str]:
-    """Nur die besten pct % der gewählten Lights je Lauf stacken (schneller Probe-Stack, Qualitätsvergleich).
-    Verändert nur den Plan dieses Stacking-Auftrags, nicht die gespeicherte Auswahl."""
-    import math
+def apply_top_percent(pdir: str, plan: dict, pct: int | None = None) -> list[str]:
+    """Nur die besten X % der gewählten Lights je Lauf stacken – gereiht nach Signal/Rauschen und Sternschärfe.
+    X kommt je Lauf aus dem Plan (``pct`` setzt einen Wert für alle). Verändert nur den Plan dieses
+    Stacking-Auftrags, nicht die gespeicherte Auswahl."""
     scores = _frame_scores(pdir)
     lines = []
     for r in plan.get("runs", []):
         if r.get("enabled") is False or not r.get("lights"):
             continue
+        p = _pct(pct) if pct is not None else top_percent(plan, r)
+        if p >= 100:
+            continue
         lights = list(r["lights"])
-        keep_n = max(min(len(lights), 3), math.ceil(len(lights) * pct / 100))
-        ranked = sorted(range(len(lights)), key=lambda i: (lights[i] not in scores, -(scores.get(lights[i], (0, 0))[0]), i))
-        keep = sorted(ranked[:keep_n])
+        keep = sorted(_ranked(lights, scores)[:keep_count(len(lights), p)])
         hours_all = r.get("hours") or 0
-        exp = [scores.get(p, (0, None))[1] for p in lights]
+        exp = [scores.get(x, (0, None))[1] for x in lights]
         r["lights"] = [lights[i] for i in keep]
         r["lightCount"] = len(r["lights"])
         if all(e for e in exp):
             r["hours"] = round(sum(exp[i] for i in keep) / 3600, 2)
         elif lights:
             r["hours"] = round(hours_all * len(keep) / len(lights), 2)
-        note = "Nur die besten %d %%: %d von %d Lights" % (pct, len(keep), len(lights))
+        note = "Nur die besten %d %%: %d von %d Lights, %.1f h" % (p, len(keep), len(lights), r["hours"])
         r["_notes"] = list(r.get("_notes") or []) + [note]
         lines.append("%s: %s" % (r.get("label") or r["name"], note))
     return lines
