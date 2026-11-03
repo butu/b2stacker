@@ -95,6 +95,7 @@ def test_group_links_fall_back_to_copies_when_links_fail(tmp_path, monkeypatch):
     src.mkdir(parents=True)
     for n in ("a.fits", "b.fits", "unused.fits"):
         (src / n).write_bytes(n.encode())
+    monkeypatch.setattr(pi, "is_remote_path", lambda p: True)          # wie \\\\server\\share: keine Junction
     monkeypatch.setattr(pi.os, "symlink", lambda *a, **k: (_ for _ in ()).throw(OSError("no symlink right")))
     monkeypatch.setattr(pi.os, "link", lambda *a, **k: (_ for _ in ()).throw(OSError("cross device")))
     logs = []
