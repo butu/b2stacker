@@ -143,7 +143,7 @@ Menü (☰) → **Einstellungen**:
 | Arbeitsverzeichnis | Zwischendateien, Berichte, Stacks, Historie. Beim Wechsel bietet b2stacker an, Projekte mitzunehmen. |
 | Stacking mit | PixInsight (WBPP) oder Siril. Siril-Stacking ist noch in Arbeit: ein Lauf mit Siril meldet das derzeit klar. |
 | PixInsight-Programm | Pfad zu `PixInsight.exe`. |
-| Siril-Programm | Leer = automatisch (PATH, Standardordner, Flatpak `org.siril.Siril`). Sonst Pfad zur `siril-cli` bzw. `flatpak:org.siril.Siril`. Mindestversion 1.2. |
+| Siril-Programm | Leer = automatisch (PATH, Standardordner, Flatpak `org.siril.Siril`). Sonst Pfad zur `siril-cli` bzw. `flatpak:org.siril.Siril`. Mindestversion 1.4.0. |
 | Gleichzeitige Vermessungen | Mehr = schnellere Analyse, je ~1 GB Arbeitsspeicher. |
 | Mindestens freier Arbeitsspeicher | Darunter startet kein Stacking (schützt vor Abstürzen). |
 | Zeitzone | Für Nächte und Himmelsdiagramme. |

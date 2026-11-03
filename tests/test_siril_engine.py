@@ -5,6 +5,9 @@ import sys
 
 import pytest
 
+import numpy as np
+from astropy.io import fits
+
 from astrostack import stackqa, xisf
 from astrostack.app import server
 from astrostack.engines import siril
@@ -105,8 +108,9 @@ def test_not_found_is_clear_and_never_falls_back_to_pixinsight(no_siril, tmp_pat
 def test_dispatch_routes_to_siril_and_rejects_unknown_engine(tmp_path, fresh_cache):
     from astrostack import engines
     s = Settings(engine="siril", siril=make_cli(tmp_path / "siril-cli"), workdir=str(tmp_path))
-    with pytest.raises(StackError, match="noch nicht implementiert"):
-        engines.run_plan({}, s)
+    plan = dict(target="T", workdir=str(tmp_path / "w"), runs=[], options={})
+    st = engines.run_plan(plan, s, log=lambda *a: None)              # Siril-Pfad erreicht, Plan ohne Läufe
+    assert st.state == "failed" and "Kein Lauf aktiviert" in st.error
     with pytest.raises(StackError, match="Unbekannte Stacking-Engine"):
         engines.run_plan({}, Settings(engine="foo", workdir=str(tmp_path)))
 
@@ -131,20 +135,16 @@ def test_save_settings_validates_engine_and_state_reports_siril(tmp_path, monkey
     assert st["pixinsight_ok"] in (True, False)       # unverändert vorhanden, nur nicht maßgeblich
 
 
-@posix_only
-def test_siril_run_output_fits_master_is_processed(tmp_path, fresh_cache):
-    cli = make_cli(tmp_path / "siril-cli")
-    work = tmp_path / "siril"
-    work.mkdir()
-    script = work / "stack.ssf"
-    script.write_text("cd %s\nlog start\nstack r_light -out=result\n" % work)
-    res = subprocess.run([cli, "-d", str(work), "-s", str(script)], capture_output=True, text=True, timeout=120)
-    assert res.returncode == 0, res.stderr
-    assert "log: start" in res.stdout and "progress: 2/3" in res.stdout
-
-    master = str(work / "result.fit")
-    img = stackqa.load_master(master)
-    assert img.shape == (3, 120, 160) and img.max() <= 1.0
+def test_siril_fits_master_is_processed(tmp_path):
+    """Siril-Ergebnis: float32-FITS, RGB als NAXIS3=3 → Farbsaum-/Kennzahlen-Pfad, Keywords übernommen."""
+    master = str(tmp_path / "result.fit")
+    rng = np.random.default_rng(0)
+    data = np.clip(0.05 + 0.01 * rng.standard_normal((3, 120, 160)), 0, 1).astype(np.float32)
+    hdr = fits.Header()
+    hdr["OBJECT"] = "fake"
+    hdr["STACKCNT"] = 4
+    fits.PrimaryHDU(data=data, header=hdr).writeto(master)
+    assert stackqa.load_master(master).shape == (3, 120, 160)
     assert stackqa.keywords_of(master)["OBJECT"] == "fake"
     run = dict(name="RGB", mode="debayer", hours=2.0, outputs=["RGB"], channel_map={})
     out = stackqa.process_master(master, run, "vdB 15", str(tmp_path / "final"), str(tmp_path / "pv"),

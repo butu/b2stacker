@@ -4,17 +4,23 @@ Phase 1: nur Erkennung und Prüfung. Der Lauf selbst (.ssf-Skript) folgt in Phas
 """
 from __future__ import annotations
 
+import datetime
 import os
 import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from dataclasses import dataclass
 
+from .. import logbook, stackqa, staging, steps, system
+from ..fitsmeta import BIAS, DARK, FLAT
 from ..system import _decode
-from .pixinsight import Status, StackError
+from . import pixinsight as pi
+from .pixinsight import Cancelled, Status, StackError
 
-MIN_VERSION = (1, 2, 0)        # siril-cli mit Skriptmodus (-s) gibt es seit 1.2
+MIN_VERSION = (1, 4, 0)        # die Skripte nutzen „requires 1.4.0“ und -weight=wfwhm
 FLATPAK_ID = "org.siril.Siril"
 FLATPAK_LABEL = "flatpak:" + FLATPAK_ID
 FLATPAK_DIRS = ("/var/lib/flatpak", os.path.expanduser("~/.local/share/flatpak"))
@@ -34,9 +40,14 @@ class Install:
     cli: tuple            # Aufruf-Präfix für die Kommandozeile (Flatpak = mehrere Wörter)
     gui: tuple | None     # Aufruf zum Öffnen von Ergebnissen in der Siril-Oberfläche
     label: str            # Anzeige und Wert für die Einstellung
+    flatpak: bool = False
 
-    def cli_cmd(self, *args: str) -> list[str]:
-        return list(self.cli) + list(args)
+    def command(self, dirs, args: list[str]) -> list[str]:
+        """Vollständiger Aufruf. Flatpak sieht nur freigegebene Ordner → jeder Arbeitsordner einzeln."""
+        if not self.flatpak:
+            return list(self.cli) + list(args)
+        fs = ["--filesystem=" + d for d in sorted({os.path.abspath(d) for d in dirs if d})]
+        return ["flatpak", "run", "--env=LC_ALL=C", "--env=LANGUAGE=en"] + fs + ["--command=siril-cli", FLATPAK_ID] + list(args)
 
 
 def _flatpak_install() -> Install | None:
@@ -45,7 +56,7 @@ def _flatpak_install() -> Install | None:
     if not any(os.path.isdir(os.path.join(d, "app", FLATPAK_ID)) for d in FLATPAK_DIRS):
         return None
     return Install(cli=("flatpak", "run", "--command=siril-cli", FLATPAK_ID),
-                   gui=("flatpak", "run", FLATPAK_ID), label=FLATPAK_LABEL)
+                   gui=("flatpak", "run", FLATPAK_ID), label=FLATPAK_LABEL, flatpak=True)
 
 
 def _from_binary(path: str) -> Install | None:
@@ -125,9 +136,395 @@ def check(setting: str = "") -> dict:
     return dict(path=v, ok=True, found=True, version=ver, cmd=inst.label, message="Siril %s gefunden." % ver)
 
 
-def run_plan(plan: dict, settings, **_kw) -> Status:
-    """Phase-1-Stub: prüft die Installation und meldet, dass der Siril-Lauf noch fehlt."""
+# ------------------------------------------------------------------ Skript
+
+_RUNNING = re.compile(r"Running command: (\w+)")
+# Siril-Meldungen, die bei erfolgreichen Läufen auftreten (Ursache: Aufräumen von Temp-Dateien/Sequenz-Scan)
+NOISE = ("g_unlink", "removed gpid", "reading sequence failed", "could not load first image", "cgroups",
+         "memory controller", "venv", "found python executable", "color management", "jpeg icc")
+_PCT = re.compile(r"(\d+(?:[.,]\d+)?)\s*%")
+
+
+def _p(path: str) -> str:
+    """Pfad für das Skript: absolut, Vorwärtsschrägstriche (auch unter Windows von Siril akzeptiert)."""
+    return os.path.abspath(path).replace("\\", "/")
+
+
+def _quote(path: str) -> str:
+    if '"' in path:
+        raise StackError("Pfad enthält Anführungszeichen – Siril kann ihn nicht übergeben: " + path)
+    return '"%s"' % _p(path)
+
+
+def _kv(key: str, path: str) -> str:
+    """Option mit Pfad als ein quotiertes Token („-out=…“). Quotes INNERHALB des Werts übernimmt Siril nicht."""
+    token = "%s=%s" % (key, _p(path))
+    if '"' in token:
+        raise StackError("Pfad enthält Anführungszeichen – Siril kann ihn nicht übergeben: " + token)
+    return '"%s"' % token
+
+
+def build_script(spec: dict) -> str:
+    """Skript für einen Lauf. spec: outdir, lights (Ordner), light_ext, osc, bias/dark/darkflat/flat →
+    dict(raw=Ordner mit Präfix-Sequenz|None, prefix, master=Pfad|None), cosmetic (bool), wcs=..."""
+    out = spec["outdir"]
+    L = ["requires 1.4.0", "setext fit"]
+    masters = {}
+
+    def master_of(kind: str, s: dict, parent: str | None) -> str | None:
+        if s.get("master"):
+            return _p(s["master"])
+        if not s.get("raw"):
+            return None
+        seq = os.path.join(out, "seq_" + kind)
+        L.extend(["cd " + _quote(s["raw"]), "convert %s %s" % (s["prefix"], _kv("-out", seq)), "cd " + _quote(seq)])
+        # Siril hängt an konvertierte Sequenzen „_“ an: Sequenz „bias“ → Befehle nutzen „bias_“
+        if kind == "flat":
+            opt = (" " + _kv("-dark" if parent[0] == "dark" else "-bias", parent[1])) if parent else ""
+            L.append("calibrate %s_%s -prefix=pp_" % (s["prefix"], opt))
+            L.append("stack pp_%s_ rej w 3 3 -norm=mul -output_norm -32b -out=master_%s" % (s["prefix"], kind))
+        else:
+            L.append("stack %s_ rej w 3 3 -nonorm -32b -out=master_%s" % (s["prefix"], kind))
+        return _p(os.path.join(seq, "master_%s.fit" % kind))
+
+    for kind in ("bias", "dark", "darkflat"):
+        if spec.get(kind):
+            masters[kind] = master_of(kind, spec[kind], None)
+    if masters.get("darkflat"):
+        flat_dark = ("dark", masters["darkflat"])          # Dark-Flats bevorzugt, sonst Bias
+    elif masters.get("bias"):
+        flat_dark = ("bias", masters["bias"])
+    else:
+        flat_dark = None
+    if spec.get("flat"):
+        if spec["flat"].get("master"):
+            masters["flat"] = _p(spec["flat"]["master"])
+        else:
+            masters["flat"] = master_of("flat", spec["flat"], flat_dark)
+    # Lights (Original-Dateien werden verknüpft/kopiert, nie verändert)
+    seq_light = os.path.join(out, "seq_light")
+    L.extend(["cd " + _quote(spec["lights"]), "convert light %s" % _kv("-out", seq_light), "cd " + _quote(seq_light)])
+    cal = []
+    if masters.get("bias"):
+        cal.append(_kv("-bias", masters["bias"]))
+    if masters.get("dark"):
+        cal.append(_kv("-dark", masters["dark"]))
+    if masters.get("flat"):
+        cal.append(_kv("-flat", masters["flat"]))
+    if masters.get("dark") and spec.get("cosmetic", True):
+        cal.append("-cc=dark 3 3")
+    if spec.get("osc"):
+        cal += ["-cfa", "-equalize_cfa", "-debayer"]
+    L.append("calibrate light_ %s -prefix=pp_" % " ".join(cal))
+    if spec.get("sigma"):
+        L.append("setfindstar -sigma=%.2f" % spec["sigma"])
+    L.append("register pp_light_ -2pass -minpairs=10 -transf=homography -maxstars=2000")
+    L.append("seqapplyreg pp_light_ -interp=lanczos4 -prefix=r_")
+    L.append("stack r_pp_light_ rej w 3 3 -norm=addscale -weight=wfwhm -output_norm -32b%s -out=result"
+             % (" -rgb_equal" if spec.get("osc") else ""))
+    return "\n".join(L) + "\n"
+
+
+# ------------------------------------------------------------------ Lauf
+
+class SirilRunner:
+    """Startet siril-cli mit dem Skript und sammelt die Ausgabe (Fehlerausgabe in derselben Leitung)."""
+
+    def __init__(self, inst: Install, script: str, workdir: str, dirs):
+        # Siril löst den Skriptpfad relativ zum (mit -d gewechselten) Arbeitsordner auf → absolut übergeben
+        self.args = inst.command(dirs, ["-d", os.path.abspath(workdir), "-s", os.path.abspath(script)])
+        self.proc = None
+        self.thread = None
+        self._out: list[str] = []
+        self._lock = threading.Lock()
+
+    def start(self) -> str:
+        env = dict(os.environ, LC_ALL="C", LANG="C", LANGUAGE="en")       # Siril-Meldungen auf Englisch
+        self.proc = subprocess.Popen(self.args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT, env=env, text=True, encoding="utf-8",
+                                     errors="replace", creationflags=_NO_WINDOW if sys.platform == "win32" else 0)
+        self.thread = threading.Thread(target=self._pump, daemon=True)
+        self.thread.start()
+        return " ".join(self.args)
+
+    def _pump(self):
+        for line in self.proc.stdout:
+            with self._lock:
+                self._out.append(line.rstrip("\r\n"))
+
+    def drain(self) -> list[str]:
+        with self._lock:
+            out, self._out = self._out, []
+        return out
+
+    def poll(self):
+        return self.proc.poll() if self.proc else None
+
+    def kill(self):
+        if self.proc and self.proc.poll() is None:
+            self.proc.kill()
+
+    def finish(self):
+        if self.thread:
+            self.thread.join(timeout=10)
+
+
+def _is_master(p: str) -> bool:
+    from .. import fitsmeta
+    try:
+        return bool(fitsmeta.from_header(pi._header(p), p).is_master)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _calib_spec(paths: list[str], prefix: str, raw_dir: str, log) -> dict | None:
+    """Fertiger Master (ein Bild) → direkt verwenden; sonst Rohbilder in eine Sequenz legen."""
+    if not paths:
+        return None
+    masters = [p for p in paths if _is_master(p)]
+    if masters:
+        return dict(master=masters[0])
+    return dict(raw=raw_dir, prefix=prefix, ext=os.path.splitext(paths[0])[1], paths=paths)
+
+
+def _causes(lines: list[str]) -> list[dict]:
+    """Verständliche Ursachen aus der Siril-Ausgabe (englische Meldungen, siehe docs/ERKENNTNISSE.md)."""
+    text = "\n".join(lines).lower()
+    out = []
+    rules = [
+        ("not enough stars", "Zu wenige Sternpaare zum Ausrichten – Bilder zu dunkel, unscharf oder Wolken."),
+        ("not enough star pairs", "Zu wenige Sternpaare zum Ausrichten – Bilder zu dunkel, unscharf oder Wolken."),
+        ("star matching", "Sternzuordnung gescheitert – Sterne zu schwach oder Sternerkennung zu streng (Empfindlichkeit prüfen)."),
+        ("no such file", "Eine Datei fehlt oder ist nicht lesbar (Pfad, Netzlaufwerk, Flatpak-Freigabe)."),
+        ("not found", "Eine Datei fehlt oder ist nicht lesbar (Pfad, Netzlaufwerk, Flatpak-Freigabe)."),
+        ("dimension", "Bildgrößen sind unterschiedlich – Lights und Kalibrierbilder müssen gleich groß sein."),
+        ("out of memory", "Zu wenig Arbeitsspeicher – andere Programme schließen."),
+        ("memory", "Zu wenig Arbeitsspeicher – andere Programme schließen."),
+    ]
+    for needle, msg in rules:
+        if needle in text:
+            out.append(dict(level="error", text=msg))
+            break
+    for ln in lines:
+        if "error in line" in ln.lower() or "script execution failed" in ln.lower():
+            out.append(dict(level="error", text=re.sub(r"^\W*(log:\s*)?", "", ln.strip())))
+            break
+    return out
+
+
+def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, cancel, runner_factory) -> str:
+    name = run["name"]
+    outdir = os.path.join(jobdir, pi.safe_file(name))
+    shutil.rmtree(outdir, ignore_errors=True)
+    os.makedirs(outdir, exist_ok=True)
+    n = len(run["lights"])
+    log("=== Lauf %s (Siril): %d Lights ===" % (name, n))
+    missing = [p for p in run["lights"] if not os.path.exists(p)]
+    if missing:
+        raise StackError("%d Lights fehlen, z. B. %s" % (len(missing), missing[0]))
+    free = system.free_disk_gb(outdir)
+    need = run.get("gb") or 0
+    if free is not None and free < need:
+        raise StackError("Zu wenig Platz im Arbeitsverzeichnis: %.0f GB nötig, %.0f GB frei." % (need, free))
+    fr, _tot = system.ram_gb()
+    want = min(run.get("ram_gb") or settings.min_free_ram_gb, settings.min_free_ram_gb)
+    if fr is not None and fr < want:
+        raise StackError("Nur %.1f GB Arbeitsspeicher frei (mindestens %.0f GB nötig). Andere Programme schließen." % (fr, want))
+    log("  Platz: %s GB frei / ~%.0f GB nötig · RAM: %s GB frei" % (
+        "%.0f" % free if free is not None else "?", need, "%.1f" % fr if fr is not None else "?"))
+    cache = os.path.join(settings.workdir, "cache", "calib_fixed")
+    calib = dict(bias=pi.fix_calibration(run.get("bias", []), BIAS, cache),
+                 darks=pi.fix_calibration(run.get("darks", []), DARK, cache),
+                 darkflats=pi.fix_calibration(run.get("darkflats", []), DARK, cache),
+                 flats=pi.fix_calibration(run.get("flats", []), FLAT, cache))
+    pi._preflight_calibration(run, calib, log)
+    if not calib["flats"]:
+        log("  WARNUNG: keine Flats – Vignettierung und Staub bleiben im Bild.")
+    if not calib["darks"]:
+        log("  Hinweis: keine Darks – Hotpixel-Entfernung von b2stacker ist für Siril noch nicht umgesetzt.")
+    if run.get("flat_groups"):
+        raise StackError("Flat-Gruppen (Kamera-Stellung je Nacht) sind für Siril noch nicht umgesetzt.")
+    if run.get("reference") not in (None, "", "auto"):
+        log("  WARNUNG: Referenz „%s“ wird mit Siril noch nicht übernommen – Siril wählt die Referenz selbst. "
+            "Masters mehrerer Filter sind dadurch nicht zwingend deckungsgleich." % run.get("reference"))
+
+    # Bereitstellen: Lights und Rohkalibrierung als Sequenzen (Original-Dateien bleiben unverändert)
+    raw = os.path.join(outdir, "raw")
+    stg = staging.Stager(jobdir, os.path.join(settings.workdir, "cache"), log)
+    lights = []
+    for i, p in enumerate(run["lights"], 1):
+        dst = os.path.join(raw, "light", "light_%05d%s" % (i, os.path.splitext(p)[1].lower() or ".fit"))
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        lights.append(stg.place(p, dst))
+    if len(lights) != n:
+        raise StackError("Interner Fehler: %d Lights bereitgestellt, %d gewählt." % (len(lights), n))
+    spec = dict(outdir=outdir, lights=os.path.join(raw, "light"), osc=bool(run.get("is_osc")) and
+                run.get("mode") in ("debayer", "extract"), cosmetic=bool(calib["darks"]))
+    spec["lights_prefix"] = "light"
+    for kind, key, prefix in (("bias", "bias", "bias"), ("dark", "darks", "dark"),
+                              ("darkflat", "darkflats", "darkflat"), ("flat", "flats", "flat")):
+        cs = _calib_spec(calib[key], prefix, os.path.join(raw, kind), log)
+        if cs and cs.get("paths"):
+            d = os.path.join(raw, kind)
+            os.makedirs(d, exist_ok=True)
+            for i, p in enumerate(cs.pop("paths"), 1):
+                stg.place(p, os.path.join(d, "%s_%05d%s" % (prefix, i, cs["ext"] or ".fit")))
+        spec[kind] = cs
+    sd = run.get("star_detection") or {}
+    params = dict(sd.get("params") or {})
+    if "sensitivity" in params:                    # Näherung: höhere WBPP-Empfindlichkeit → kleineres sigma
+        spec["sigma"] = min(3.0, max(0.3, round(2.0 - 1.5 * float(params.pop("sensitivity")), 2)))
+        log("  Sternerkennung → setfindstar -sigma=%.2f (Näherung aus WBPP-sensitivity)" % spec["sigma"])
+    if params:
+        log("  Hinweis: Sternerkennung-Parameter ohne Siril-Entsprechung nicht übernommen: %s" % ", ".join(sorted(params)))
+    script_text = build_script(spec)
+    script = os.path.join(outdir, "siril.ssf")
+    open(script, "w", encoding="utf-8").write(script_text)
+    log("  Skript: %s (%d Zeilen)" % (script, script_text.count("\n")))
+    logbook.event("staging", run=name, grouping=False, lights=len(lights), **stg.stats)
+    dirs = [outdir, settings.workdir] + [os.path.dirname(p) for p in run["lights"]] + \
+        [os.path.dirname(p) for k in calib for p in (calib[k] or [])]
+    inst = locate(settings.siril)
+    if inst is None:
+        raise StackError(check(settings.siril)["message"])
+    make = runner_factory or (lambda s, w, d: SirilRunner(inst, s, w, d))
+    runner = make(script, outdir, dirs)
+    t0 = time.time()
+    cmd = runner.start()
+    open(os.path.join(outdir, "command.txt"), "w", encoding="utf-8").write(cmd)
+    log("  Siril gestartet")
+    timing = steps.load_timing(settings.workdir)
+    seen: list[str] = []
+    alert = ""
+    logdir = os.path.join(outdir, "logs")
+    os.makedirs(logdir, exist_ok=True)
+    logf = open(os.path.join(logdir, "siril.log"), "a", encoding="utf-8")
+    st.alert, st.hints, st.substeps = "", [], []
+
+    state = dict(key="check", pct=None)
+
+    def set_step(nk: str):
+        if nk != state["key"] and nk in steps.BY_KEY:
+            pi._finish_step(st, settings.workdir, n)
+            state["key"] = nk
+            pi._set_step(st, nk, 0, n)
+            log("  → %s" % steps.BY_KEY[nk]["title"])
+
+    def read_lines():
+        nonlocal alert
+        for ln in runner.drain():                        # Zeile für Zeile, in Reihenfolge
+            seen.append(ln)
+            logf.write(ln + "\n")
+            cmd = _RUNNING.search(ln)                     # Siril meldet jeden Befehl → Schritt daraus ableiten
+            if cmd:
+                c = cmd.group(1)
+                if c in ("convert", "calibrate"):
+                    set_step("calibrate")
+                elif c in ("register", "seqapplyreg"):
+                    set_step("register")
+                elif c == "stack":
+                    set_step("integrate" if state["key"] == "register" else "calibrate")
+                continue
+            if ln.startswith("progress"):
+                m = _PCT.search(ln)
+                if m:
+                    state["pct"] = float(m.group(1).replace(",", "."))
+                continue
+            low = ln.lower()
+            if "error in line" in low or "execution failed" in low:
+                alert = re.sub(r"^\W*(log:\s*)?", "", ln.strip())
+                st.alert, st.alert_raw = alert, ln
+                log("  ⚠ Siril: " + ln)
+            elif not any(x in low for x in NOISE):           # bei Erfolg harmlos, nur in siril.log
+                log("    Siril: " + ln)
+
+    code = None
+    while True:
+        code = runner.poll()
+        read_lines()
+        key = state["key"]
+        if state["pct"] is not None:
+            st.done = int(n * state["pct"] / 100)
+        st.total = n
+        st.eta_s = pi._eta(st, n, timing)
+        st.stage = steps.BY_KEY.get(key, {}).get("title", key)
+        st.message = "%s · Lauf läuft seit %s" % (st.stage, pi._elapsed(time.time() - t0))
+        save()
+        if code is not None:
+            break
+        if cancel.wait(3):
+            runner.kill()
+            logf.close()
+            raise Cancelled("abgebrochen")
+    runner.finish()
+    read_lines()
+    logf.close()
+    key = state["key"]
+    pi._finish_step(st, settings.workdir, n)  # letzter Schritt zählt als erledigt
+    st.message = "Siril beendet – werte Ergebnis aus …"
+    st.logdir = logdir
+    save()
+    result = os.path.join(outdir, "seq_light", "result.fit")
+    ok = code == 0 and os.path.exists(result)
+    logbook.event("siril_exit", run=name, code=code, duration_s=round(time.time() - t0, 1), command=cmd[:3000],
+                  logdir=logdir, master=result if ok else None)
+    if not ok:
+        causes = _causes(seen)
+        st.causes = causes
+        why = causes[0]["text"] if causes else (
+            "Siril hat keinen Stack erzeugt (Exit-Code %s)." % code if code else "Siril lief durch, hat aber keinen Stack erzeugt.")
+        logbook.event("stack_diagnosis", run=name, causes=causes)
+        raise StackError("Stacking fehlgeschlagen beim %s: %s" % (steps.BY_KEY.get(key, {}).get("title", "Stacken"), why))
+    log("  Stack: %s (%s)" % (os.path.basename(result), pi._elapsed(time.time() - t0)))
+    master_keep = os.path.join(outdir, "master.fit")          # bleibt nach der Bereinigung erhalten
+    shutil.copy2(result, master_keep)
+    st.steps_done.append("integrate")
+    pi._set_step(st, "finalize", 0, 0)
+    save()
+    previewdir = os.path.join(plan["workdir"], "stacks")
+    outputs = stackqa.process_master(result, run, plan["target"], finaldir, previewdir, datetime.date.today().isoformat(),
+                                     pixscale=plan.get("pixscale"),
+                                     fix_fringes=plan.get("options", {}).get("fix_fringes", True), log=log)
+    st.steps_done.append("finalize")
+    pi._set_step(st, "quality", 0, 0)
+    save()
+    for o in outputs:
+        k = o["kpi"]
+        log("  Qualität %s: Rauschen %.2f ADU · %d Sterne · Verlauf %.1f %%" % (o["name"], k["noise"], k["stars"],
+                                                                           k["gradient_pct"]))
+    st.steps_done.append("quality")
+    finals = [o["file"] for o in outputs]
+    st.finals += finals
+    logbook.event("stack_run", project=os.path.basename(plan["workdir"]), run=name, lights=n, hours=run.get("hours"),
+                  minutes=round((time.time() - t0) / 60, 1),
+                  outputs=[dict(name=o["name"], file=os.path.basename(o["file"]), kpi=o["kpi"]) for o in outputs])
+    st.runs[name] = dict(master=master_keep, finals=finals, outputs=outputs, minutes=round((time.time() - t0) / 60, 1),
+                         lights=n, hours=run.get("hours"), nights=run.get("nights"), filter=run.get("filter"),
+                         mode=run.get("mode"), flats=len(run.get("flats", [])), bias=len(run.get("bias", [])),
+                         darks=len(run.get("darks", [])), reference=run.get("reference"),
+                         notes=list(run.get("_notes") or []), excluded=run.get("_excluded") or [])
+    if settings.cleanup_intermediate:
+        for d in ("raw", "seq_light", "seq_bias", "seq_dark", "seq_darkflat", "seq_flat"):
+            shutil.rmtree(os.path.join(outdir, d), ignore_errors=True)
+    return master_keep
+
+
+def run_plan(plan: dict, settings, log=print, on_status=None, cancel=None, runner_factory=None,
+             status_file=None, open_results=None, **_kw) -> Status:
+    """Alle Läufe eines Plans mit Siril. Gemeinsamer Rahmen mit PixInsight (engines.pixinsight.run_frame)."""
     c = check(settings.siril)
     if not c["ok"]:
         raise StackError(c["message"])
-    raise StackError("Stacking mit Siril ist noch nicht implementiert – bitte vorerst PixInsight wählen.")
+    inst = locate(settings.siril)
+
+    def preflight():
+        if not check(settings.siril)["ok"]:
+            raise StackError(check(settings.siril)["message"])
+
+    def opener(finals):
+        if inst.gui:
+            subprocess.Popen(list(inst.gui) + list(finals))
+
+    return pi.run_frame(plan, settings, one_run=_one_run, runner_factory=runner_factory, preflight=preflight,
+                        opener=opener, log=log, on_status=on_status, cancel=cancel, status_file=status_file,
+                        open_results=open_results)
