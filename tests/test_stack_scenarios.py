@@ -255,3 +255,60 @@ def test_selftest_end_to_end_with_fake_pixinsight(tmp_path, monkeypatch):
     assert any(st["name"] == "Analyse" and "2 Flat-Gruppen" in st["detail"] for st in res["steps"]), res["steps"]
     assert os.path.exists(res["report"]) and "," in os.listdir(str(folder))[0]
     assert project.list_projects(s) == []                      # Testprojekt nicht in der Projektliste
+
+
+ASIAIR = {"IMAGETYP": "Light", "EXPTIME": 180.0, "GAIN": 120, "OFFSET": 30, "BAYERPAT": "RGGB", "XBINNING": 1,
+          "INSTRUME": "ZWO ASI294MC Pro", "CCD-TEMP": -10.0, "FOCALLEN": 2800.0, "XPIXSZ": 4.63, "RA": 85.25, "DEC": -2.46}
+IC434_DIRS = ["Dual", "RGB/25.-27.12.2024", "RGB/29.12.2024", "RGB/04.03.2024", "RGB/30.12.2024", "RGB/31.12.2024",
+              "RGB/30.01.2024", "RGB/10.01.2024", "RGB/25.02.2024"]
+
+
+def build_ic434(root, n=2):
+    base = os.path.join(root, "Pferdekopfnebel IC 434_17 Std")
+    k = 0
+    for d in IC434_DIRS:
+        flt = "Dual" if d == "Dual" else "IR"
+        for i in range(n):
+            day = 10 + k % 18
+            make_fits(os.path.join(base, "Lights", d, "Light_IC434_180.0s_Bin1_294MC_%s_gain120_202401%02d-21%02d46_%04d.fit"
+                                   % (flt, day, i, k)),
+                      dict(ASIAIR, FILTER=flt, **{"DATE-OBS": "2024-01-%02dT20:%02d:00" % (day, i)}), data=star_field(k))
+            k += 1
+    return base
+
+
+def test_asiair_without_object_is_one_target(tmp_path, monkeypatch):
+    """Bericht 0.8 §5: Datumsordner (25.-27.12.2024) und Filterordner (Dual) sind keine Objekte."""
+    monkeypatch.setenv("ASTROSTACK_SETTINGS", str(tmp_path / "s.json"))
+    base = build_ic434(str(tmp_path / "nas"))
+    s = Settings(workdir=str(tmp_path / "work"), analysis_workers=1)
+    pv = project.preview_targets([base], s)
+    assert [t["name"] for t in pv["targets"]] == ["IC434"], [t["name"] for t in pv["targets"]]
+    assert pv["targets"][0]["frames"] == 2 * len(IC434_DIRS)
+
+
+def test_merged_project_accepts_calibration_only_folder(tmp_path, monkeypatch):
+    """Bericht 0.8 §10: zusammengelegtes Projekt + reiner Bias-Ordner → Neu analysieren ohne „mehrere Ziele“."""
+    monkeypatch.setenv("ASTROSTACK_SETTINGS", str(tmp_path / "s.json"))
+    root = str(tmp_path / "nas")
+    a, b = os.path.join(root, "Teil A"), os.path.join(root, "Teil B")
+    for folder, name in ((a, "Pferdekopf"), (b, "Horsehead")):     # zwei Schreibweisen desselben Objekts
+        for i in range(3):
+            make_fits(os.path.join(folder, "Lights", "Light_%s_180.0s_%04d.fit" % (name, i)),
+                      dict(ASIAIR, FILTER="IR", **{"DATE-OBS": "2024-12-%02dT21:00:00" % (20 + i)}), data=star_field(i))
+    s = Settings(workdir=str(tmp_path / "work"), analysis_workers=1)
+    pv = project.preview_targets([a, b], s)
+    keys = [t["key"] for t in pv["targets"]]
+    assert len(keys) == 2
+    res = project.run_report([a, b], None, s, log=lambda *x: None, assign={k: "IC 434" for k in keys})
+    pdir = project.pdir_of(s, res[0]["project"])
+    assert {o.lower() for o in project.meta(pdir)["objects"]} >= {"pferdekopf", "horsehead"}
+    hb = dict(ASIAIR, IMAGETYP="Bias Frame", EXPTIME=0.0001)
+    bias = os.path.join(root, "Bias, Darks, Flats", "Bias")
+    for i in range(5):
+        make_fits(os.path.join(bias, "Bias_%04d.fit" % i), hb, shape=(256, 384), value=500)
+    project.set_sources(pdir, project.sources(pdir)["roots"] + [bias])
+    m = project.meta(pdir)
+    res2 = project.run_report(project.sources(pdir)["roots"], m["target"], s, log=lambda *x: None, into=m["target"])
+    assert res2 and res2[0]["frames"] == 6
+    assert project.load_plan(pdir)["runs"][0]["bias"], "Bias aus dem neuen Ordner übernommen"

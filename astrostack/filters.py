@@ -39,7 +39,8 @@ def _norm(name: str | None) -> str:
 
 
 _add(BROADBAND, "rgb", "uvir", "uv/ir", "uvircut", "ircut", "irc", "uvirblock", "clear", "none", "nofilter",
-     "cls", "clsccd", "lpro", "l-pro", "lpr", "uhc", "lps", "lpsd1", "lpsd2", "lpsp2", "cbp", "osc", "color", "colour")
+     "cls", "clsccd", "lpro", "l-pro", "lpr", "uhc", "lps", "lpsd1", "lpsd2", "lpsp2", "cbp", "osc", "color", "colour",
+     "ir", "uvirfilter", "irfilter", "farbe")
 _add(DUAL_HA_OIII, "hao3", "haoiii", "ha/oiii", "ha-oiii", "ha+oiii", "hoo", "lextreme", "l-extreme", "optolonglextreme",
      "lenhance", "l-enhance", "lultimate", "l-ultimate", "alpt", "alp-t", "alpthao3", "duoband", "duo", "dual",
      "dualband", "nbz", "idasnbz", "triad", "triband", "quadband", "qbp", "askarcolourmagicd1")
