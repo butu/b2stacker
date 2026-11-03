@@ -159,6 +159,7 @@ def test_parallel_toggles_and_edits_share_one_locked_state(tmp_path, monkeypatch
 
 def test_reanalysis_survives_all_assigned_flats_out_and_prepares_media(tmp_path, monkeypatch):
     from astrostack import previews
+    from astrostack.report import build
     s, root, pdir, _res = _analyzed(tmp_path, monkeypatch, extra_flat_set=True, bad_header=True)
     assigned_folder = _plan(pdir)["runs"][0]["flat_set"]
     flats = {p for p, f in _rows(pdir).items() if f["type"] == "flat"}
@@ -174,7 +175,8 @@ def test_reanalysis_survives_all_assigned_flats_out_and_prepares_media(tmp_path,
     assert all(not r.get("flats") for r in plan["runs"]), "kein Ersatz-Flatsatz nach erneuter Analyse"
     assert plan["runs"][0]["flat_set"] == assigned_folder
     assert json.load(open(os.path.join(pdir, "plan_base.json"), encoding="utf-8"))["runs"][0]["flat_set"] == assigned_folder
-    assert assigned_folder in open(os.path.join(pdir, "report.html"), encoding="utf-8").read(), \
+    report = build.embedded_report_data(open(os.path.join(pdir, "report.html"), encoding="utf-8").read())
+    assert report["plan"]["runs"][0]["flat_set"] == assigned_folder, \
         "Bericht trägt den zugeordneten Satz, nicht einen Fremdsatz"
     rows = _rows(pdir)
     visible = {p for p, f in rows.items() if f["type"] == "flat"}
