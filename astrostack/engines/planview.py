@@ -19,7 +19,6 @@ SIRIL_REGISTRATION = ("Homografie" if REG_TRANSFORM == "-transf=homography" else
 def _unsupported() -> dict:
     from .siril import NOT_MAPPED
     out = {k: "in Siril nicht verfügbar: " + NOT_MAPPED[wk] for k, wk in _OPTION_NOT_MAPPED.items()}
-    out["autocrop"] = "in Siril nicht verfügbar: Zuschnitt ist nicht Teil des Siril-Laufs"
     return out
 
 
@@ -34,6 +33,9 @@ def _settings(plan: dict, opt: dict, weight: str, findstar: list[str]) -> list:
                       else "Ausreißer werden pro Pixel abgelehnt."),
         "Registrierung": (SIRIL_REGISTRATION, unsup["distortion_correction"] if opt.get("distortion_correction")
                           else "Ausrichtung über die Sterne."),
+        "Autocrop": (("Siril -framing=min" if opt.get("autocrop") else "aus"),
+                     "Nur die gemeinsame Fläche bleibt (wie WBPP)." if opt.get("autocrop")
+                     else "Siril behält die volle Größe; Ränder einzelner Frames bleiben."),
         "Drizzle": ("nicht in Siril automatisiert", "Drizzle nur im Stacking-Programm von Hand, falls gewünscht."),
     }
     rows = []

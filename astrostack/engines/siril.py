@@ -246,6 +246,7 @@ def build_script(spec: dict) -> str:
         L.extend(["cd " + _quote(ref), "convert ref %s" % _kv("-out", os.path.join(out, "seq_ref")), ])
         seqs.append(_p(os.path.join(out, "seq_ref", "ref_")))
     seq = _stack_seq(len(seqs))
+    framing = " -framing=min" if spec.get("framing") == "min" else ""     # WBPP Autocrop: gemeinsame Fläche
     if len(seqs) > 1:                                      # Gruppen (+ Referenz) → eine Sequenz in dieser Reihenfolge
         L.append("cd " + _quote(os.path.join(out, "seq_light")))
         L.append("merge %s lights" % " ".join(_quote(s) for s in seqs))
@@ -256,11 +257,11 @@ def build_script(spec: dict) -> str:
         # Referenz = erster Referenzframe; Registrierung ohne -2pass, sonst würde Siril die Referenz neu wählen
         L.append("setref %s %d" % (seq, n + 1))
         L.append("register %s -minpairs=10 %s -maxstars=2000" % (seq, REG_TRANSFORM))
-        L.append("seqapplyreg %s -interp=%s -prefix=r_" % (seq, INTERP))
+        L.append("seqapplyreg %s -interp=%s%s -prefix=r_" % (seq, INTERP, framing))
         L.append("unselect r_%s %d %d" % (seq, n + 1, n + 2))
     else:
         L.append("register %s -2pass -minpairs=10 %s -maxstars=2000" % (seq, REG_TRANSFORM))
-        L.append("seqapplyreg %s -interp=%s -prefix=r_" % (seq, INTERP))
+        L.append("seqapplyreg %s -interp=%s%s -prefix=r_" % (seq, INTERP, framing))
     L.append("stack r_%s %s -norm=addscale -weight=%s -output_norm -32b%s%s%s -out=result"
              % (seq, REJECTION, spec.get("weight", "wfwhm"), " -rgb_equal" if spec.get("osc") else "",
                 " -filter-included" if ref else "", " -rejmaps" if spec.get("rejmaps") else ""))
@@ -387,6 +388,7 @@ NOT_MAPPED = {                      # keine Entsprechung in Siril → im Log nen
     "structureLayers": "Strukturebenen der Sternerkennung",
     "peakResponse": "Peak-Antwort der Sternerkennung",
     "noiseReductionFilterRadius": "Rauschfilter vor der Sternerkennung",
+    "drizzle": "Drizzle nicht automatisiert",
 }
 HANDLED = {"hotPixelFilterRadius": "Hotpixel entfernt b2stacker selbst (Cosmetic/CC)",
            "generateRejectionMaps": "→ -rejmaps",
@@ -421,9 +423,12 @@ def map_wbpp(plan: dict, run: dict, lock_retry: bool = False) -> dict:
         notes.append("Verzeichnungskorrektur: " + NOT_MAPPED["distortionCorrection"])
     if opt.get("large_scale_rejection"):
         notes.append("Satellitenspuren-Filter: " + NOT_MAPPED["lightsLargeScaleRejectionHigh"])
+    if opt.get("drizzle"):
+        notes.append("Drizzle: " + NOT_MAPPED.get("drizzle", "in Siril nicht automatisiert (nur im Stacking-Programm von Hand)"))
     weight = WEIGHT_MAP.get(opt.get("weighting", "psf_signal"), "wfwhm")
     rejmaps = str(wb.get("generateRejectionMaps", "true")).lower() != "false"
-    return dict(findstar=findstar, weight=weight, rejmaps=rejmaps, notes=notes)
+    framing = "min" if opt.get("autocrop") else "max"
+    return dict(findstar=findstar, weight=weight, rejmaps=rejmaps, framing=framing, notes=notes)
 
 
 def bayer_override(paths: list[str], log=print) -> str | None:
@@ -809,7 +814,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
         d = os.path.join(raw, kind)
         spec[kind] = _stage_set(stg, _calib_spec(calib[key], prefix, d, log), d, prefix)
     mp = map_wbpp(plan, run, lock_retry=bool(run.get("_lock_retry")))
-    spec.update(findstar=mp["findstar"], weight=mp["weight"], rejmaps=mp["rejmaps"])
+    spec.update(findstar=mp["findstar"], weight=mp["weight"], rejmaps=mp["rejmaps"], framing=mp["framing"])
     if mp["findstar"]:
         log("  Sternerkennung %s → setfindstar %s" % (
             "strenger" if run.get("_lock_retry") else "angepasst",

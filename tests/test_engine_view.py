@@ -16,7 +16,8 @@ def _plan(workdir="", **opt):
     options.update(opt)
     settings = [["Gewichtung", "PSF Signal Weight", "x"], ["Local Normalization", "an", "x"],
                 ["Rejection", "automatisch + Large-Scale (hoch)", "x"],
-                ["Registrierung", "Verzerrungskorrektur an", "x"], ["Drizzle", "aus", "x"]]
+                ["Registrierung", "Verzerrungskorrektur an", "x"], ["Drizzle", "aus", "x"],
+                ["Autocrop", "aus", "x"]]
     runs = [dict(name="L", lightCount=3, star_detection=dict(params={"maxStarDistortion": "0.45"}, why="x"))]
     return dict(options=options, settings=settings, runs=runs, workdir=workdir)
 
@@ -45,8 +46,7 @@ def test_siril_weighting_snr_maps_to_noise():
 
 def test_siril_flags_unsupported_options():
     view = planview.apply(_plan(), "siril")["engine_view"]
-    assert set(view["unsupported"]) == {"local_normalization", "distortion_correction",
-                                        "large_scale_rejection", "autocrop"}
+    assert set(view["unsupported"]) == {"local_normalization", "distortion_correction", "large_scale_rejection"}
     assert "fix_fringes" not in view["unsupported"] and "hot_pixels" not in view["unsupported"]
 
 
@@ -100,3 +100,14 @@ def test_cached_report_shows_engine_version_from_later_stack(tmp_path):
     json.dump([dict(id="b", date="2026-02-01T10:00:00", engine="siril", engine_version="1.4.4")],
               open(os.path.join(pdir, "stacks.json"), "w", encoding="utf-8"))
     assert report_build.cached_data(pdir)["meta"]["engine_text"] == "Siril 1.4.4"
+
+
+def test_siril_autocrop_maps_to_common_area_framing():
+    from astrostack.engines import siril as sr
+    assert _rows(planview.apply(_plan(autocrop=True), "siril"))["Autocrop"] == "Siril -framing=min"
+    assert _rows(planview.apply(_plan(autocrop=False), "siril"))["Autocrop"] == "aus"
+    assert sr.map_wbpp(_plan(autocrop=True), {})["framing"] == "min"
+    assert sr.map_wbpp(_plan(autocrop=False), {})["framing"] == "max"
+    script = sr.build_script(dict(outdir="/o", lights="/l", osc=False, groups=[dict(sub="", lights="/l", n=2)],
+                                  framing="min"))
+    assert "seqapplyreg pp_light_ -interp=lanczos4 -framing=min -prefix=r_" in script
