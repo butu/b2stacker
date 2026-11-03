@@ -70,7 +70,8 @@ def cmd_gui(args, s: Settings):
 
 
 def cmd_stack(args, s: Settings):
-    from .engines import pixinsight as pi
+    from . import engines
+    from .engines.pixinsight import StackError
     pdir = project.pdir_of(s, args.project)
     project.assert_stack_ready(pdir)
     plan = project.apply_edits(pdir)
@@ -79,7 +80,11 @@ def cmd_stack(args, s: Settings):
         for r in plan["runs"]:
             r["enabled"] = r["name"] in args.only
     log = (lambda *a: None) if args.json else print
-    st = pi.run_plan(plan, s, log=log, open_results=not args.no_open)
+    try:
+        st = engines.run_plan(plan, s, log=log, open_results=not args.no_open)
+    except StackError as e:
+        print("FEHLER: %s" % e, file=sys.stderr)
+        sys.exit(1)
     _out(args, st.as_dict(), lambda d: print("Status: %s %s" % (d["state"], d["error"])))
     sys.exit(0 if st.state == "done" else 1)
 

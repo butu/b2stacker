@@ -20,8 +20,8 @@ import webbrowser
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from .. import __version__, assets, checklist, logbook, project, stackqa, steps, system, updater
-from ..engines import pixinsight as pi
+from .. import __version__, assets, checklist, engines, logbook, project, stackqa, steps, system, updater
+from ..engines import siril
 from ..jobs import JobManager
 from ..settings import Settings
 
@@ -53,15 +53,19 @@ def state() -> dict:
     free_ram, total_ram = _safe(system.ram_gb, (None, None))
     active = JOBS.active()
     last = JOBS.jobs[-1] if JOBS.jobs else None
+    siril_status = _safe(lambda: siril.check(s.siril), dict(ok=False, version=None, cmd=None, message=""))
     return dict(
         version=__version__,
         app_window=_safe(lambda: __import__("astrostack.app.window", fromlist=["STATE"]).STATE.get("window") is not None, False),
         settings=asdict(s),
         settings_file=Settings.path(),
         first_run=not os.path.exists(Settings.path()),
+        engine=s.engine,
         pixinsight_ok=os.path.exists(s.pixinsight),
         wbpp_ok=os.path.exists(s.wbpp_script),
         pixinsight_running=_safe(system.pixinsight_processes, []),
+        siril_ok=siril_status["ok"], siril_version=siril_status["version"], siril_cmd=siril_status["cmd"],
+        siril_message=siril_status["message"],
         disk_free_gb=_r(_safe(lambda: system.free_disk_gb(s.workdir), None)),
         ram_free_gb=_r(free_ram), ram_total_gb=_r(total_ram),
         job=(active or last).as_dict(120) if (active or last) else None,
@@ -125,6 +129,10 @@ def save_settings(data: dict) -> dict:
             cur = getattr(s, k)
             if k in ("site_lat", "site_lon", "site_elev"):
                 v = _site_value(k, v)
+            elif k == "engine":
+                if v not in engines.ENGINES:
+                    raise ValueError("unbekannte Stacking-Engine: %r" % v)
+                v = str(v)
             elif isinstance(cur, bool):
                 v = bool(v)
             elif isinstance(cur, int):
@@ -169,6 +177,8 @@ def _pick_file_dialog(initial: str = "", kind: str = ""):
     d = initial if os.path.isdir(initial) else os.path.dirname(initial)
     if kind == "image":
         title, types = "Bild wählen", [("Bilder", IMAGE_PATTERNS), ("Alle Dateien", "*.*")]
+    elif kind == "siril":
+        title, types = "siril-cli bzw. Siril wählen", [("Programme", "*.exe"), ("Alle Dateien", "*.*")]
     else:
         title, types = "PixInsight.exe wählen", [("Programme", "*.exe"), ("Alle Dateien", "*.*")]
     p = filedialog.askopenfilename(initialdir=d or None, title=title, filetypes=types)
@@ -177,13 +187,13 @@ def _pick_file_dialog(initial: str = "", kind: str = ""):
 
 
 def pick_file(initial: str = "", kind: str = "") -> str | None:
-    """Datei wählen (PixInsight.exe oder mit kind="image" ein Bild): im Programmfenster direkt, sonst über einen Hilfsprozess."""
+    """Datei wählen (PixInsight.exe, siril-cli oder mit kind="image" ein Bild): im Programmfenster direkt, sonst über einen Hilfsprozess."""
     from . import window
-    kind = "image" if kind == "image" else ""
+    kind = kind if kind in ("image", "siril") else ""
     try:
         # pywebview erwartet die Endungen mit Semikolon getrennt, sonst lehnt es den Filter ab
         r = window.pick_file(initial, ("Bilder (%s)" % IMAGE_PATTERNS.replace(" ", ";"), "Alle Dateien (*.*)")) \
-            if kind else window.pick_file(initial)
+            if kind == "image" else window.pick_file(initial)
     except Exception:  # noqa: BLE001 - kaputter Fensterdialog: Hilfsprozess mit normalem Dateidialog
         r = False
     if r is not False:
@@ -223,6 +233,11 @@ def check_pixinsight(path: str) -> dict:
     else:
         msg = "PixInsight und WBPP gefunden."
     return dict(path=p, ok=exists and name_ok and wbpp, exists=exists, wbpp=wbpp, message=msg)
+
+
+def check_siril(path: str) -> dict:
+    """Siril/siril-cli prüfen (leer = automatische Erkennung)."""
+    return siril.check(path)
 
 
 def _pick_folder_powershell(initial: str):
@@ -394,13 +409,13 @@ def start_stack(name: str) -> dict:
         plan["workdir"] = pdir
         for line in project.apply_top_percent(pdir, plan):
             job.write(line)
-        st = pi.run_plan(plan, s, log=job.write, cancel=job.cancel,
-                         on_status=lambda x: job.set_progress(
-                             stage=x.stage, step=x.step, run=x.run, run_index=x.run_index, runs_total=x.runs_total,
-                             run_steps=x.run_steps, steps_done=x.steps_done, done=x.done, total=x.total,
-                             eta_s=x.eta_s, message=x.message, alert=x.alert, alert_raw=x.alert_raw, hints=x.hints, substeps=x.substeps,
-                             causes=x.causes,
-                             failed_step=x.failed_step, logdir=x.logdir))
+        st = engines.run_plan(plan, s, log=job.write, cancel=job.cancel,
+                              on_status=lambda x: job.set_progress(
+                                  stage=x.stage, step=x.step, run=x.run, run_index=x.run_index, runs_total=x.runs_total,
+                                  run_steps=x.run_steps, steps_done=x.steps_done, done=x.done, total=x.total,
+                                  eta_s=x.eta_s, message=x.message, alert=x.alert, alert_raw=x.alert_raw, hints=x.hints, substeps=x.substeps,
+                                  causes=x.causes,
+                                  failed_step=x.failed_step, logdir=x.logdir))
         return st.as_dict()
     job = JOBS.submit("stack", "Stacking " + target, s.workdir, fn, project=name)
     return job.as_dict()
@@ -814,8 +829,15 @@ def open_path(path: str):
         subprocess.Popen(["xdg-open", path])
 
 
-def open_in_pixinsight(paths: list[str]):
+def open_in_engine(paths: list[str]):
+    """Ergebnisse in der gewählten Engine öffnen (PixInsight oder Siril)."""
     s = settings()
+    if s.engine == "siril":           # Siril-Modus: Ergebnisse nie in PixInsight öffnen
+        inst = siril.locate(s.siril)
+        if inst is None or inst.gui is None:
+            raise FileNotFoundError("Siril nicht gefunden – Pfad in den Einstellungen prüfen.")
+        subprocess.Popen(list(inst.gui) + paths)
+        return
     if not os.path.exists(s.pixinsight):
         raise FileNotFoundError("PixInsight nicht gefunden: " + s.pixinsight)
     subprocess.Popen([s.pixinsight] + paths)
@@ -1009,6 +1031,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(save_settings(b))
             if parts == ["api", "pick-file"]:
                 return self._json({"path": pick_file(b.get("initial", ""), b.get("kind", ""))})
+            if parts == ["api", "check-siril"]:
+                return self._json(check_siril(b.get("path", "")))
             if parts == ["api", "check-pixinsight"]:
                 return self._json(check_pixinsight(b.get("path", "")))
             if parts == ["api", "pick-folder"]:
@@ -1045,7 +1069,7 @@ class Handler(BaseHTTPRequestHandler):
             if parts == ["api", "update", "install"]:
                 return self._json(updater.start_install(quit_app, busy_fn=JOBS.active))
             if parts == ["api", "open-pixinsight"]:
-                open_in_pixinsight(b["paths"])
+                open_in_engine(b["paths"])
                 return self._json({"ok": True})
             if parts == ["api", "project-create"]:
                 pdir = project.create_project(settings(), b.get("title", ""), b.get("roots") or [])

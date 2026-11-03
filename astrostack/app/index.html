@@ -79,6 +79,7 @@ select{cursor:pointer;padding:0 8px}
 textarea{height:auto;min-height:96px;padding:10px 12px;line-height:1.5;resize:vertical;width:100%}
 input:focus,select:focus,textarea:focus{box-shadow:0 0 0 2px rgba(53,132,228,.6)}
 .field{display:flex;flex-direction:column;gap:6px}
+.field[hidden]{display:none}
 .field>label,.field>.lbl{font-size:13px;opacity:.6}
 .field .d{font-size:13px;opacity:.6;text-wrap:pretty}
 .frow{display:flex;gap:8px}
@@ -970,17 +971,22 @@ function renderChips(){
   $('#sysBtn').onclick=e=>openPop('sysPop',e.currentTarget,sysPopHtml(st));
   if(!$('#sysPop').hidden)$('#sysPop').innerHTML=sysPopHtml(st);
 }
+const isSiril=()=>S.settings.engine==='siril';
+const engName=()=>isSiril()?'Siril':'PixInsight';
 function sysState(){
-  const piOk=S.pixinsight_ok&&S.wbpp_ok, open=(S.pixinsight_running||[]).length;
+  const piOk=isSiril()?!!S.siril_ok:S.pixinsight_ok&&S.wbpp_ok, open=isSiril()?0:(S.pixinsight_running||[]).length;
   const ramLow=S.ram_free_gb!=null&&S.ram_free_gb<S.settings.min_free_ram_gb, fr=S.disk_free_gb, diskLow=fr!=null&&fr<50;
-  const problem=!S.pixinsight_ok?{kind:'err',label:'PixInsight nicht gefunden'}:!S.wbpp_ok?{kind:'err',label:'WBPP fehlt'}
+  const problem=!piOk?{kind:'err',label:isSiril()?'Siril nicht gefunden':!S.pixinsight_ok?'PixInsight nicht gefunden':'WBPP fehlt'}
     :open?{kind:'warn',label:'PixInsight geöffnet'}:fr!=null&&fr<20?{kind:'err',label:'Kaum Speicherplatz'}:diskLow?{kind:'warn',label:'Wenig Speicherplatz'}:null;
   return {piOk,open,ramLow,diskLow,problem};
 }
 function sysPopHtml(st){
   const row=(icon,l,d,s,col)=>`<div class="sysrow">${ic(icon)}<div style="min-width:0"><div class="l">${l}</div><div class="d ell" title="${esc(d)}">${esc(d)}</div></div><span class="s" style="color:${col}">${s}</span></div>`;
-  return row('send','PixInsight',S.settings.pixinsight||'–',!S.pixinsight_ok?'Nicht gefunden':!S.wbpp_ok?'WBPP fehlt':st.open?'Geöffnet':'Bereit',
-      !S.pixinsight_ok||!S.wbpp_ok?'var(--err)':st.open?'var(--warn)':'var(--ok)')
+  const engRow=isSiril()
+    ? row('send','Siril',S.siril_cmd||'nicht gefunden',S.siril_ok?(S.siril_version?'Version '+S.siril_version:'Bereit'):'Nicht gefunden',S.siril_ok?'var(--ok)':'var(--err)')
+    : row('send','PixInsight',S.settings.pixinsight||'–',!S.pixinsight_ok?'Nicht gefunden':!S.wbpp_ok?'WBPP fehlt':st.open?'Geöffnet':'Bereit',
+      !S.pixinsight_ok||!S.wbpp_ok?'var(--err)':st.open?'var(--warn)':'var(--ok)');
+  return engRow
     +row('ram','Arbeitsspeicher',`${fmt(S.ram_free_gb,1)} GB von ${fmt(S.ram_total_gb,0)} GB frei`,st.ramLow?'Knapp':'Ausreichend',st.ramLow?'var(--warn)':'var(--ok)')
     +row('disk','Speicherplatz',`${fmt(S.disk_free_gb,0)} GB frei · ${S.settings.workdir}`,S.disk_free_gb==null?'–':S.disk_free_gb<20?'Zu wenig':st.diskLow?'Knapp':'Ausreichend',
       S.disk_free_gb!=null&&S.disk_free_gb<20?'var(--err)':st.diskLow?'var(--warn)':'var(--ok)')
@@ -1516,7 +1522,7 @@ function renderOverview(b){
         <div class="rb"><div class="rh"><span class="tag">${ic('image','tiny')}Bearbeitet</span></div>
           <div class="ell" style="font-size:14px;font-weight:600" title="${esc(a.name)}">${esc(a.name)}</div>
           <div class="rk ell mono" title="${esc(a.path)}">${a.exists?'':'⚠ fehlt: '}${esc(a.path)}</div>
-          ${a.exists?`<div class="ra"><button class="lnk" onclick='openPi([${jsArg(a.path)}])'>In PixInsight öffnen</button><button class="btn ghost sm icon" title="Ordner öffnen" onclick='openDir(${jsArg(String(a.path).replace(/[\\/][^\\/]+$/,''))})'>${ic('folder-open')}</button></div>`:''}</div></div>`).join('')}
+          ${a.exists?`<div class="ra"><button class="lnk" onclick='openPi([${jsArg(a.path)}])'>In ${engName()} öffnen</button><button class="btn ghost sm icon" title="Ordner öffnen" onclick='openDir(${jsArg(String(a.path).replace(/[\\/][^\\/]+$/,''))})'>${ic('folder-open')}</button></div>`:''}</div></div>`).join('')}
       <button class="addtile" id="assetAdd"><span class="plus">${ic('image','s18')}</span><span style="font-weight:700;font-size:14.5px">Bearbeitetes Bild hinzufügen</span>
         <span style="font-size:13px;opacity:.65;max-width:200px">PSD, TIFF, JPEG oder fertige Stacks auswählen. Die Datei bleibt, wo sie ist.</span></button></div>
     ${!H.length?`<div style="font-size:13px;opacity:.55;padding:0 2px">${data?'Stacks erscheinen hier nach dem Stacken.':'Stacks erscheinen hier, sobald Aufnahmen analysiert und gestackt sind.'}</div>`:''}
@@ -1581,7 +1587,7 @@ async function linkAsset(){
 }
 function stackMenu(anchor,id,outName){
   const s=P.stacks.find(x=>x.id===id);if(!s)return;const o=s.outputs.find(x=>x.name===outName)||s.outputs[0];
-  const p=openPop('ctxPop',anchor,`${o.exists?`<button class="mi" data-a="pi">${ic('send')}In PixInsight öffnen</button><button class="mi" data-a="dir">${ic('folder-open')}Ordner öffnen</button>`:''}
+  const p=openPop('ctxPop',anchor,`${o.exists?`<button class="mi" data-a="pi">${ic('send')}In ${engName()} öffnen</button><button class="mi" data-a="dir">${ic('folder-open')}Ordner öffnen</button>`:''}
     ${o.preview&&!isThumb(o.preview)?`<button class="mi" data-a="thumb">${ic('image')}Als Projektbild verwenden</button>`:''}
     ${o.exists&&!o.kpi?`<button class="mi" data-a="q">${ic('gauge')}Kennzahlen messen</button>`:''}
     <button class="mi" data-a="ren">${ic('edit')}Umbenennen …</button><div class="sep"></div>
@@ -1601,7 +1607,7 @@ async function removeStack(id){
   if(!await ask('Stack aus der Liste entfernen?',`„${stackName(s)}“ (${dt(s.date)}) verschwindet aus b2stacker. Alle Dateien bleiben erhalten – die Ergebnis-Dateien im Ordner final werden nicht gelöscht. Betrifft alle ${s.outputs.length} Ergebnis(se) dieses Stacks.`,'Entfernen',true))return;
   try{P=await api('/api/project/'+encodeURIComponent(cur.project)+'/stack-delete',{stack_id:id});toast('Stack aus der Liste entfernt – Dateien bleiben erhalten');renderTab();refresh();}catch(e){toast(e.message,true)}
 }
-const openPi=paths=>api('/api/open-pixinsight',{paths}).then(()=>toast('Wird in PixInsight geöffnet …')).catch(e=>toast(e.message,true));
+const openPi=paths=>api('/api/open-pixinsight',{paths}).then(()=>toast('Wird in '+engName()+' geöffnet …')).catch(e=>toast(e.message,true));
 // ---------- Vollbild-Blatt: ausführlicher Bericht und Spickzettel
 function openSheet(title,sub,html){$('#sheetTitle').textContent=title;$('#sheetSub').textContent=sub||'';$('#sheetBody').innerHTML=html;$('#sheet').hidden=false;$('#sheetBody').scrollTop=0;}
 function closeSheet(){$('#sheet').hidden=true;$('#sheetBody').innerHTML='';}
@@ -2147,7 +2153,7 @@ function rvSync(){
   RVS.strip.innerHTML=`<div style="display:flex;flex-direction:column;gap:6px"><span class="fvo">${it.kind==='stack'?(it.s.date?esc(dlong(it.s.date)):'Stack'):'Bearbeitetes Bild'}</span>
       ${thumb?`<div class="fvthumb on">${FV_CHECK}<span class="g">Projektbild</span></div>`:''}
       ${notes.map(n=>`<div class="fvr" style="color:var(--warn)">${esc(n)}</div>`).join('')}</div>
-    <div class="fvbtns">${exists?`<button type="button" class="fvb" id="rvPi">${FV_IMG}<span class="g">In PixInsight öffnen</span></button>
+    <div class="fvbtns">${exists?`<button type="button" class="fvb" id="rvPi">${FV_IMG}<span class="g">In ${engName()} öffnen</span></button>
       <button type="button" class="fvb auto" id="rvDir"><span class="g">Ordner öffnen</span></button>`:''}
       ${it.kind==='stack'&&!thumb&&it.o.preview?`<button type="button" class="fvb auto" id="rvThumb"><span class="g">Als Projektbild</span><span class="kbd">P</span></button>`:''}
       ${it.kind==='stack'&&exists&&!it.o.kpi?`<button type="button" class="fvb auto" id="rvQ"><span class="g">Kennzahlen messen</span></button>`:''}
@@ -2315,9 +2321,11 @@ function updateMeters(){
     meterHtml('ram','Arbeitsspeicher',n.ram,S.ram_free_gb,S.ram_total_gb,'GB','gesamt '+fmt(S.ram_total_gb,0)+' GB · andere Programme schließen gibt mehr frei');
   const active=S.job&&['queued','running'].includes(S.job.state);
   const bl=[],wn=[];
-  if(!S.pixinsight_ok)bl.push('PixInsight wurde nicht gefunden – Pfad in den Einstellungen prüfen.');
+  if(isSiril()){
+    if(!S.siril_ok)bl.push(S.siril_message||'Siril wurde nicht gefunden – Pfad in den Einstellungen prüfen.');
+  }else if(!S.pixinsight_ok)bl.push('PixInsight wurde nicht gefunden – Pfad in den Einstellungen prüfen.');
   else if(!S.wbpp_ok)bl.push('WBPP-Skript nicht gefunden – PixInsight-Installation prüfen.');
-  if(S.pixinsight_running&&S.pixinsight_running.length)bl.push('PixInsight ist geöffnet – bitte schließen, sonst teilen sich zwei Instanzen den Arbeitsspeicher.');
+  if(!isSiril()&&S.pixinsight_running&&S.pixinsight_running.length)bl.push('PixInsight ist geöffnet – bitte schließen, sonst teilen sich zwei Instanzen den Arbeitsspeicher.');
   if(S.disk_free_gb!=null&&S.disk_free_gb<n.gb)bl.push(`Zu wenig Platz: ${fmt(n.gb,0)} GB nötig, ${fmt(S.disk_free_gb,0)} GB frei.`);
   if(needsAnalysis())bl.push('Quellordner geändert – erst „Neu analysieren“, danach kann gestackt werden.');
   if(!n.en.length)bl.push('Kein Lauf ausgewählt.');
@@ -2329,7 +2337,7 @@ function updateMeters(){
   const gb=$('#goBox'); if(!gb)return;
   const title=bl.length?'Stacken gesperrt':wn.length?'Bereit mit Hinweisen':'Bereit';
   const col=bl.length?'var(--err)':wn.length?'var(--warn)':'var(--ok)';
-  const text=bl.length?bl.join(' '):(`Ergibt ${plural(outs.length,'Stack','Stacks')}: ${outs.join(', ')}. `+(n.en.some(r=>runTop(r,P.plan.options)<100)?'Nur die besten Frames: '+n.en.filter(r=>runTop(r,P.plan.options)<100).map(r=>`${r.label||r.name} ${runTop(r,P.plan.options)} % (${fmt(topHours(r,runTop(r,P.plan.options)),1)} h)`).join(', ')+'. ':'')+(wn.length?wn.join(' '):'PixInsight läuft unsichtbar im Hintergrund, der PC bleibt wach. Fertige Dateien heißen z. B. '+P.plan.target.replace(/[^\w-]/g,'')+'_'+(n.en[0]?.name||'RGB')+'_'+new Date().toISOString().slice(0,10)+'_'+fmt(n.en[0]?.hours,1).replace(',','.')+'h.xisf'));
+  const text=bl.length?bl.join(' '):(`Ergibt ${plural(outs.length,'Stack','Stacks')}: ${outs.join(', ')}. `+(n.en.some(r=>runTop(r,P.plan.options)<100)?'Nur die besten Frames: '+n.en.filter(r=>runTop(r,P.plan.options)<100).map(r=>`${r.label||r.name} ${runTop(r,P.plan.options)} % (${fmt(topHours(r,runTop(r,P.plan.options)),1)} h)`).join(', ')+'. ':'')+(wn.length?wn.join(' '):engName()+' läuft unsichtbar im Hintergrund, der PC bleibt wach. Fertige Dateien heißen z. B. '+P.plan.target.replace(/[^\w-]/g,'')+'_'+(n.en[0]?.name||'RGB')+'_'+new Date().toISOString().slice(0,10)+'_'+fmt(n.en[0]?.hours,1).replace(',','.')+'h.xisf'));
   const html=`<span style="display:flex;color:${col}">${ic(bl.length?'error':wn.length?'warn':'check','s18')}</span>
     <div class="gm"><b style="color:${col}">${title}</b><span>${esc(text)}</span></div>
     <button class="btn primary big" id="goBtn" ${bl.length?'disabled':''}>${ic(active?'clock':'play')} ${active?'Stacking einreihen':outs.length>1?outs.length+' Stacks erzeugen':'Stacken'}</button>`;
@@ -2430,8 +2438,8 @@ function openChecklist(outName){
   openSheet('Bearbeitung',P.meta.name+(outName?' · '+outName:''),`<div class="inner" style="max-width:860px">
     ${latest?`<div class="card" style="padding:14px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px"><span class="tag">${fic(outName)}${esc(outName)}</span>
       <div class="grow"><div style="font-weight:600" class="ell">${esc(latest.o.file.split(/[\\/]/).pop())}</div><div class="small" style="opacity:.6">${dt(latest.s.date)} · ${fmt(latest.s.hours,1)} h</div></div>
-      ${latest.o.exists?`<button class="btn primary" onclick='openPi([${jsArg(latest.o.file)}])'>${ic('send')} In PixInsight öffnen</button><button class="btn icon" title="Ordner öffnen" onclick='openDir(${jsArg(latest.o.file.replace(/[\\/][^\\/]+$/,''))})'>${ic('folder-open')}</button>`:''}</div>`:''}
-    ${secHd('Reihenfolge der Bearbeitung in PixInsight','Faustregel: Alles, was misst (Verläufe, Farbe, Schärfe, Rauschen), passiert <b>linear</b> – vor dem Strecken. Danach wird gestaltet. Passend zu den Ergebnissen dieses Projekts ('+esc(res)+').')}
+      ${latest.o.exists?`<button class="btn primary" onclick='openPi([${jsArg(latest.o.file)}])'>${ic('send')} In ${engName()} öffnen</button><button class="btn icon" title="Ordner öffnen" onclick='openDir(${jsArg(latest.o.file.replace(/[\\/][^\\/]+$/,''))})'>${ic('folder-open')}</button>`:''}</div>`:''}
+    ${secHd('Reihenfolge der Bearbeitung in '+engName(),'Faustregel: Alles, was misst (Verläufe, Farbe, Schärfe, Rauschen), passiert <b>linear</b> – vor dem Strecken. Danach wird gestaltet. Passend zu den Ergebnissen dieses Projekts ('+esc(res)+').')}
     <div class="card"><div class="phase">1 · Linear (vor dem Strecken)</div><div class="cl">${grp('linear')}</div>
       <div class="phase" style="border-top:1px solid var(--div);margin-top:4px">2 · Nach dem Strecken</div><div class="cl">${grp('nonlinear')}</div></div></div>`);
 }
@@ -2439,18 +2447,20 @@ function openChecklist(outName){
 // ---------- Einstellungen
 const SETF=[
   ['workdir','Arbeitsverzeichnis','text','Hier landen Zwischendateien, Berichte, Stacks und die Historie. Am besten eine schnelle, große Platte – nicht OneDrive.',true],
-  ['pixinsight','PixInsight-Programm','text','Normalerweise C:\\Program Files\\PixInsight\\bin\\PixInsight.exe','file'],
+  ['pixinsight','PixInsight-Programm','text','Normalerweise C:\\Program Files\\PixInsight\\bin\\PixInsight.exe','file','pixinsight'],
+  ['siril','Siril-Programm (siril-cli)','text','Leer = automatisch erkennen (PATH, Standardordner, Flatpak). Oder Pfad zur siril-cli bzw. „flatpak:org.siril.Siril“.','file','siril'],
   ['analysis_workers','Gleichzeitige Vermessungen','number','Mehr = schneller, braucht aber mehr Arbeitsspeicher (je ~1 GB).'],
   ['min_free_ram_gb','Mindestens freier Arbeitsspeicher (GB)','number','Darunter startet das Stacking nicht – schützt vor Abstürzen.'],
   ['keep_awake','PC während des Stackens wach halten','bool','Verhindert den Energiesparmodus (sonst kann ein Lauf Stunden länger dauern).'],
   ['cleanup_intermediate','Zwischendateien nach jedem Lauf löschen','bool','Spart sehr viel Platz. Masters, Stacks und Protokolle bleiben.'],
-  ['open_results','Ergebnisse am Ende in PixInsight öffnen','bool',''],
+  ['open_results','Ergebnisse am Ende im gewählten Stacking-Programm öffnen','bool',''],
   ['timezone','Zeitzone','text','Für Nächte und Himmelsdiagramme, z. B. Europe/Vienna.'],
 ];
 function openSettings(first){
   const s=S.settings;
   $('#setBody').innerHTML=(first?`<div class="banner info"><span class="infoc" style="display:flex">${ic('info','s18')}</span><div class="grow bx">Willkommen! Bitte kurz prüfen: Wo soll gearbeitet werden, und wo ist PixInsight installiert?</div></div>`:'')+
-    SETF.filter(f=>f[2]!=='bool').map(([k,l,t,d,pick])=>`<div class="field"><label>${l}</label><div class="frow"><input type="${t}" data-k="${k}" value="${esc(s[k])}" ${t==='text'&&k!=='timezone'?'class="mono" style="font-size:13.5px"':''}>${pick?`<button class="btn" data-pickset="${k}" data-kind="${pick===true?'folder':pick}">Durchsuchen …</button>`:''}</div>${d?`<div class="d">${d}</div>`:''}${pick==='file'?`<div class="d" id="piCheck"></div>`:''}</div>`).join('')+
+    `<div class="field"><label>Stacking mit</label><div class="frow"><select data-k="engine" id="engSel" style="flex:1 1 0">${[['pixinsight','PixInsight (WBPP)'],['siril','Siril']].map(([v,l])=>`<option value="${v}" ${s.engine===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="d">Welches Programm stapelt. Stacking mit Siril ist noch in Arbeit – bis dahin meldet ein Lauf das klar, statt auf PixInsight zurückzufallen.</div></div>`+
+    SETF.filter(f=>f[2]!=='bool').map(([k,l,t,d,pick,eng])=>`<div class="field"${eng?` data-eng="${eng}"${s.engine===eng?'':' hidden'}`:''}><label>${l}</label><div class="frow"><input type="${t}" data-k="${k}" value="${esc(s[k])}" ${t==='text'&&k!=='timezone'?'class="mono" style="font-size:13.5px"':''}>${pick?`<button class="btn" data-pickset="${k}" data-kind="${pick===true?'folder':pick}" data-pickkind="${k}">Durchsuchen …</button>`:''}</div>${d?`<div class="d">${d}</div>`:''}${pick==='file'?`<div class="d" id="${k==='siril'?'sirilCheck':'piCheck'}"></div>`:''}</div>`).join('')+
     `<div class="field"><label>Ersatz-Standort</label><div class="frow">
       ${[['site_lat','Breite','48,86'],['site_lon','Länge','15,01'],['site_elev','Höhe (m)','500']].map(([k,l,ph])=>`<input type="text" inputmode="decimal" data-site="${k}" aria-label="${l}" placeholder="${l}, z. B. ${ph}" value="${s[k]==null?'':esc(String(s[k]).replace('.',','))}" style="flex:1 1 0;min-width:0">`).join('')}</div>
       <div class="d">Wird verwendet, wenn die FITS-Daten keinen Standort enthalten – für Mondstand, Objekthöhe und die Zuordnung zur Nacht. Breite/Länge in Grad (Osten positiv). Leer lassen = kein Ersatz. Wirkt bei der nächsten Analyse.</div></div>`+
@@ -2464,8 +2474,13 @@ function openSettings(first){
     try{await api('/api/quit',{})}catch(e){}
     document.body.innerHTML='<div style="display:grid;place-items:center;height:100vh;opacity:.6">b2stacker wurde beendet. Dieses Fenster kann geschlossen werden.</div>';};
   document.querySelectorAll('[data-pickset]').forEach(b=>b.onclick=async()=>{const inp=document.querySelector(`[data-k="${b.dataset.pickset}"]`);
-    try{const r=await api(b.dataset.kind==='file'?'/api/pick-file':'/api/pick-folder',{initial:inp.value});if(r.path){inp.value=r.path;if(b.dataset.kind==='file')checkPi();}}catch(e){toast(e.message,true)}});
+    const isFile=b.dataset.kind==='file';
+    try{const r=await api(isFile?'/api/pick-file':'/api/pick-folder',{initial:inp.value,kind:b.dataset.pickkind==='siril'?'siril':''});
+      if(r.path){inp.value=r.path;if(isFile)(b.dataset.pickkind==='siril'?checkSiril:checkPi)();}}catch(e){toast(e.message,true)}});
   const piIn=document.querySelector('[data-k="pixinsight"]'); if(piIn){piIn.onchange=checkPi;checkPi();}
+  const sirIn=document.querySelector('[data-k="siril"]'); if(sirIn){sirIn.onchange=checkSiril;checkSiril();}
+  const engSel=document.querySelector('#engSel'); if(engSel)engSel.onchange=()=>{
+    document.querySelectorAll('#setBody [data-eng]').forEach(el=>el.hidden=el.dataset.eng!==engSel.value);};
   setDlg.showModal();
 }
 async function checkPi(){
@@ -2474,8 +2489,14 @@ async function checkPi(){
     if(r.path&&r.path!==inp.value&&r.exists)inp.value=r.path;
     out.innerHTML=`<span style="color:${r.ok?'var(--ok)':'var(--err)'};font-weight:700">${r.ok?'✓':'✗'}</span> ${esc(r.message)}`;}catch(e){out.textContent=''}
 }
+async function checkSiril(){
+  const inp=document.querySelector('[data-k="siril"]'), out=$('#sirilCheck'); if(!inp||!out)return;
+  try{const r=await api('/api/check-siril',{path:inp.value});
+    out.innerHTML=`<span style="color:${r.ok?'var(--ok)':'var(--err)'};font-weight:700">${r.ok?'✓':'✗'}</span> ${esc(r.message)}`;}catch(e){out.textContent=''}
+}
 $('#setSave').onclick=async()=>{
-  const d={};document.querySelectorAll('#setBody [data-k]').forEach(i=>{const f=SETF.find(x=>x[0]===i.dataset.k);d[i.dataset.k]=f[2]==='bool'?i.checked:f[2]==='number'?Number(i.value):i.value.trim();});
+  const d={};document.querySelectorAll('#setBody [data-k]').forEach(i=>{const k=i.dataset.k,f=SETF.find(x=>x[0]===k);
+    d[k]=i.tagName==='SELECT'?i.value:f[2]==='bool'?i.checked:f[2]==='number'?Number(i.value):i.value.trim();});
   document.querySelectorAll('#setBody [data-site]').forEach(i=>d[i.dataset.site]=i.value.trim());
   try{const r=await api('/api/settings',d);S=r;setDlg.close();toast('Gespeichert');
     if(r.move_offer&&r.move_offer.projects.length&&await ask('Projekte verschieben?',`Im bisherigen Arbeitsverzeichnis\n${r.move_offer.old}\nliegen ${r.move_offer.projects.length} Projekt(e): ${r.move_offer.projects.join(', ')}.\n\nIns neue Arbeitsverzeichnis verschieben?`,'Verschieben')){

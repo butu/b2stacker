@@ -25,14 +25,16 @@ def _default_pixinsight() -> str:
 class Settings:
     workdir: str = ""                          # Arbeitsverzeichnis (Zwischendateien, Masters, Berichte)
     preview_cache_dir: str = ""                # lokaler Vorschau-Cache; leer = OS-Standard
+    engine: str = "pixinsight"                 # Stacking-Engine: "pixinsight" | "siril"
     pixinsight: str = field(default_factory=_default_pixinsight)
+    siril: str = ""                            # siril-cli-Pfad, "flatpak:org.siril.Siril"; leer = automatisch erkennen
     sources: list[str] = field(default_factory=list)   # zuletzt verwendete Ordner
     custom_filters: dict[str, str] = field(default_factory=dict)
     timezone: str = "Europe/Vienna"
     analysis_workers: int = 2
     keep_awake: bool = True
     cleanup_intermediate: bool = True
-    open_results: bool = True                  # Ergebnisse am Ende in PixInsight öffnen
+    open_results: bool = True                  # Ergebnisse am Ende in der gewählten Engine öffnen
     min_free_ram_gb: float = 8.0
     language: str = "de"
     # Ersatz-Standort, wenn die FITS-Daten keinen enthalten (Mondstand, Objekthöhe, Nachtgrenze)

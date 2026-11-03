@@ -25,22 +25,51 @@ MIN_STARS = 25
 
 # ------------------------------------------------------------------ Laden / Speichern
 
+FITS_EXT = (".fit", ".fits", ".fts")          # Siril schreibt FITS, PixInsight XISF
+SKIP_KEYS = ("HISTORY", "COMMENT", "NAXIS", "NAXIS1", "NAXIS2", "NAXIS3", "BITPIX")
+FITS_SKIP_KEYS = SKIP_KEYS + ("SIMPLE", "EXTEND", "BZERO", "BSCALE", "BLANK")   # FITS-Container-Keywords, nicht übernehmen
+
+
+def _is_fits(path: str) -> bool:
+    return path.lower().endswith(FITS_EXT)
+
+
 def load_master(path: str) -> np.ndarray:
-    """Erstes Bild eines XISF-Masters als (C, H, W) float32 in [0,1]."""
-    a = xisf.read_image(path, 0).astype(np.float32)
+    """Erstes Bild eines Masters (XISF oder FITS) als (C, H, W) float32 in [0,1]."""
+    if _is_fits(path):
+        from astropy.io import fits
+        with fits.open(path) as hdul:
+            a = np.asarray(hdul[0].data, dtype=np.float32)
+    else:
+        a = xisf.read_image(path, 0).astype(np.float32)
+    if a.ndim == 2:
+        a = a[None]
     if a.max() > 1.5:          # sollte nicht vorkommen, aber z. B. UInt16-Master
         a = a / FULL
     return a
 
 
 def keywords_of(path: str) -> dict:
+    if _is_fits(path):
+        try:
+            from astropy.io import fits
+            cards = fits.getheader(path, 0).cards
+        except Exception:  # noqa: BLE001
+            return {}
+        out = {}
+        for c in cards:
+            if not c.keyword or c.keyword in out or c.keyword in FITS_SKIP_KEYS:
+                continue
+            v = c.value
+            out[c.keyword] = ("T" if v else "F") if isinstance(v, bool) else str(v).strip()
+        return out
     try:
         xml, _ = xisf._xml(path)
     except Exception:  # noqa: BLE001
         return {}
     out = {}
     for name, value in re.findall(r'<FITSKeyword name="([^"]+)" value="([^"]*)"', xml):
-        if name not in out and name not in ("HISTORY", "COMMENT", "NAXIS", "NAXIS1", "NAXIS2", "NAXIS3", "BITPIX"):
+        if name not in out and name not in SKIP_KEYS:
             out[name] = value.strip().strip("'").strip()
     return out
 
