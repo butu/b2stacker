@@ -48,7 +48,7 @@ def test_master_dark_and_bias_are_used_without_restacking(tmp_path, cli):
     assert '"-bias=' in log and "MB-2026-E_0s.fit" in log
     assert '"-dark=%s"' % master_dark.replace("\\", "/") in log
     assert "convert bias" not in log and "convert dark" not in log
-    assert "master_bias" not in log and "master_dark" not in log
+    assert "stack bias_" not in log and "stack dark_" not in log
     assert fits.getheader(st.runs["L"]["master"])["STACKCNT"] == 4
 
 
