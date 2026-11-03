@@ -189,6 +189,10 @@ Hotpixeln), wird der Lauf wie bei PixInsight einmal mit stärkerer Hotpixel-Korr
 - **Protokoll:** Jeder Lauf schreibt sein Siril-Skript (`siril.ssf`) in `runs/<Zeit>/<Lauf>/`. Es gibt kein
   WBPP-Protokoll und keine PixInsight-Fensterprüfung.
 - **Öffnen:** „In Siril öffnen“ startet Siril mit den fertigen Stacks.
+- **Plan und Optionen:** Der Plan zeigt die Einstellungen, die Siril tatsächlich verwendet (z. B. Gewichtung
+  `-weight=wfwhm`, Rejection `rej w 3 3`, `setfindstar`). Optionen ohne Entsprechung in Siril – Local
+  Normalization, Verzerrungskorrektur, Satellitenspuren-Filter, Ränder beschneiden – sind ausgegraut und
+  als „in Siril nicht verfügbar“ markiert. Der Bericht nennt Motor und Version des letzten Stacks.
 
 ## 9. Selbsttest
 

@@ -638,7 +638,8 @@ def run_frame(plan: dict, settings, one_run, runner_factory, preflight, opener=N
             masters[run["name"]] = one_run(plan, run, settings, jobdir, masters, finaldir, st, _log, _save, cancel,
                                            runner_factory)
         st.state = "done"
-        _record_stacks(plan, st, stamp, _log)
+        from . import engine_info
+        _record_stacks(plan, st, stamp, _log, engine_info(settings))
         _log("Fertig: " + ", ".join(os.path.basename(f) for f in st.finals))
         if (settings.open_results if open_results is None else open_results) and st.finals and opener:
             opener(st.finals)
@@ -1213,13 +1214,15 @@ def _eta(st: Status, n: int, timing: dict) -> float | None:
     return None
 
 
-def _record_stacks(plan: dict, st: Status, stamp: str, log):
-    """Fertige Stacks in die Projekt-Historie (stacks.json) eintragen."""
+def _record_stacks(plan: dict, st: Status, stamp: str, log, info: dict | None = None):
+    """Fertige Stacks in die Projekt-Historie (stacks.json) eintragen. info: Motor und Version des Laufs."""
     from .. import project as _project
+    info = info or {}
     for name, r in st.runs.items():
         try:
             _project.add_stack(plan["workdir"], dict(
                 id="%s-%s" % (stamp, safe_file(name)), run_id=stamp, date=datetime.datetime.now().isoformat(timespec="seconds"),
+                engine=info.get("engine"), engine_version=info.get("engine_version"),
                 run=name, filter=r.get("filter"), mode=r.get("mode"), lights=r.get("lights"), hours=r.get("hours"),
                 nights=r.get("nights"), minutes=r.get("minutes"), flats=r.get("flats"), bias=r.get("bias"),
                 darks=r.get("darks"), reference=r.get("reference"), options=plan.get("options", {}),

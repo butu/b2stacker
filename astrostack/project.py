@@ -285,7 +285,8 @@ def run_report(roots, target: str | None, settings: Settings, log=print, progres
         write_frames_index(pdir, groups, view.calib, errors=own_errs)
         log("Erzeuge Bericht …")
         progress(stage="Bericht & Plan", step="report", target=groups[0].target, done=0, total=0)
-        res = report_build.build(groups[0].target, groups, view, calib, adir, settings.workdir, os.path.join(pdir, "report.html"))
+        res = report_build.build(groups[0].target, groups, view, calib, adir, settings.workdir, os.path.join(pdir, "report.html"),
+                                engine=settings.engine)
         guard_ov = _capture_and_rebuild_selection(pdir, groups, inv.calib, calib, own_errs, adir,
                                                   settings, groups[0].target, before_ov, log)
         is_new = not os.path.exists(os.path.join(pdir, "project.json"))

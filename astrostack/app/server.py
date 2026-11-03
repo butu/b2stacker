@@ -21,7 +21,7 @@ from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .. import __version__, assets, checklist, engines, logbook, project, stackqa, steps, system, updater
-from ..engines import siril
+from ..engines import planview, siril
 from ..jobs import JobManager
 from ..settings import Settings
 
@@ -624,7 +624,8 @@ def project_detail(name: str) -> dict:
             a["preview_error"] = err or "Vorschau nicht vorbereitet"
         asset_rows.append(a)
     asset_state = assets.state(pdir)
-    plan = project.with_ranking(pdir, dict(plan, runs=[dict(r) for r in plan.get("runs", [])]))
+    plan = planview.apply(project.with_ranking(pdir, dict(plan, runs=[dict(r) for r in plan.get("runs", [])])),
+                          settings().engine)
     return dict(name=name, meta=project.meta(pdir), plan=plan, sources=project.sources(pdir),
                 analysis_required=ex["analysis_required"], assets=asset_rows,
                 asset_scan_locations=ex["asset_scan_locations"],
@@ -1095,7 +1096,8 @@ class Handler(BaseHTTPRequestHandler):
                 if action == "plan":
                     if any("calib" in (v or {}) for v in (b.get("runs") or {}).values()):
                         logbook.event("calib_choice", project=name, change=b.get("runs"))
-                    return self._json(project.with_ranking(pdir, project.save_edits(pdir, b)))
+                    return self._json(planview.apply(project.with_ranking(pdir, project.save_edits(pdir, b)),
+                                                     settings().engine))
                 if action == "override":
                     project.set_override(pdir, b["path"], b.get("value"))
                     return self._json(_selection_delta(pdir, b["path"]))

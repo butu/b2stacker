@@ -184,7 +184,7 @@ pre{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;p
   </div>
 
   <div class="card section" id="planCard">
-    <h2>Stacking-Plan <span class="muted" style="font-weight:400">· PixInsight WBPP</span></h2>
+    <h2>Stacking-Plan <span class="muted" style="font-weight:400">· <span id="engHead">PixInsight WBPP</span></span></h2>
     <div class="grid plan">
       <div>
         <div class="scroll" style="max-height:none"><table id="tSettings"></table></div>
@@ -317,6 +317,7 @@ document.getElementById('checks').innerHTML = D.checks.map(c=>`<div class="check
 // stacking plan
 (function(){
   const P=D.plan; if(!P){document.getElementById('planCard').remove();return;}
+  document.getElementById('engHead').textContent=(D.meta&&D.meta.engine_text)||'PixInsight WBPP';
   document.getElementById('tSettings').innerHTML='<thead><tr><th class="l">Einstellung</th><th class="l">Wert</th><th class="l">Warum</th></tr></thead><tbody>'+
     P.settings.map(([a,b,c])=>`<tr><td class="l">${esc(a)}</td><td>${esc(b)}</td><td>${esc(c)}</td></tr>`).join('')+'</tbody>';
   const free=P.free_gb, need=P.need_gb;
@@ -333,7 +334,7 @@ document.getElementById('checks').innerHTML = D.checks.map(c=>`<div class="check
   const MODE={combined:'Farbbild','combined+haoiii':'Farbbild',separated:'Kanäle getrennt'};
   document.getElementById('runs').innerHTML=P.runs.map(r=>`<div class="check"><span class="dot" style="background:${fcolor(r.name)};margin-top:5px"></span><div>
     <b>${esc(r.name)} · ${r.mode==='extract'?'Kanäle '+r.outputs.join(' + '):(r.mode==='mono'?'Mono':'Farbbild')}</b>
-    <span class="t">${r.lightCount} Frames aus ${r.nights.length} Nächten · ~${fmt(r.gb,0)} GB Platz · ~${fmt(r.ram_gb,0)} GB RAM · Referenz: ${r.reference==='auto'?'automatisch':esc(r.reference.replace('master:',''))+'-Master'} · ${r.engine==='pixinsight-pipeline'?'PixInsight-Pipeline':'PixInsight WBPP'}</span><br>
+    <span class="t">${r.lightCount} Frames aus ${r.nights.length} Nächten · ~${fmt(r.gb,0)} GB Platz · ~${fmt(r.ram_gb,0)} GB RAM · Referenz: ${r.reference==='auto'?'automatisch':esc(r.reference.replace('master:',''))+'-Master'} · ${r.engine==='pixinsight-pipeline'?'PixInsight-Pipeline':esc(D.meta.engine_text||'PixInsight WBPP')}</span><br>
     <span class="badge ${r.flat_ok?'b-good':'b-warning'}" style="margin-top:4px">${r.flat_ok?'Flats passen':'Flats prüfen'}</span></div></div>`).join('')+
     (P.suggest_n?`<div class="check"><span class="badge b-serious">Vorher</span><div><span class="t">${P.suggest_n} Frames sind automatisch ausgeschlossen und werden nicht gestackt. In b2stacker lassen sie sich per Klick auf den Frame → „Doch verwenden“ wieder aufnehmen.</span></div></div>`:'');
   const js=JSON.stringify(P.job,null,2); document.getElementById('jobJson').textContent=js;

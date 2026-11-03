@@ -17,6 +17,7 @@ from .. import fitsmeta as fm
 from ..analyze import thumb_name
 from ..calibcheck import match_calibration, public
 from .. import discover, rotation
+from ..engines import planview
 from ..plan import build_plan
 from . import assess as A
 from .diag import rig_diagnostics
@@ -143,7 +144,31 @@ def night_flat_groups(groups, rows, inv, calib: dict, analysis_dir: str) -> dict
     return out
 
 
-def build(target: str, groups, inv, calib: dict, analysis_dir: str, workdir: str, out_html: str) -> dict:
+def engine_meta(pdir: str, planned: str) -> dict:
+    """Motor für den Bericht: der des letzten Stacks im Projekt, sonst der geplante.
+    Stack-Einträge ohne Motor-Feld sind ältere PixInsight-Läufe."""
+    from ..engines import LABELS
+
+    def text(eng: str, ver: str | None) -> str:
+        if eng == "pixinsight":
+            return "PixInsight WBPP"
+        return LABELS.get(eng, eng) + (" " + ver if ver else "")
+
+    recs = []
+    try:
+        with open(os.path.join(pdir, "stacks.json"), encoding="utf-8") as fh:
+            recs = [r for r in json.load(fh) if isinstance(r, dict) and not r.get("removed")]
+    except (OSError, ValueError):
+        pass
+    if not recs:
+        return dict(engine=planned, engine_version=None, source="plan", engine_text=text(planned, None))
+    last = max(recs, key=lambda r: str(r.get("date") or ""))
+    eng, ver = last.get("engine") or "pixinsight", last.get("engine_version")
+    return dict(engine=eng, engine_version=ver, source="stack", engine_text=text(eng, ver))
+
+
+def build(target: str, groups, inv, calib: dict, analysis_dir: str, workdir: str, out_html: str,
+          engine: str = "pixinsight") -> dict:
     rows = A.load_rows(os.path.join(analysis_dir, "metrics.csv"))
     pdir = os.path.dirname(out_html)
     ovp = os.path.join(pdir, "overrides.json")
@@ -186,9 +211,10 @@ def build(target: str, groups, inv, calib: dict, analysis_dir: str, workdir: str
                                                    meta0.gain is not None and "Gain %g" % meta0.gain) if x),
                 scale=round(scale, 3) if scale else None,
                 first=nights_sorted[0] if nights_sorted else "", last=nights_sorted[-1] if nights_sorted else "")
-    pub_plan = dict(plan)
-    pub_plan["runs"] = [dict(r, lightDirs=r["nights"]) for r in plan["runs"]]
+    pub_plan = dict(planview.apply(plan, engine))
+    pub_plan["runs"] = [dict(r, lightDirs=r["nights"]) for r in pub_plan["runs"]]
     pub_plan["job"] = {k: v for k, v in plan.items() if k not in ("settings",)}
+    meta.update(engine_meta(pdir, engine))
     frames = [{k: r.get(k) for k in ["file", "path", "night", "filter", "frame", "t", "exp", "fwhm", "fwhm_as", "ecc", "nstars", "bg",
                                      "noise", "alt", "moon_illum", "moon_alt", "temp", "status", "auto_status", "override", "weight", "img"]}
               | {"flags": [f[1] for f in r["flags"]]} for r in rows]

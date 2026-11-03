@@ -2232,6 +2232,10 @@ function renderPlan(b){
   const runOpts=r=>['auto',...runs.filter(x=>x.name!==r.name).map(x=>'master:'+x.name)];
   const runLabel=n=>{const x=runs.find(y=>y.name===n);return x&&x.label||n};
   UI.cal=UI.cal||{};UI.ropt=UI.ropt||{};
+  // Engine view from the server: options Siril ignores are shown disabled with the reason.
+  const pv=P.plan.engine_view||null, uns=(pv&&pv.unsupported)||{};
+  const sirilFindstar=r=>`<div class="optrow" style="flex-wrap:wrap"><div class="ot" style="flex:1 1 260px"><span class="on">Sternerkennung in ${esc(pv.label)}</span><span class="od">${(r.siril.notes||[]).map(x=>esc(x)).join('<br>')||'Siril-Standardwerte.'}</span></div>
+          <span class="small mono" style="opacity:.7;text-align:right">${esc(r.siril.findstar)}</span></div>`;
   const optOn=k=>op[k]!==false&&(op[k]||k==='fix_fringes'||k==='hot_pixels');
   const custom=OPTS.some(([k,t,d,rec])=>!!optOn(k)!==!!rec&&k!=='hot_pixels'&&k!=='fix_fringes')||(op.weighting&&op.weighting!=='psf_signal');
   const calRow=(i,r,k,label,set,count,badge)=>`<div class="calrow"><span class="cl">${label}</span><span class="cv">${badge}${set?dirLink(set):''}${manBadge(r,k)}</span>
@@ -2267,7 +2271,7 @@ function renderPlan(b){
           <span class="small"><b data-topp="${i}">${runTop(r,op)} %</b> · <span data-topt2="${i}">${topText(r,runTop(r,op))}</span></span></div></div>
         <div class="optrow" style="flex-wrap:wrap"><div class="ot" style="flex:1 1 260px"><span class="on">Referenz</span><span class="od">Frame, auf den alle anderen ausgerichtet werden. Ein Master eines anderen Laufs hält mehrere Filter deckungsgleich.</span></div>
           <select data-ref="${i}">${runOpts(r).map(o=>`<option value="${esc(o)}" ${o===(r.reference||'auto')?'selected':''}>${o==='auto'?'Bester Frame':'Master von '+esc(runLabel(o.slice(7)))}</option>`).join('')}</select></div>
-        ${r.star_detection?`<div class="optrow" style="flex-wrap:wrap"><div class="ot" style="flex:1 1 260px"><span class="on">Sternerkennung angepasst</span><span class="od">${esc(r.star_detection.why)} – damit ${engName()} an echten Sternen ausrichtet, nicht an Hotpixeln. Aus der Analyse von ${r.star_detection.stats?.n||'?'} Lights abgeleitet.</span></div>
+        ${r.siril?sirilFindstar(r):r.star_detection?`<div class="optrow" style="flex-wrap:wrap"><div class="ot" style="flex:1 1 260px"><span class="on">Sternerkennung angepasst</span><span class="od">${esc(r.star_detection.why)} – damit ${engName()} an echten Sternen ausrichtet, nicht an Hotpixeln. Aus der Analyse von ${r.star_detection.stats?.n||'?'} Lights abgeleitet.</span></div>
           <span class="small mono" style="opacity:.7;text-align:right">${Object.entries(r.star_detection.params).map(([k,v])=>esc(k)+' = '+esc(String(v).replace('.',','))).join('<br>')}</span></div>`:''}
         <div class="optrow"><div class="ot"><span class="on">Platzbedarf</span><span class="od">Zwischendateien und Arbeitsspeicher für diesen Lauf.</span></div><span class="small" style="white-space:nowrap">~${fmt(r.gb,0)} GB · ~${fmt(r.ram_gb,0)} GB RAM</span></div>
         ${(r.light_dirs||[]).length?`<div class="optrow" style="flex-wrap:wrap;align-items:flex-start"><div class="ot" style="flex:0 0 auto"><span class="on">Light-Ordner</span></div><div style="display:flex;flex-wrap:wrap;gap:4px 14px;flex:1;justify-content:flex-end">${r.light_dirs.map(d=>dirLink(d)).join('')}</div></div>`:''}
@@ -2277,9 +2281,9 @@ function renderPlan(b){
     <button class="panel clickable collhd ${UI.opts?'open':''}" id="optHd"><span style="flex:1;text-align:left;font-size:14.5px">${custom?'Angepasst':'Empfohlene Einstellungen'}</span>
       <span class="small" style="opacity:.6">${OPTS.filter(([k])=>optOn(k)).length} von ${OPTS.length} aktiv · ${esc({psf_signal:'PSF Signal',psf_snr:'PSF SNR',snr:'SNR'}[op.weighting||'psf_signal'])}</span>${chev(UI.opts)}</button>
     ${UI.opts?`<div class="panel collbd" style="background:var(--panel)">
-      ${OPTS.map(([k,t,d,rec])=>`<label class="optrow" style="cursor:pointer"><span class="ot"><span class="on">${t}${rec?'<span class="rec">Empfohlen</span>':''}</span><span class="od">${d}</span></span>
-        <span class="switch"><input type="checkbox" data-opt="${k}" ${optOn(k)?'checked':''}><span></span></span></label>`).join('')}
-      <div class="optrow" style="flex-wrap:wrap"><div class="ot" style="flex:1 1 260px"><span class="on">Gewichtung</span><span class="od">Schwache Frames, etwa in Mondnächten oder bei Dunst, zählen automatisch weniger.</span></div>
+      ${OPTS.map(([k,t,d,rec])=>{const u=uns[k];return `<label class="optrow" style="cursor:${u?'default':'pointer'};${u?'opacity:.55':''}"><span class="ot"><span class="on">${t}${rec?'<span class="rec">Empfohlen</span>':''}</span><span class="od">${u?`<b>${esc(u)}.</b> `:''}${d}</span></span>
+        <span class="switch"><input type="checkbox" data-opt="${k}" ${optOn(k)?'checked':''} ${u?'disabled':''}><span></span></span></label>`}).join('')}
+      <div class="optrow" style="flex-wrap:wrap"><div class="ot" style="flex:1 1 260px"><span class="on">Gewichtung</span><span class="od">Schwache Frames, etwa in Mondnächten oder bei Dunst, zählen automatisch weniger.${pv?` ${esc(pv.label)} nutzt -weight=${esc(pv.weight)}.`:''}</span></div>
         <select data-opt-sel="weighting"><option value="psf_signal" ${!op.weighting||op.weighting==='psf_signal'?'selected':''}>PSF Signal (empfohlen)</option><option value="psf_snr" ${op.weighting==='psf_snr'?'selected':''}>PSF SNR</option><option value="snr" ${op.weighting==='snr'?'selected':''}>SNR</option></select></div>
       ${(plan.settings||[]).length?`<details><summary class="collbtn" style="width:100%">${ic('info','s14')}Warum diese Einstellungen?</summary>
         <table class="why">${(plan.settings||[]).map(s=>`<tr><td>${esc(s[0])}</td><td>${esc(s[1])}</td><td>${esc(s[2])}</td></tr>`).join('')}</table></details>`:''}
