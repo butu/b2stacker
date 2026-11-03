@@ -142,8 +142,8 @@ def test_create_with_roots_requires_analysis_and_rejects_duplicates(tmp_path):
     assert project.sources(pdir)["roots"] == [a]
     with pytest.raises(ValueError):
         project.create_project(s, "M42", [])
-    with pytest.raises(ValueError):
-        project.create_project(s, "   ", [])
+    # ohne Namen kein Fehler mehr, sondern ein freier Standardname (Name ist optional)
+    assert project.meta(project.create_project(s, "   ", []))["name"] == "Neues Projekt"
 
 
 def test_empty_project_thumbnail_and_detail_defaults(tmp_path, monkeypatch):
@@ -452,3 +452,20 @@ def test_toggle_is_atomic_when_override_write_fails(tmp_path, monkeypatch):
     assert project._read(os.path.join(pdir, "overrides.json"), {}) == {}
     assert project._read(os.path.join(pdir, "plan.json"), {}) == plan_before
     project.assert_stack_ready(pdir)
+
+
+def test_project_name_is_optional(tmp_path):
+    from astrostack import project
+    from astrostack.settings import Settings
+    s = Settings(workdir=str(tmp_path / "work"))
+    a = project.create_project(s, "", [])
+    b = project.create_project(s, "  ", [])
+    assert project.meta(a)["name"] == "Neues Projekt" and project.meta(b)["name"] == "Neues Projekt 2"
+
+
+def test_image_picker_filter_is_valid_for_the_app_window():
+    # pywebview lehnt Filter mit Leerzeichen zwischen den Endungen ab → früher erschien ein Texteingabe-Notbehelf
+    import re
+    from astrostack.app import server
+    flt = "Bilder (%s)" % server.IMAGE_PATTERNS.replace(" ", ";")
+    assert re.search(r'^([\w ]+)\((\*(?:\.(?:\w+|\*))*(?:;\*(?:\.(?:\w+|\*))*)*)\)$', flt)

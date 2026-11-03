@@ -303,14 +303,88 @@ def _is_link(p: str) -> bool:
     return False
 
 
-def link_dir(target: str, link: str):
-    """Verzeichnis-Verknüpfung ohne Kopie: Windows-Junction (keine Adminrechte nötig), sonst Symlink."""
-    os.makedirs(os.path.dirname(link), exist_ok=True)
+def is_remote_path(path: str) -> bool:
+    """UNC-Freigabe (\\\\server\\share) oder verbundenes Netzlaufwerk – dorthin darf keine Junction zeigen."""
+    if str(path).startswith(("\\\\", "//")):
+        return True
+    p = os.path.abspath(path)
     if sys.platform == "win32":
-        import _winapi
-        _winapi.CreateJunction(os.path.abspath(target), os.path.abspath(link))
-    else:
-        os.symlink(os.path.abspath(target), link, target_is_directory=True)
+        drive = os.path.splitdrive(p)[0]
+        if drive and len(drive) == 2:
+            try:
+                import ctypes
+                return ctypes.windll.kernel32.GetDriveTypeW(drive + "\\") == 4     # DRIVE_REMOTE
+            except Exception:  # noqa: BLE001
+                return False
+    return False
+
+
+def _usable_dir_link(link: str) -> bool:
+    try:
+        os.listdir(link)
+        return True
+    except OSError:
+        return False
+
+
+def _drop_link(link: str) -> None:
+    try:
+        if _is_link(link) or os.path.isdir(link):
+            (os.rmdir if sys.platform == "win32" or not os.path.islink(link) else os.unlink)(link)
+        elif os.path.lexists(link):
+            os.unlink(link)
+    except OSError:
+        pass
+
+
+def link_dir(target: str, link: str) -> bool:
+    """Verzeichnis-Verknüpfung ohne Kopie. True = verknüpft, False = nicht möglich (Aufrufer legt Kopien an).
+
+    Windows: Junction nur für lokale Laufwerke – auf Netzwerkziele legt CreateJunction sonst eine kaputte
+    Junction an (WinError 123 beim Zugriff). Für Netzwerkziele wird ein Symlink versucht (geht mit
+    Entwicklermodus oder Adminrechten). Jede Verknüpfung wird vor der Verwendung geprüft."""
+    os.makedirs(os.path.dirname(link), exist_ok=True)
+    target = os.path.abspath(target)
+    if sys.platform == "win32" and not is_remote_path(target):
+        try:
+            import _winapi
+            _winapi.CreateJunction(target, os.path.abspath(link))
+            if _usable_dir_link(link):
+                return True
+        except OSError:
+            pass
+        _drop_link(link)
+    try:
+        os.symlink(target, link, target_is_directory=True)
+        if _usable_dir_link(link):
+            return True
+    except (OSError, NotImplementedError):
+        pass
+    _drop_link(link)
+    return False
+
+
+def place_files(paths: list[str], folder: str, log=None) -> None:
+    """Fallback ohne Verknüpfung: nur die gewählten Dateien in einen eigenen Ordner legen (Hardlink, sonst Kopie).
+    Der Ordner gehört b2stacker – remove_link_tree löscht dort nur diese Kopien, nie Originale."""
+    os.makedirs(folder, exist_ok=True)
+    copied = 0
+    for p in paths:
+        t = os.path.join(folder, os.path.basename(p))
+        if os.path.exists(t):
+            continue
+        try:
+            os.link(p, t)
+        except OSError:
+            try:
+                shutil.copy2(p, t)
+            except OSError as e:
+                raise StackError("Datei konnte nicht in den Arbeitsordner kopiert werden: %s (%s). Liegt sie auf einem "
+                                 "Netzlaufwerk, das gerade nicht erreichbar ist? Notlösung: Lights und Flats auf eine "
+                                 "lokale Platte kopieren." % (p, e)) from e
+            copied += 1
+    if copied and log:
+        log("  %d Dateien aus %s kopiert (Netzlaufwerk – Verknüpfung nicht möglich)" % (copied, os.path.dirname(paths[0])))
 
 
 def remove_link_tree(root: str):
@@ -329,8 +403,9 @@ def remove_link_tree(root: str):
         os.rmdir(dirpath)
 
 
-def build_group_links(groups: list[dict], base: str, fix=lambda paths: paths) -> tuple[list[str], list[str]]:
-    """Lights/Flats je Gruppe über …/ASFLAT_<n>/L<i>/datei erreichbar machen. → (lights, flats) neue Pfade."""
+def build_group_links(groups: list[dict], base: str, fix=lambda paths: paths, log=None) -> tuple[list[str], list[str]]:
+    """Lights/Flats je Gruppe über …/ASFLAT_<n>/L<i>/datei erreichbar machen. → (lights, flats) neue Pfade.
+    Lässt sich ein Ordner nicht verknüpfen (Netzlaufwerk ohne Symlink-Recht), werden nur die gewählten Dateien kopiert."""
     lights, flats = [], []
     for g in groups:
         gdir = os.path.join(base, "%s_%s" % (GROUP_KEYWORD, g["key"]))
@@ -338,10 +413,46 @@ def build_group_links(groups: list[dict], base: str, fix=lambda paths: paths) ->
             dirs = sorted({os.path.dirname(os.path.abspath(p)) for p in paths})
             for i, d in enumerate(dirs):
                 link = os.path.join(gdir, "%s%d" % (kind, i))
-                if not os.path.exists(link):
-                    link_dir(d, link)
+                mine = [p for p in paths if os.path.dirname(os.path.abspath(p)) == d]
+                if not os.path.exists(link) and not link_dir(d, link):
+                    place_files(mine, link, log)
                 out += [os.path.join(link, os.path.basename(p)) for p in paths if os.path.dirname(os.path.abspath(p)) == d]
     return lights, flats
+
+
+class WbppTail:
+    """Neue Zeilen aus dem WBPP-Protokoll mitlesen, damit das b2stacker-Protokoll während PixInsight nicht stillsteht.
+    Nur aussagekräftige Zeilen, gedrosselt (PixInsight schreibt sehr viel)."""
+    KEEP = ("error", "warning", "fehler", "**", "calibrat", "register", "integrat", "debayer", "normaliz", "measur",
+            "weight", "master", "cosmetic", "drizzle", "* ", "frames", "completed", "processing")
+
+    def __init__(self, logdir: str, limit: int = 8):
+        self.logdir, self.limit, self.file, self.pos = logdir, limit, None, 0
+
+    def new_lines(self) -> list[str]:
+        try:
+            f = wbpplog.newest_log(self.logdir)
+        except Exception:  # noqa: BLE001
+            return []
+        if not f:
+            return []
+        if f != self.file:
+            self.file, self.pos = f, 0
+        try:
+            with open(f, "rb") as fh:
+                fh.seek(self.pos)
+                chunk = fh.read(256 * 1024)
+                self.pos = fh.tell()
+        except OSError:
+            return []
+        out = []
+        for raw in chunk.decode("utf-8", "replace").splitlines():
+            line = " ".join(raw.split())
+            if len(line) < 4 or set(line) <= set("*=-_. "):
+                continue
+            if any(k in line.lower() for k in self.KEEP):
+                out.append(line[:200])
+        return out[-self.limit:]
 
 
 def stage_lights(paths: list[str], dst: str, log) -> list[str]:
@@ -354,7 +465,11 @@ def stage_lights(paths: list[str], dst: str, log) -> list[str]:
             try:
                 os.link(p, t)
             except OSError:
-                shutil.copy2(p, t)
+                try:
+                    shutil.copy2(p, t)
+                except OSError as e:
+                    raise StackError("Light konnte nicht in den Arbeitsordner kopiert werden: %s (%s). Notlösung: "
+                                     "Lights auf eine lokale Platte kopieren und den Ordner neu analysieren." % (p, e)) from e
                 copied += 1
         out.append(t)
     if copied:
@@ -516,7 +631,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
         for g in fg:
             log("    Gruppe %s: Nächte %s · Flats %s (%d)" % (g["key"], ", ".join(g["nights"]), g.get("flat_set") or "keine",
                                                           len(g["flats"])))
-        lights_l, flats_l = build_group_links(fg, linkbase, lambda p: fix_calibration(p, FLAT, cache))
+        lights_l, flats_l = build_group_links(fg, linkbase, lambda p: fix_calibration(p, FLAT, cache), log)
         run = dict(run, lights=lights_l)
         calib["flats"] = flats_l
         run.setdefault("wbpp", {})
@@ -535,12 +650,16 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     t0 = time.time()
     timing = steps.load_timing(settings.workdir)
     last = None
+    tail = WbppTail(os.path.join(outdir, "logs"))
     while True:
         code = runner.poll()
         key, d, total = stage_progress(outdir, n)
         if key != st.step:
             _finish_step(st, settings.workdir, n)
             _set_step(st, key, d, total)
+            log("  → %s" % steps.BY_KEY[key]["title"])
+        for line in tail.new_lines():
+            log("    PI: " + line)
         st.done, st.total = d, total
         st.eta_s = _eta(st, n, timing)
         st.stage = steps.BY_KEY[key]["title"]

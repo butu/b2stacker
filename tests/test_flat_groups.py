@@ -82,3 +82,37 @@ def test_remove_link_tree_never_deletes_targets(tmp_path):
     assert (base / "ASFLAT_1" / "L0" / "a.fits").exists()
     pi.remove_link_tree(str(base))
     assert not base.exists() and (tgt / "a.fits").exists()
+
+
+def test_unc_and_network_targets_are_remote():
+    assert pi.is_remote_path(r"\\JUPITER\disk2\vdB 152\LIGHT")
+    assert pi.is_remote_path("//JUPITER/disk2/LIGHT")
+
+
+def test_group_links_fall_back_to_copies_when_links_fail(tmp_path, monkeypatch):
+    # Netzlaufwerk ohne Symlink-Recht: keine kaputte Verknüpfung, sondern nur die gewählten Dateien als Kopie
+    src = tmp_path / "share" / "LIGHT"
+    src.mkdir(parents=True)
+    for n in ("a.fits", "b.fits", "unused.fits"):
+        (src / n).write_bytes(n.encode())
+    monkeypatch.setattr(pi.os, "symlink", lambda *a, **k: (_ for _ in ()).throw(OSError("no symlink right")))
+    monkeypatch.setattr(pi.os, "link", lambda *a, **k: (_ for _ in ()).throw(OSError("cross device")))
+    logs = []
+    base = tmp_path / "_grp"
+    lights, flats = pi.build_group_links([dict(key="1", lights=[str(src / "a.fits"), str(src / "b.fits")], flats=[])],
+                                         str(base), log=logs.append)
+    l0 = base / "ASFLAT_1" / "L0"
+    assert sorted(os.listdir(l0)) == ["a.fits", "b.fits"] and not pi._is_link(str(l0))
+    assert lights == [str(l0 / "a.fits"), str(l0 / "b.fits")] and logs
+    pi.remove_link_tree(str(base))
+    assert not base.exists() and sorted(os.listdir(src)) == ["a.fits", "b.fits", "unused.fits"]
+
+
+def test_unreadable_network_file_gives_clear_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(pi.os, "link", lambda *a, **k: (_ for _ in ()).throw(OSError("no")))
+    monkeypatch.setattr(pi.shutil, "copy2", lambda *a, **k: (_ for _ in ()).throw(OSError("[WinError 123]")))
+    try:
+        pi.stage_lights([str(tmp_path / "x.fits")], str(tmp_path / "stage"), print)
+        raise AssertionError("muss mit klarer Meldung abbrechen")
+    except pi.StackError as e:
+        assert "lokale Platte" in str(e)

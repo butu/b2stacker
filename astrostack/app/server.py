@@ -64,7 +64,8 @@ def state() -> dict:
         pixinsight_running=_safe(system.pixinsight_processes, []),
         disk_free_gb=_r(_safe(lambda: system.free_disk_gb(s.workdir), None)),
         ram_free_gb=_r(free_ram), ram_total_gb=_r(total_ram),
-        job=(active or last).as_dict(60) if (active or last) else None,
+        job=(active or last).as_dict(120) if (active or last) else None,
+        jobs=_jobs_overview(),
         projects=_safe(lambda: project.list_projects(s), []),
     )
 
@@ -78,7 +79,12 @@ def sysinfo() -> dict:
     return dict(ram_free_gb=_r(free_ram), ram_total_gb=_r(total_ram),
                 disk_free_gb=_r(du.free / 1024 ** 3) if du else None, disk_total_gb=_r(du.total / 1024 ** 3) if du else None,
                 pixinsight_running=_safe(system.pixinsight_processes, []),
-                job=j.as_dict(40) if j else None)
+                job=j.as_dict(120) if j else None, jobs=_jobs_overview())
+
+
+def _jobs_overview() -> list[dict]:
+    """Warteschlange für die Oberfläche: laufender Auftrag mit Protokoll, die übrigen kompakt."""
+    return [j.as_dict(120 if j.state == "running" else 1) for j in JOBS.overview()]
 
 
 def _existing(p: str) -> str:
@@ -152,7 +158,12 @@ def pick_file(initial: str = "", kind: str = "") -> str | None:
     """Datei wählen (PixInsight.exe oder mit kind="image" ein Bild): im Programmfenster direkt, sonst über einen Hilfsprozess."""
     from . import window
     kind = "image" if kind == "image" else ""
-    r = window.pick_file(initial, ("Bilder (%s)" % IMAGE_PATTERNS, "Alle Dateien (*.*)")) if kind else window.pick_file(initial)
+    try:
+        # pywebview erwartet die Endungen mit Semikolon getrennt, sonst lehnt es den Filter ab
+        r = window.pick_file(initial, ("Bilder (%s)" % IMAGE_PATTERNS.replace(" ", ";"), "Alle Dateien (*.*)")) \
+            if kind else window.pick_file(initial)
+    except Exception:  # noqa: BLE001 - kaputter Fensterdialog: Hilfsprozess mit normalem Dateidialog
+        r = False
     if r is not False:
         return r
     if getattr(sys, "frozen", False):
@@ -315,7 +326,7 @@ def _resolve_assign(assign: dict | None) -> dict | None:
 
 
 def start_analysis(folders: list[str], target: str | None, assign: dict | None = None, title: str | None = None,
-                   into: str | None = None) -> dict:
+                   into: str | None = None, project_name: str | None = None) -> dict:
     folders = _check_folders(folders)
     s = settings()
     s.sources = list(dict.fromkeys(folders + s.sources))[:8]
@@ -334,7 +345,8 @@ def start_analysis(folders: list[str], target: str | None, assign: dict | None =
                 job.write("Asset-Inventar nicht aktualisiert: %s" % e)
         return res
     job = JOBS.submit("analyze", "Analyse " + (", ".join(names) if names else target or ", ".join(
-        os.path.basename(f) or f for f in folders)), s.workdir, fn)
+        os.path.basename(f) or f for f in folders)), s.workdir, fn,
+        project=project_name or (names[0] if len(names) == 1 else None))
     return job.as_dict()
 
 
@@ -344,24 +356,31 @@ def reanalyze(name: str) -> dict:
     if not src.get("roots"):
         raise ValueError("Für dieses Projekt sind keine Quellordner gespeichert – bitte Ordner wählen.")
     # Projektschlüssel bleibt der Titel; die Lights-Objektnamen dürfen davon abweichen.
-    return start_analysis(src["roots"], project.meta(pdir)["target"], into=project.meta(pdir)["target"])
+    return start_analysis(src["roots"], project.meta(pdir)["target"], into=project.meta(pdir)["target"], project_name=name)
 
 
 def start_stack(name: str) -> dict:
     s = settings()
     pdir = project.pdir_of(s, name)
     project.assert_stack_ready(pdir)
-    plan = project.apply_edits(pdir)
-    plan["workdir"] = pdir
+    target = project.apply_edits(pdir, write=False)["target"]
 
     def fn(job):
+        # Plan erst beim Start lesen: in der Warteschlange darf man noch Frames und Optionen ändern.
+        project.assert_stack_ready(pdir)
+        plan = project.apply_edits(pdir)
+        plan["workdir"] = pdir
+        pct = project.top_percent(plan)
+        if pct < 100:
+            for line in project.apply_top_percent(pdir, plan, pct):
+                job.write(line)
         st = pi.run_plan(plan, s, log=job.write, cancel=job.cancel,
                          on_status=lambda x: job.set_progress(
                              stage=x.stage, step=x.step, run=x.run, run_index=x.run_index, runs_total=x.runs_total,
                              run_steps=x.run_steps, steps_done=x.steps_done, done=x.done, total=x.total,
                              eta_s=x.eta_s, message=x.message))
         return st.as_dict()
-    job = JOBS.submit("stack", "Stacking " + plan["target"], s.workdir, fn, project=name)
+    job = JOBS.submit("stack", "Stacking " + target, s.workdir, fn, project=name)
     return job.as_dict()
 
 
@@ -621,20 +640,32 @@ def project_insights(name: str) -> dict:
                 sky=sky, counts=counts, reasons=sorted(reasons.items(), key=lambda kv: -kv[1]))
 
 
-MUTATING_ACTIONS = {"override", "sources", "delete", "stack-meta", "stack-delete", "asset-link", "stack", "plan",
-                    "prepare-previews", "prepare-assets"}
+# Nur diese Änderungen kollidieren mit einer laufenden Analyse desselben Projekts (sie schreibt Plan und Auswahl neu).
+# Alles andere – Häkchen in anderen Projekten, Namen, Löschen, neue Aufträge einreihen – geht jederzeit.
+ANALYSIS_CONFLICTS = {"override", "sources", "plan"}
 
 
-def check_idle(action: str) -> None:
-    """Projektänderungen warten, bis der laufende Auftrag fertig ist: Analyse und Stacking lesen
-    Overrides, Quellen und Plan. Lesen bleibt jederzeit erlaubt."""
-    if action in MUTATING_ACTIONS and JOBS.active() is not None:
-        raise RuntimeError("Ein Auftrag läuft – diese Änderung bitte danach wiederholen.")
+def check_idle(action: str, name: str | None = None) -> None:
+    if action in ANALYSIS_CONFLICTS and _analysis_running(name):
+        raise RuntimeError("Dieses Projekt wird gerade analysiert – die Änderung bitte danach wiederholen.")
 
 
-def _analysis_running() -> bool:
-    j = JOBS.active()
-    return bool(j and j.kind == "analyze")
+def _analysis_running(name: str | None = None) -> bool:
+    """Läuft eine Analyse, die dieses Projekt betrifft? Unbekanntes Projekt (neue Ordner) zählt vorsichtshalber mit."""
+    running = getattr(JOBS, "running", None)
+    j = running() if running else JOBS.active()
+    if not (j and j.kind == "analyze"):
+        return False
+    return name is None or getattr(j, "project", None) in (None, name)
+
+
+def cancel_project_jobs(name: str) -> int:
+    n = 0
+    for j in list(getattr(JOBS, "jobs", [])):
+        if j.project == name and j.state in ("queued", "running"):
+            JOBS.cancel(j)
+            n += 1
+    return n
 
 
 def _known_frame(pdir: str, path: str) -> bool:
@@ -707,7 +738,9 @@ def start_requality(name: str, stack_id: str) -> dict:
 def quit_app() -> dict:
     """Programm beenden (Knopf in den Einstellungen) – wichtig, wenn kein eigenes Fenster läuft."""
     from . import window
-    j = JOBS.active()
+    j = JOBS.running()
+    for q in JOBS.queued():
+        JOBS.cancel(q)
     if j:
         j.cancel.set()
         j.write("Abbruch: Programm wird beendet")
@@ -935,8 +968,7 @@ class Handler(BaseHTTPRequestHandler):
             if parts[:2] == ["api", "job"] and len(parts) == 4 and parts[3] == "cancel":
                 j = JOBS.get(parts[2])
                 if j:
-                    j.cancel.set()
-                    j.write("Abbruch angefordert …")
+                    JOBS.cancel(j)
                 return self._json({"ok": bool(j)})
             if parts == ["api", "open"]:
                 open_path(b["path"])
@@ -962,11 +994,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(project_detail(os.path.basename(pdir)))
             if parts[:2] == ["api", "project"] and len(parts) == 4:
                 name, action = parts[2], parts[3]
-                check_idle(action)
+                check_idle(action, name)
                 pdir = project.pdir_of(settings(), name)
                 if action == "delete":                  # nur Archiv-Flag – kein Ordner wird angefasst
+                    cancelled = cancel_project_jobs(name)
                     project.archive_project(pdir)
-                    logbook.event("project_archived", project=name)
+                    logbook.event("project_archived", project=name, jobs_cancelled=cancelled)
                     return self._json({"ok": True})
                 if action == "stack-meta":
                     project.update_stack_meta(pdir, b.get("stack_id", ""), name=b.get("name"))
@@ -1004,7 +1037,7 @@ class Handler(BaseHTTPRequestHandler):
                     project.set_thumbnail(pdir, stack_preview=rel, frame=b.get("frame"))
                     return self._json(project_detail(name))
                 if action == "sources":
-                    if _analysis_running():             # kein Quellwechsel mitten in einer Analyse
+                    if _analysis_running(name):         # kein Quellwechsel mitten in einer Analyse
                         raise RuntimeError("Eine Analyse läuft – Quellordner bitte danach ändern.")
                     project.set_sources(pdir, b.get("roots", []))
                     return self._json(project_detail(name))

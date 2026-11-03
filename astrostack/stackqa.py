@@ -264,7 +264,7 @@ def process_master(master: str, run: dict, target: str, finaldir: str, previewdi
             outputs.append(dict(name=ch, file=path, preview=pv, kpi=k))
             log("  %s: %s" % (ch, os.path.basename(path)))
     else:
-        label = run.get("name") or "Master"
+        label = run.get("label") or run.get("name") or "Master"
         path = unique(os.path.join(finaldir, final_name(target, label, date, hours)))
         xisf.write_image(path, img, dict(kw, **extra), color=img.shape[0] == 3)
         k = kpis(img, pixscale, shifts_after)

@@ -403,9 +403,10 @@ def list_projects(settings: Settings, include_archived: bool = False) -> list[di
         st = stacks(pdir, verify_files=False)
         last = st[-1] if st else None
         facts = project_facts(pdir, plan, st)
+        labels = {r.get("filter") or r.get("name"): r["label"] for r in plan.get("runs", []) if r.get("label")}
         out.append(dict(name=d, title=m["name"], target=m["target"], description=m.get("description", ""),
                         archived=bool(m.get("archived")),
-                        hours=facts["hours_total"], filters=[f["name"] for f in facts["filters"]],
+                        hours=facts["hours_total"], filters=[labels.get(f["name"], f["name"]) for f in facts["filters"]],
                         last_night=facts["last_night"], created=m.get("created"),
                         frames=plan.get("total_frames"), runs=[r.get("name") for r in plan.get("runs", [])],
                         updated=max(os.path.getmtime(plan_p), os.path.getmtime(os.path.join(pdir, "stacks.json"))
@@ -564,8 +565,11 @@ def create_project(settings: Settings, title: str, roots: list[str] | None = Non
     """Reserve project metadata before any light frames are available."""
     import datetime
     title = (title or "").strip()
-    if not title:
-        raise ValueError("Der Titel darf nicht leer sein.")
+    if not title:                             # Name ist optional: "Neues Projekt", "Neues Projekt 2", …
+        title, n = "Neues Projekt", 1
+        while os.path.exists(project_dir(settings, title)):
+            n += 1
+            title = "Neues Projekt %d" % n
     pdir = project_dir(settings, title)
     if os.path.exists(pdir):
         raise ValueError("Ein Projekt mit diesem Namen existiert schon: " + title)
@@ -881,6 +885,7 @@ def _apply_edits(pdir: str, overrides: dict | None = None, write: bool = True) -
         for r in plan["runs"]:
             e = (ed.get("runs") or {}).get(r["name"], {})
             r.update({k: v for k, v in e.items() if k in ("enabled", "reference", "wbpp")})
+            _apply_label(r, e.get("label"))
             for kind, choice in (e.get("calib") or {}).items():
                 _apply_calib(r, kind, choice, cands)
         plan["edited"] = True
@@ -900,6 +905,74 @@ def _apply_edits(pdir: str, overrides: dict | None = None, write: bool = True) -
             plan["selection_revision"] = int(ctx.get("revision") or 0)
         _write(os.path.join(pdir, "plan.json"), plan)
     return plan
+
+
+def _apply_label(run: dict, label) -> None:
+    """Anzeigename eines Laufs (z. B. "IR" → "RGB"). Der interne Name bleibt Schlüssel für Änderungen und Masters;
+    ein ungeteiltes Ergebnis heißt danach wie der neue Name (Dateiname und Stack-Historie)."""
+    label = (label or "").strip()
+    if not label or label == run["name"]:
+        run.pop("label", None)
+        return
+    run["label"] = label
+    if run.get("mode") != "extract":
+        run["outputs"] = [label]
+
+
+def top_percent(plan: dict) -> int:
+    try:
+        v = int(float((plan.get("options") or {}).get("top_percent") or 100))
+    except (TypeError, ValueError):
+        v = 100
+    return max(5, min(100, v))
+
+
+def _frame_scores(pdir: str) -> dict:
+    """Güte je Light aus der letzten Analyse: Gewicht (Signal/Rauschen) geteilt durch relative Sternschärfe."""
+    try:
+        frames = report_build.cached_data(pdir).get("frames") or []
+    except (FileNotFoundError, OSError, ValueError):
+        frames = []
+    fw = {}
+    for f in frames:
+        if f.get("fwhm"):
+            fw.setdefault(f.get("filter"), []).append(float(f["fwhm"]))
+    med = {k: sorted(v)[len(v) // 2] for k, v in fw.items() if v}
+    out = {}
+    for f in frames:
+        w = f.get("weight")
+        if w is None:
+            continue
+        rel = (float(f["fwhm"]) / med[f.get("filter")]) if f.get("fwhm") and med.get(f.get("filter")) else 1.0
+        out[f["path"]] = (float(w) / max(rel, 0.2), float(f.get("exp") or 0))
+    return out
+
+
+def apply_top_percent(pdir: str, plan: dict, pct: int) -> list[str]:
+    """Nur die besten pct % der gewählten Lights je Lauf stacken (schneller Probe-Stack, Qualitätsvergleich).
+    Verändert nur den Plan dieses Stacking-Auftrags, nicht die gespeicherte Auswahl."""
+    import math
+    scores = _frame_scores(pdir)
+    lines = []
+    for r in plan.get("runs", []):
+        if r.get("enabled") is False or not r.get("lights"):
+            continue
+        lights = list(r["lights"])
+        keep_n = max(min(len(lights), 3), math.ceil(len(lights) * pct / 100))
+        ranked = sorted(range(len(lights)), key=lambda i: (lights[i] not in scores, -(scores.get(lights[i], (0, 0))[0]), i))
+        keep = sorted(ranked[:keep_n])
+        hours_all = r.get("hours") or 0
+        exp = [scores.get(p, (0, None))[1] for p in lights]
+        r["lights"] = [lights[i] for i in keep]
+        r["lightCount"] = len(r["lights"])
+        if all(e for e in exp):
+            r["hours"] = round(sum(exp[i] for i in keep) / 3600, 2)
+        elif lights:
+            r["hours"] = round(hours_all * len(keep) / len(lights), 2)
+        note = "Nur die besten %d %%: %d von %d Lights" % (pct, len(keep), len(lights))
+        r["_notes"] = list(r.get("_notes") or []) + [note]
+        lines.append("%s: %s" % (r.get("label") or r["name"], note))
+    return lines
 
 
 def _apply_calib(run: dict, kind: str, choice, cands: dict):

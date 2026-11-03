@@ -138,6 +138,21 @@ header.hb{flex:none;position:relative;z-index:20;height:47px;display:flex;align-
 .pop .mi.danger{color:var(--err)}
 .pop .mi.sel::after{content:"";margin-left:auto}
 .pop .sep{height:1px;background:var(--fill);margin:4px 6px}
+.pop{max-height:min(70vh,520px);overflow:auto}
+.pop .mi:disabled{opacity:.4;cursor:default}
+.pop .mi:focus-visible{outline:2px solid rgba(53,132,228,.6);outline-offset:-2px}
+/* Auswahllisten im App-Stil statt nativer Dropdowns */
+select[data-ui]{display:none!important}
+.sel{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;height:34px;padding:0 10px 0 12px;border:0;border-radius:6px;background:var(--fill);color:#fff;
+  font-size:14px;cursor:pointer;max-width:100%;min-width:0;text-align:left}
+.sel:hover{background:var(--fill-2)}
+.sel:focus-visible{box-shadow:0 0 0 2px rgba(53,132,228,.6);outline:0}
+.sel:disabled{opacity:.4;cursor:not-allowed}
+.sel svg{opacity:.6;flex:none}
+.fbar .sel{height:32px;font-size:13.5px}
+.qrow{display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:center;gap:10px;padding:8px 10px;border-radius:6px}
+.qrow .qt{font-size:14px}.qrow .qd{font-size:12.5px;opacity:.6}
+.qnum{width:20px;height:20px;border-radius:999px;background:var(--fill);display:grid;place-items:center;font-size:11.5px;font-weight:700}
 .pop .zrow{display:flex;align-items:center;justify-content:space-between;padding:6px 6px 8px 10px;font-size:14px}
 .pop .zrow button{width:30px;height:30px;display:grid;place-items:center;border:0;border-radius:6px;background:transparent;color:#fff;cursor:pointer}
 .pop .zrow button:hover{background:rgba(255,255,255,.1)}
@@ -541,6 +556,7 @@ iframe.report{width:100%;border:0;display:block;background:transparent;min-heigh
   <button class="mi" id="menuAbout">Über b2stacker</button>
 </div>
 <div class="pop" id="ctxPop" hidden style="width:250px"></div>
+<div class="pop" id="selPop" hidden role="listbox"></div>
 <div class="main">
   <nav class="side" aria-label="Projekte">
     <div class="sbar">
@@ -572,6 +588,10 @@ iframe.report{width:100%;border:0;display:block;background:transparent;min-heigh
     <div class="field"><label for="edDesc">Beschreibung</label><textarea id="edDesc" rows="4" placeholder="z. B. Ausrüstung, Besonderheiten, Ideen für die nächste Nacht"></textarea></div></div>
   <div class="ft"><button class="btn outline" onclick="editDlg.close()">Abbrechen</button><button class="btn primary" id="edSave">Speichern</button></div>
 </dialog>
+<dialog id="txtDlg">
+  <div class="hd"><h2 id="txtT"></h2></div>
+  <div class="bd"><div class="field"><label for="txtIn" id="txtL"></label><input type="text" id="txtIn"><div class="d" id="txtH"></div></div></div>
+  <div class="ft"><button class="btn outline" id="txtNo">Abbrechen</button><button class="btn primary" id="txtOk">Speichern</button></div></dialog>
 <dialog id="askDlg" class="ask"><div class="at"><b id="askT"></b><div id="askX"></div></div>
   <div class="af"><button class="btn" id="askNo">Abbrechen</button><button class="btn" id="askOk">OK</button></div></dialog>
 <dialog id="calDlg"><div class="hd"><h2 id="calTitle"></h2><button class="btn ghost icon" data-close aria-label="Schließen"></button></div>
@@ -669,7 +689,8 @@ const fsw=name=>`<span class="fsw" style="background:${fbg(name)}" title="${esc(
 const ftag=(name,big)=>`<span class="ftag">${fic(name,big)}${esc(name)}</span>`;
 
 let newTitle='', preview=null;
-let S=null, STEPS=null, cur={view:'home',project:null,tab:'overview'}, P=null, dirty=false, folders=[''], lastJobState=null;
+let S=null, STEPS=null, cur={view:'home',project:null,tab:'overview'}, P=null, dirty=false, folders=[''];
+const JOBSEEN={};   // Auftrags-Id → zuletzt gesehener Zustand (erkennt fertige Aufträge auch in der Warteschlange)
 let INS=null;            // Analyse-Zusammenfassung des offenen Projekts (/insights)
 const UI={};             // auf-/zugeklappte Bereiche der Übersicht
 const ramHist=[];
@@ -697,16 +718,58 @@ function ask(title,text,ok,danger){
     askDlg.showModal();b.focus();
   });
 }
+// Texteingabe im Stil der App (statt Browser-prompt); liefert den Text oder null
+function askText(title,label,value,hint,ok){
+  return new Promise(res=>{
+    $('#txtT').textContent=title;$('#txtL').textContent=label||'';$('#txtH').textContent=hint||'';$('#txtOk').textContent=ok||'Speichern';
+    const inp=$('#txtIn');inp.value=value||'';
+    const done=v=>{txtDlg.onclose=null;txtDlg.close();res(v)};
+    $('#txtOk').onclick=()=>done(inp.value.trim());$('#txtNo').onclick=()=>done(null);txtDlg.onclose=()=>res(null);
+    inp.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();done(inp.value.trim());}};
+    txtDlg.showModal();inp.focus();inp.select();
+  });
+}
+// ---------- Auswahllisten: natives <select> bleibt die Quelle (Wert + change-Ereignis), sichtbar ist ein Knopf mit Popover
+function enhanceSelects(root){
+  (root||document).querySelectorAll('select:not([data-ui])').forEach(sel=>{
+    if(sel.closest('dialog'))return;                 // Dialoge liegen über allem – dort bleibt das (dunkle) native Feld
+    sel.dataset.ui='1';
+    const b=document.createElement('button');b.type='button';b.className='sel';b.setAttribute('aria-haspopup','listbox');
+    if(sel.getAttribute('aria-label'))b.setAttribute('aria-label',sel.getAttribute('aria-label'));
+    if(sel.title)b.title=sel.title;
+    const sync=()=>{const o=sel.options[sel.selectedIndex];b.innerHTML=`<span class="ell">${esc(o?o.text:'')}</span>${ic('down','s14')}`;b.disabled=sel.disabled;};
+    sync();sel.addEventListener('change',sync);sel._sync=sync;
+    sel.after(b);
+    const pick=i=>{if(i<0||i>=sel.options.length||sel.options[i].disabled||i===sel.selectedIndex)return;sel.selectedIndex=i;sel.dispatchEvent(new Event('change',{bubbles:true}));};
+    b.onclick=()=>openSelect(sel,b,pick);
+    b.onkeydown=e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();openSelect(sel,b,pick);}};
+  });
+}
+function openSelect(sel,b,pick){
+  const p=openPop('selPop',b,[...sel.options].map((o,i)=>`<button type="button" class="mi" role="option" data-i="${i}" ${o.disabled?'disabled':''} aria-selected="${i===sel.selectedIndex}">
+    <span class="grow">${esc(o.text)}</span>${i===sel.selectedIndex?`<span class="infoc" style="display:inline-flex">${ic('check')}</span>`:''}</button>`).join(''),true);
+  if(!p)return;
+  p.style.minWidth=Math.max(160,b.offsetWidth)+'px';
+  const items=[...p.querySelectorAll('[data-i]')];
+  items.forEach(x=>x.onclick=()=>{closePops();pick(+x.dataset.i);b.focus();});
+  p.onkeydown=e=>{const k=items.indexOf(document.activeElement);
+    if(e.key==='ArrowDown'){e.preventDefault();(items[k+1]||items[0]).focus();}
+    else if(e.key==='ArrowUp'){e.preventDefault();(items[k-1]||items[items.length-1]).focus();}
+    else if(e.key==='Escape'||e.key==='Tab'){closePops();b.focus();}};
+  (items[sel.selectedIndex]||items[0]).focus();
+  (items[sel.selectedIndex]||items[0]).scrollIntoView({block:'nearest'});
+}
+new MutationObserver(()=>{if(!enhanceSelects.q){enhanceSelects.q=requestAnimationFrame(()=>{enhanceSelects.q=0;enhanceSelects();});}}).observe(document.body,{childList:true,subtree:true});
 document.querySelectorAll('dialog [data-close]').forEach(b=>{b.innerHTML=ic('close');b.onclick=()=>b.closest('dialog').close();});
 
 // ---------- Popover (Hauptmenü, Systemstatus, Auftrag, Kontextmenüs)
 function closePops(){document.querySelectorAll('.pop').forEach(p=>p.hidden=true);$('#popBack').hidden=true;}
-function openPop(id,anchor,html){
+function openPop(id,anchor,html,alignLeft){
   const p=$('#'+id),was=!p.hidden;closePops();if(was)return null;
   if(html!=null)p.innerHTML=html;
   p.hidden=false;$('#popBack').hidden=false;
   const r=anchor.getBoundingClientRect(),z=zoom||1,w=p.offsetWidth;
-  const right=r.right/z, left=Math.max(8,Math.min(right-w,window.innerWidth/z-w-8));
+  const right=r.right/z, left=Math.max(8,Math.min(alignLeft?r.left/z:right-w,window.innerWidth/z-w-8));
   p.style.left=left+'px';p.style.top=(r.bottom/z+6)+'px';
   return p;
 }
@@ -758,9 +821,7 @@ async function refresh(){
   renderChips();
   if(cur.view==='project'&&cur.project&&!S.projects.some(p=>p.name===cur.project)){cur={view:'home',project:null,tab:'overview'};P=null;render();}
   else renderProjects();
-  const j=S.job, active=j&&['queued','running'].includes(j.state);
-  if(j&&lastJobState&&['queued','running'].includes(lastJobState)&&!active) onJobFinished(j);
-  lastJobState=j?j.state:null;
+  trackJobs(S.jobs||(S.job?[S.job]:[]));
   if(cur.view==='job')renderJob();
   if(cur.view==='home')renderHome();
   if(S.first_run&&!refresh.didFirst){refresh.didFirst=true;openSettings(true);}
@@ -772,6 +833,7 @@ async function pollSys(){
     if(y.ram_free_gb!=null){ramHist.push(y.ram_free_gb);if(ramHist.length>60)ramHist.shift();}
     const wasActive=S.job&&['queued','running'].includes(S.job.state);
     if(y.job)S.job=Object.assign(S.job||{},y.job);
+    if(y.jobs){S.jobs=y.jobs;trackJobs(y.jobs);}
     renderChips(); updateMeters();
     if(y.job&&(cur.view==='job'||cur.view==='project'))renderJob();
     if(wasActive&&!y.job)await refresh();
@@ -779,6 +841,25 @@ async function pollSys(){
   setTimeout(pollSys,2500);
 }
 setInterval(refresh,15000);
+
+function trackJobs(list){
+  (list||[]).forEach(j=>{const was=JOBSEEN[j.id];JOBSEEN[j.id]=j.state;
+    if(was&&['queued','running'].includes(was)&&!['queued','running'].includes(j.state))onJobFinished(j);});
+}
+const ptitle=n=>n?(((S&&S.projects)||[]).find(p=>p.name===n)||{}).title||n:'';
+const queuedJobs=()=>((S&&S.jobs)||[]).filter(j=>j.state==='queued');
+async function cancelJob(id,running){
+  if(running&&!await ask('Auftrag abbrechen?','Bisher Erledigtes bleibt erhalten.','Abbrechen',true))return;
+  try{await api('/api/job/'+encodeURIComponent(id)+'/cancel',{});toast(running?'Abbruch angefordert':'Aus der Warteschlange entfernt');await refresh();if(cur.view==='job')renderJob();}
+  catch(e){toast(e.message,true)}
+}
+// Auftrag starten: läuft schon etwas, wird er eingereiht und man bleibt, wo man ist
+async function startJob(path,body,label){
+  const busy=jobActive();
+  const j=await api(path,body||{});
+  if(busy){await refresh();toast((label||'Auftrag')+' eingereiht – Platz '+Math.max(1,queuedJobs().length)+' in der Warteschlange');return j;}
+  cur.view='job';await refresh();render();return j;
+}
 
 // ------------------------------------------------------------ Update
 let UPD=null;
@@ -842,8 +923,9 @@ function renderChips(){
   // Auftrag
   const j=S.job,act=jobActive();
   if(act){const g=jobProgress(j);
-    $('#hJob').innerHTML=`<button class="hbtn" id="jobBtn" title="${esc(j.title||'')}"><span class="spin infoc" style="display:inline-flex">${ic('spinner')}</span><span class="ell" style="max-width:220px">${esc(JOBNAME[j.kind]||j.title||'Auftrag läuft')}</span>
-      <span class="minibar"><span style="width:${g.overall??10}%"></span></span></button>`;
+    const nq=queuedJobs().filter(q=>q.id!==j.id).length;
+    $('#hJob').innerHTML=`<button class="hbtn" id="jobBtn" title="${esc(j.title||'')}"><span class="spin infoc" style="display:inline-flex">${ic('spinner')}</span><span class="ell" style="max-width:260px">${esc(JOBNAME[j.kind]||j.title||'Auftrag läuft')}${j.project?' · '+esc(ptitle(j.project)):''}</span>
+      <span class="minibar"><span style="width:${g.overall??10}%"></span></span>${nq?`<span class="pill neutral" title="wartende Aufträge">+${nq}</span>`:''}</button>`;
     $('#jobBtn').onclick=e=>{const pp=openPop('jobPop',e.currentTarget,jobPopHtml());if(pp)bindJobPop();};
     if(!$('#jobPop').hidden){$('#jobPop').innerHTML=jobPopHtml();bindJobPop();}
   }else{$('#hJob').innerHTML='';if(!$('#jobPop').hidden)closePops();}
@@ -874,14 +956,20 @@ function sysPopHtml(st){
 function jobPopHtml(){
   const j=S.job;if(!j)return '';const g=jobProgress(j),p=g.p,d=g.defs.find(x=>x.key===g.curKey);
   const runInfo=j.kind==='stack'&&p.runs_total?`Lauf ${p.run_index} von ${p.runs_total} · `:'';
-  return `<b>${esc(JOBNAME[j.kind]||j.title)}</b>
+  const Q=queuedJobs().filter(q=>q.id!==j.id);
+  return `<div class="row" style="gap:8px"><b class="grow">${esc(JOBNAME[j.kind]||j.title)}</b>${j.state==='running'?`<button class="btn sm ghost danger" data-jc="${esc(j.id)}" data-run="1">Abbrechen</button>`:''}</div>
+    ${j.project?`<div class="small" style="margin-top:-6px">Projekt: <b>${esc(ptitle(j.project))}</b></div>`:''}
     <div class="small" style="opacity:.75">${runInfo}${esc(d?d.title:(p.stage||'…'))}${p.total?` · ${p.done} von ${p.total}`:''}${p.target?' · '+esc(p.target):''}</div>
     <div class="bar6"><div style="width:${g.overall??5}%"></div></div>
     <div class="row small" style="justify-content:space-between;opacity:.6"><span>${g.overall??0} %</span><span>${p.eta_s!=null?'noch etwa '+dur(p.eta_s):''}</span></div>
     <div class="small ell" style="opacity:.6">${esc(j.title||'')}</div>
-    <div class="row" style="gap:6px"><button class="btn sm" id="jpDetails">Details anzeigen</button>${j.project?`<button class="btn sm ghost" id="jpProj">Zum Projekt</button>`:''}</div>`;
+    ${Q.length?`<div class="sep" style="margin:2px 0"></div><div class="small" style="opacity:.6;font-weight:700">Warteschlange</div>
+      ${Q.map((q,i)=>`<div class="qrow" style="padding:4px 0"><span class="qnum">${i+1}</span><div style="min-width:0"><div class="qt ell">${esc(JOBNAME[q.kind]?q.title:q.title)}</div>${q.project?`<div class="qd ell">${esc(ptitle(q.project))}</div>`:''}</div>
+        <button class="btn sm ghost icon" title="Aus der Warteschlange entfernen" data-jc="${esc(q.id)}">${ic('close')}</button></div>`).join('')}`:''}
+    <div class="row" style="gap:6px"><button class="btn sm" id="jpDetails">Details und Protokoll</button>${j.project?`<button class="btn sm ghost" id="jpProj">Zum Projekt</button>`:''}</div>`;
 }
 function bindJobPop(){
+  document.querySelectorAll('#jobPop [data-jc]').forEach(b=>b.onclick=()=>{closePops();cancelJob(b.dataset.jc,!!b.dataset.run);});
   const a=$('#jpDetails');if(a)a.onclick=()=>{closePops();go('job');};
   const b=$('#jpProj');if(b)b.onclick=()=>{closePops();openProject(S.job.project);};
 }
@@ -950,7 +1038,7 @@ function renderHome(){
   // broken thumbnails fall back to the placeholder icon
   document.querySelectorAll('.tile[data-n] .ph').forEach(ph=>{const u=ph.style.backgroundImage.slice(5,-2);const im=new Image();im.onerror=()=>{ph.style.backgroundImage='none';if(!ph.children.length)ph.innerHTML=ic('image');};im.src=u;});
   document.querySelectorAll('.tile[data-n]').forEach(t=>{t.onclick=()=>openProject(t.dataset.n);t.onkeydown=e=>{if(e.key==='Enter')openProject(t.dataset.n)};});
-  $('#newTile').onclick=()=>{cur={view:'new',project:null,tab:'overview'};render();};
+  $('#newTile').onclick=()=>{newTitle='';folders=[''];preview=null;renderTargets.init=false;cur={view:'new',project:null,tab:'overview'};render();};
   $('#moreBtn').onclick=()=>{UI.more=!UI.more;renderHome();};
 }
 
@@ -997,8 +1085,8 @@ function renderNew(){
   const rec=(S.settings.sources||[]).filter(x=>!folders.includes(x));
   $('#view').innerHTML=`
   <div style="display:flex;flex-direction:column;gap:6px;max-width:680px"><h1>Neues Projekt</h1>
-    <p style="margin:0;opacity:.7;text-wrap:pretty">Projektnamen nennen, Quellordner sind optional. Ohne Ordner ist das Projekt sofort bereit und kann später ergänzt werden. Mit Ordnern findet b2stacker Objekte, Nächte und Kalibrierdaten selbst.</p></div>
-  <section class="sec"><div class="sechd"><div><h2>Name</h2></div></div>
+    <p style="margin:0;opacity:.7;text-wrap:pretty">Name und Quellordner sind optional. Ohne Namen heißt das Projekt wie das gefundene Objekt (ohne Ordner „Neues Projekt“) – umbenennen geht jederzeit. Mit Ordnern findet b2stacker Objekte, Nächte und Kalibrierdaten selbst.</p></div>
+  <section class="sec"><div class="sechd"><div><h2>Name <span style="font-weight:400;opacity:.5;font-size:15px">optional</span></h2></div></div>
     <input type="text" id="projName" value="${esc(newTitle)}" placeholder="z. B. Andromeda-Galaxie" style="width:min(440px,100%);height:38px;font-size:15px" autofocus></section>
   <section class="sec"><div class="sechd"><div><h2>Quellordner <span style="font-weight:400;opacity:.5;font-size:15px">optional</span></h2>
       <p class="sub">Hauptordner von NINA/ASIAIR – inklusive Flat- und Bias-Ordner. Mehrere Ordner sind möglich. b2stacker liest dort nur.</p></div></div>
@@ -1017,17 +1105,18 @@ function renderNew(){
   $('#addF').onclick=()=>{newTitle=name();folders.push('');renderNew();};
   $('#projName').oninput=e=>newTitle=e.target.value;
   const create=async()=>{
-    const t=name(); if(!t)return toast('Bitte einen Projektnamen eingeben',true);
+    const t=name();
     const sel=folders.filter(x=>x.trim()),uniq=sel.filter((x,i)=>!hasPath(sel.slice(0,i),x));
     if(uniq.length<sel.length){folders=uniq.length?uniq:[''];toast('Doppelte Ordner wurden zusammengefasst');}
     const btn=$('#createBtn'); btn.disabled=true;
     if(!uniq.length){
-      try{P=await api('/api/project-create',{title:t,roots:[]});newTitle='';INS=null;cur={view:'project',project:P.name,tab:'overview'};await refresh();render();toast('Projekt angelegt – Quellordner kannst du jederzeit ergänzen');}
+      try{P=await api('/api/project-create',{title:t,roots:[]});newTitle='';folders=[''];INS=null;cur={view:'project',project:P.name,tab:'overview'};await refresh();render();toast('Projekt angelegt – Quellordner kannst du jederzeit ergänzen');}
       catch(e){toast(e.message,true);btn.disabled=false;}
       return;
     }
     newTitle=t;
-    try{await api('/api/scan-preview',{folders:uniq});cur.view='job';await refresh();}catch(e){toast(e.message,true);btn.disabled=false;}
+    try{const busy=jobActive();await api('/api/scan-preview',{folders:uniq});folders=[''];
+      if(busy){toast('Ordner-Suche eingereiht – startet nach dem laufenden Auftrag');await refresh();}else{cur.view='job';await refresh();render();}}catch(e){toast(e.message,true);btn.disabled=false;}
   };
   $('#createBtn').onclick=create;
   $('#projName').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();create();}};
@@ -1045,9 +1134,10 @@ function jobCard(j){
   const runInfo=j.kind==='stack'&&p.runs_total?`Lauf ${p.run_index} von ${p.runs_total}: <b>${esc(p.run||'')}</b> · `:'';
   const stateTxt={queued:'wartet',running:'läuft',done:'fertig',failed:'fehlgeschlagen',cancelled:'abgebrochen'}[j.state];
   return `<div class="card" id="jobCard" style="padding:16px;display:flex;flex-direction:column;gap:12px">
-    <div class="row"><div class="grow"><h3>${esc(j.title)}</h3>
+    <div class="row"><div class="grow">${j.project?`<div class="small" style="opacity:.6">Projekt</div><div class="row" style="gap:8px"><h3>${esc(ptitle(j.project))}</h3>${cur.view==='job'?`<button class="lnk" onclick='openProject(${jsArg(j.project)})'>öffnen ${ic('right','s14')}</button>`:''}</div>`:''}
+      <div style="font-size:${j.project?'14px':'17px'};font-weight:${j.project?'500':'700'}">${esc(j.title)}</div>
       <div class="small" style="opacity:.6">${runInfo}${stateTxt}${active&&g.overall!=null?` · Schritt ${Math.max(ci,0)+1} von ${keys.length}`:''}${!active&&j.finished?' · '+dt(j.finished):''}</div></div>
-      ${active?`<button class="btn danger" id="cancelBtn">Abbrechen</button>`:''}</div>
+      ${active?`<button class="btn danger" id="cancelBtn">${j.state==='queued'?'Aus der Warteschlange entfernen':'Abbrechen'}</button>`:''}</div>
     ${keys.length>1?`<div class="timeline">${tl}</div>`:''}
     ${active&&d?`<div class="nowbox"><div class="big-ic">${ic(d.icon)}</div>
       <div><b>${esc(d.title)}</b>${p.total?` <span style="opacity:.6">· ${p.done} von ${p.total}</span>`:''}${p.target?` <span style="opacity:.6">· ${esc(p.target)}</span>`:''}
@@ -1055,24 +1145,36 @@ function jobCard(j){
         <div class="progress ${pct==null?'indet':''}"><div style="width:${pct??0}%"></div></div></div>
       <div class="eta"><span class="small" style="opacity:.6">noch ca.</span><b>${p.eta_s!=null?dur(p.eta_s):'…'}</b><span class="small" style="opacity:.6">läuft seit ${dur(p.step_elapsed_s)}</span></div></div>`:''}
     ${j.state==='failed'?`<div class="banner err"><span class="errc" style="display:flex">${ic('error','s18')}</span><div class="grow"><div class="bt">Fehler</div><div class="bx">${esc(j.error)}</div></div></div>`:''}
-    <details ${j.state==='failed'?'open':''}><summary class="lnk plain small" style="opacity:.7">${ic('down','s14')} Protokoll</summary><pre class="log" id="jobLog">${esc((j.log||[]).join('\n'))}</pre></details></div>`;
+    <details ${j.state==='failed'||UI.log?'open':''} id="jobLogBox"><summary class="lnk plain small" style="opacity:.75">${ic('down','s14')} Protokoll${(j.log||[]).length?` <span style="opacity:.6;font-weight:400">· ${(j.log||[]).length>=120?'letzte 120 Zeilen':(j.log||[]).length+' Zeilen'}</span>`:''}</summary>
+      <pre class="log" id="jobLog">${esc((j.log||[]).join('\n')||(active?'Noch keine Meldungen – sie erscheinen, sobald der erste Schritt beginnt.':'Keine Meldungen.'))}</pre></details></div>`;
 }
 function renderJob(){
   const j=S&&S.job; if(!j){if(cur.view==='job')go('new');return;}
   const active=['queued','running'].includes(j.state);
-  const openDet=$('#jobCard details')?.open;
+  const lg0=$('#jobLog'),atEnd=!lg0||lg0.scrollTop+lg0.clientHeight>=lg0.scrollHeight-8;
   if(cur.view==='job'){
+    const Q=queuedJobs().filter(q=>q.id!==j.id), done=((S&&S.jobs)||[]).filter(x=>x.id!==j.id&&!['queued','running'].includes(x.state));
     $('#view').innerHTML=`<div style="display:flex;flex-direction:column;gap:6px"><h1>${j.kind==='stack'?'Stacking':j.kind==='analyze'?'Analyse':j.kind==='scan'?'Ordner durchsuchen':j.kind==='assets'?'Bilder vorbereiten':j.kind==='previews'?'Vorschauen vorbereiten':'Kennzahlen'}</h1>
       <p style="margin:0;opacity:.7">${active?'Du kannst das Fenster offen lassen und nebenbei etwas anderes machen.':j.state==='done'?'Fertig.':''}</p></div>`+jobCard(j)+
-      (!active&&j.kind==='analyze'&&Array.isArray(j.result)&&j.result.length?`<section class="sec"><div class="sechd"><div><h2>Ergebnis</h2></div></div><div class="row">${j.result.map(r=>`<button class="btn primary" onclick='openProject(${jsArg(r.project)})'>${esc(r.target)} öffnen ${ic('right')}</button>`).join('')}</div></section>`:'');
+      (!active&&j.kind==='analyze'&&Array.isArray(j.result)&&j.result.length?`<section class="sec"><div class="sechd"><div><h2>Ergebnis</h2></div></div><div class="row">${j.result.map(r=>`<button class="btn primary" onclick='openProject(${jsArg(r.project)})'>${esc(r.target)} öffnen ${ic('right')}</button>`).join('')}</div></section>`:'')+
+      (Q.length?`<section class="sec">${secHd('Warteschlange','Startet automatisch nacheinander. Entfernen bricht nichts Laufendes ab.')}<div class="card" style="padding:6px">${Q.map((q,i)=>`<div class="qrow"><span class="qnum">${i+1}</span>
+        <div style="min-width:0"><div class="qt ell">${esc(q.title)}</div><div class="qd ell">${q.project?'Projekt '+esc(ptitle(q.project))+' · ':''}eingereiht ${esc(String(q.created||'').slice(11,16))}</div></div>
+        <button class="btn sm ghost" data-jc="${esc(q.id)}">Entfernen</button></div>`).join('')}</div></section>`:'')+
+      (done.length?`<section class="sec">${secHd('Zuletzt','')}<div class="card" style="padding:6px">${done.map(x=>`<div class="qrow"><span style="display:flex;color:${x.state==='done'?'var(--ok)':x.state==='failed'?'var(--err)':'rgba(255,255,255,.5)'}">${ic(x.state==='done'?'check':x.state==='failed'?'error':'unavail','s14')}</span>
+        <div style="min-width:0"><div class="qt ell">${esc(x.title)}</div><div class="qd">${x.project?'Projekt '+esc(ptitle(x.project))+' · ':''}${{done:'fertig',failed:'fehlgeschlagen',cancelled:'abgebrochen'}[x.state]||x.state}${x.finished?' · '+dt(x.finished):''}</div></div><span></span></div>`).join('')}</div></section>`:'');
+    document.querySelectorAll('#view [data-jc]').forEach(b=>b.onclick=()=>cancelJob(b.dataset.jc,false));
   }else{
     const slot=$('#jobSlot'); if(!slot)return;
     const mine=P&&(j.project===P.name||(P.plan&&P.plan.target&&(j.title||'').endsWith(P.plan.target)));
-    slot.innerHTML=(active&&mine)||(!active&&mine&&j.state==='failed')?jobCard(j):'';
+    const myQ=P?queuedJobs().filter(q=>q.project===P.name&&q.id!==j.id):[];
+    slot.innerHTML=((active&&mine)||(!active&&mine&&j.state==='failed')?jobCard(j):'')+
+      myQ.map(q=>`<div class="banner"><span class="infoc" style="display:flex">${ic('clock','s18')}</span><div class="grow"><div class="bt">${esc(q.title)} wartet</div><div class="bx">Startet automatisch, sobald ${esc(jobActive()&&S.job.id!==q.id?'„'+S.job.title+'“':'der laufende Auftrag')} fertig ist.</div></div>
+        <button class="btn" data-jcq="${esc(q.id)}">Aus der Warteschlange entfernen</button></div>`).join('');
+    slot.querySelectorAll('[data-jcq]').forEach(b=>b.onclick=()=>cancelJob(b.dataset.jcq,false));
   }
-  if(openDet&&$('#jobCard details'))$('#jobCard details').open=true;
-  const lg=$('#jobLog'); if(lg)lg.scrollTop=lg.scrollHeight;
-  const cb=$('#cancelBtn'); if(cb)cb.onclick=async()=>{if(!await ask('Auftrag abbrechen?','Bisher Erledigtes bleibt erhalten.','Abbrechen',true))return;await api('/api/job/'+j.id+'/cancel',{});refresh();};
+  const box=$('#jobLogBox');if(box)box.ontoggle=()=>{UI.log=box.open;};
+  const lg=$('#jobLog'); if(lg&&atEnd)lg.scrollTop=lg.scrollHeight;
+  const cb=$('#cancelBtn'); if(cb)cb.onclick=()=>cancelJob(j.id,j.state==='running');
 }
 function onJobFinished(j){
   if(j.kind==='scan'){
@@ -1159,7 +1261,7 @@ function renderProject(){
   };
   renderTabs(); renderTab(); renderDirty(); renderJob();
 }
-const reanalyze=async()=>{try{await api('/api/project/'+encodeURIComponent(cur.project)+'/reanalyze',{});dirty=false;INS=null;cur.view='job';await refresh();}catch(e){toast(e.message,true)}};
+const reanalyze=async()=>{try{await startJob('/api/project/'+encodeURIComponent(cur.project)+'/reanalyze',{},'Analyse');dirty=false;INS=null;}catch(e){toast(e.message,true)}};
 function tabInfo(){
   const F=P.facts||{}, data=hasData(), runs=((P.plan||{}).runs||[]).filter(r=>r.enabled!==false);
   const outs=runs.reduce((a,r)=>a+((r.outputs||[]).length||1),0);
@@ -1196,7 +1298,8 @@ async function addSource(fromTop){
   catch(e){toast(e.message,true);if(fromTop){UI.src=true;if(cur.tab!=='overview')goTab('overview');else renderTab();setTimeout(()=>{const i=$('#srcPath');if(i){i.scrollIntoView({block:'center'});i.focus();}},50);}}
 }
 async function deleteProject(){
-  if(!await ask('Projekt aus der Liste entfernen?',`„${P.meta.name}“ verschwindet aus b2stacker. Alle Dateien bleiben erhalten: Aufnahmen, Projektordner, Stacks und Berichte werden nicht gelöscht.`,'Entfernen',true))return;
+  const jn=((S&&S.jobs)||[]).filter(j=>j.project===cur.project&&['queued','running'].includes(j.state)).length;
+  if(!await ask('Projekt aus der Liste entfernen?',`„${P.meta.name}“ verschwindet aus b2stacker. Alle Dateien bleiben erhalten: Aufnahmen, Projektordner, Stacks und Berichte werden nicht gelöscht.${jn?`\n\n${jn===1?'Ein Auftrag':jn+' Aufträge'} für dieses Projekt ${jn===1?'wird':'werden'} abgebrochen.`:''}`,'Entfernen',true))return;
   try{await api('/api/project/'+encodeURIComponent(cur.project)+'/delete',{});P=null;INS=null;cur={view:'home',project:null,tab:'overview'};await refresh();render();toast('Projekt aus der Liste entfernt – Dateien bleiben erhalten');}
   catch(e){toast(e.message,true)}
 }
@@ -1284,9 +1387,10 @@ function renderOverview(b){
     h+=`<button class="hint" id="hintFrames"><span class="infoc" style="display:flex">${ic('info','s18')}</span><span class="hx">${n} von ${I.counts.lights} Lights sind zum Aussortieren vorgeschlagen${why?', meist wegen '+esc(why[0].replace(/\s*\(.*\)$/,'')):''}.</span><span class="hc">Frames prüfen${ic('right','s14')}</span></button>`;}
   // Belichtung
   if(data){
+    const lab=f=>{const r=((P.plan||{}).runs||[]).find(x=>(x.filter||x.name)===f);return r&&r.label||f};
     const nightsOf=f=>{const k=ok&&(I.kpi||[]).find(x=>x.filter===f);if(k)return k.nights;const r=((P.plan||{}).runs||[]).find(x=>x.filter===f||x.name===f);return r?(r.nights||[]).length:'–'};
     h+=`<section class="sec">${secHd('Belichtung','Je Filter ein Lauf. So viel geht ins Stacking.')}<div class="runs">${(F.filters||[]).map(f=>{const un=Math.max(0,(f.hours||0)-(f.used_hours||0));
-      return `<div class="card clickable chan" data-gostack><div class="cn">${fsw(f.name)}<div><b>${esc(f.name)}</b><span>${un>=0.05?fmt(un,1)+' h nicht verwendet':'alles verwendet'}</span></div></div>
+      return `<div class="card clickable chan" data-gostack><div class="cn">${fsw(lab(f.name))}<div><b>${esc(lab(f.name))}</b><span>${un>=0.05?fmt(un,1)+' h nicht verwendet':'alles verwendet'}</span></div></div>
         <div class="facts3"><div><span>Belichtung</span><b>${fmt(f.used_hours,1)} h</b></div><div><span>Lights</span><b>${f.used}</b></div><div><span>Nächte</span><b>${nightsOf(f.name)}</b></div></div>
         <span style="display:flex;opacity:.5">${ic('right')}</span></div>`}).join('')}</div></section>`;
   }else{
@@ -1416,7 +1520,7 @@ function renderOverview(b){
 async function linkAsset(){
   const AS=P.assets||[];let v='';
   try{const r=await api('/api/pick-file',{initial:'',kind:'image'});v=(r&&r.path)||'';}
-  catch(e){v=(prompt('Pfad zur Bilddatei, z. B. D:\\Astro\\M31_final.psd')||'').trim();}
+  catch(e){v=(await askText('Bearbeitetes Bild hinzufügen','Pfad zur Bilddatei','','Der Dateidialog ist nicht verfügbar ('+e.message+'). Pfad z. B. D:\\Astro\\M31_final.psd','Verknüpfen'))||'';}
   if(!v)return;
   if(hasPath(AS.map(a=>a.path),v))return toast('Diese Datei ist schon verknüpft',true);
   try{P=await api('/api/project/'+encodeURIComponent(cur.project)+'/asset-link',{path:v});toast('Bild verknüpft');renderTab();}catch(e){toast(e.message,true)}
@@ -1435,7 +1539,7 @@ function stackMenu(anchor,id,outName){
 }
 async function renameStack(id){
   const s=P.stacks.find(x=>x.id===id);if(!s)return;
-  const n=prompt('Anzeigename für diesen Stack (leer = automatisch):',s.name||'');if(n===null)return;
+  const n=await askText('Stack umbenennen','Anzeigename',s.name||'','Leer lassen = automatisch.');if(n===null)return;
   try{P=await api('/api/project/'+encodeURIComponent(cur.project)+'/stack-meta',{stack_id:id,name:n.trim()});toast('Name gespeichert');renderTab();}catch(e){toast(e.message,true)}
 }
 async function removeStack(id){
@@ -1645,7 +1749,7 @@ function drawFrames(b){
 async function preparePreviews(btn){
   if(!confirm('Vorschauen für alle Frames dieses Projekts vorbereiten?\n\nDie Rohbilder werden einmal gelesen und als Bildschirm- und Miniaturbild lokal gespeichert. Danach funktionieren Raster und große Ansicht auch offline; die Originale bleiben unverändert.'))return;
   btn.disabled=true;btn.textContent='Wird vorbereitet …';
-  try{const j=await api('/api/project/'+encodeURIComponent(cur.project)+'/prepare-previews',{});toast('Vorschauen werden vorbereitet'+(j&&j.title?' · '+j.title:''));cur.view='job';await refresh();}
+  try{await startJob('/api/project/'+encodeURIComponent(cur.project)+'/prepare-previews',{},'Vorschauen');}
   catch(e){toast(e.message,true);btn.disabled=false;drawFrames();}
 }
 function fvRedraw(){
@@ -1936,6 +2040,8 @@ function runCalLevel(r){
 function renderPlan(b){
   const plan=P.plan, runs=plan.runs, op=plan.options||{}, F=P.facts||{};
   const runOpts=r=>['auto',...runs.filter(x=>x.name!==r.name).map(x=>'master:'+x.name)];
+  const runLabel=n=>{const x=runs.find(y=>y.name===n);return x&&x.label||n};
+  const top=Number(op.top_percent||100), topN=r=>Math.min(r.lightCount,Math.max(Math.min(r.lightCount,3),Math.ceil(r.lightCount*top/100)));
   UI.cal=UI.cal||{};UI.ropt=UI.ropt||{};
   const optOn=k=>op[k]!==false&&(op[k]||k==='fix_fringes'||k==='hot_pixels');
   const custom=OPTS.some(([k,t,d,rec])=>!!optOn(k)!==!!rec&&k!=='hot_pixels'&&k!=='fix_fringes')||(op.weighting&&op.weighting!=='psf_signal');
@@ -1947,11 +2053,12 @@ function renderPlan(b){
     <div class="runs">${runs.map((r,i)=>{const fl=(F.filters||[]).find(x=>x.name===r.filter||x.name===r.name);const un=fl?Math.max(0,(fl.hours||0)-(r.hours||0)):0;
       const cl=runCalLevel(r),L=lvl(cl),co=UI.cal[r.name],oo=UI.ropt[r.name];
       return `<div class="run ${r.enabled===false?'off':''}">
-      <div class="rtop"><div class="chan" style="padding:0;flex:1 1 220px"><div class="cn">${fsw(r.name)}<div><b>${esc(r.name)}</b><span>${esc(RUNMODE(r))}${un>=0.05?' · '+fmt(un,1)+' h nicht verwendet':''}</span></div></div></div>
+      <div class="rtop"><div class="chan" style="padding:0;flex:1 1 220px"><div class="cn">${fsw(r.label||r.name)}<div><span class="row" style="gap:4px;opacity:1;font-size:inherit"><b>${esc(r.label||r.name)}</b><button class="editbtn" data-rren="${i}" title="Lauf umbenennen – z. B. „IR“ in „RGB“">${ic('edit','s14')}</button></span>
+          <span>${r.label?'erkannt als „'+esc(r.name)+'“ · ':''}${esc(RUNMODE(r))}${un>=0.05?' · '+fmt(un,1)+' h nicht verwendet':''}${top<100&&r.enabled!==false?` · beste ${topN(r)} von ${r.lightCount} Lights`:''}</span></div></div></div>
         <div class="facts3"><div><span>Belichtung</span><b>${fmt(r.hours,1)} h</b></div><div><span>Lights</span><b>${r.lightCount}</b></div><div><span>Nächte</span><b>${r.nights.length}</b></div></div>
         <label class="switch" title="Lauf ein/aus"><input type="checkbox" data-run="${i}" ${r.enabled!==false?'checked':''}><span></span></label></div>
       <div class="rfoot"><button class="rft ${co?'open':''}" data-tcal="${esc(r.name)}"><span style="display:flex;color:var(--${L[2]==='ok'?'ok':L[2]})">${ic(L[3],'s14')}</span>Kalibrierung${chev(co)}</button>
-        <button class="rft ${oo?'open':''}" data-topt="${esc(r.name)}"><span>Optionen</span><span style="opacity:.55">${r.reference&&r.reference!=='auto'?'Referenz: '+esc(r.reference.slice(7)):'empfohlen'}</span>${chev(oo)}</button></div>
+        <button class="rft ${oo?'open':''}" data-topt="${esc(r.name)}"><span>Optionen</span><span style="opacity:.55">${r.reference&&r.reference!=='auto'?'Referenz: '+esc(runLabel(r.reference.slice(7))):'empfohlen'}</span>${chev(oo)}</button></div>
       ${co?`<div class="rbody"><div class="small" style="opacity:.7">Flats, Bias und Darks entfernen Fehler von Optik und Kamera. b2stacker wählt sie passend zu Filter und Kamerastellung.</div>
         ${(r.flat_groups||[]).length>1?`<div class="small warnc">${ic('target','tiny')} Kamera zwischen den Nächten gedreht (${r.rotation&&r.rotation.source==='rotator'?'laut Rotator im Header':'am Sternfeld gemessen'}) – jede Gruppe bekommt eigene Flats.</div>
           ${r.flat_groups.map(g=>`<div class="fgrp"><b>Gruppe ${esc(g.key)}</b><span style="opacity:.7">${g.angle!=null?fmt(g.angle,1)+'°':''}</span><span style="opacity:.8;min-width:0">Nächte ${g.nights.map(ddm).join(', ')}</span>
@@ -1967,12 +2074,15 @@ function renderPlan(b){
       </div>`:''}
       ${oo?`<div class="rbody" style="padding:0;gap:0;background:rgba(0,0,0,.12);border-radius:0 0 14px 14px">
         <div class="optrow" style="flex-wrap:wrap"><div class="ot" style="flex:1 1 260px"><span class="on">Referenz</span><span class="od">Frame, auf den alle anderen ausgerichtet werden. Ein Master eines anderen Laufs hält mehrere Filter deckungsgleich.</span></div>
-          <select data-ref="${i}">${runOpts(r).map(o=>`<option value="${esc(o)}" ${o===(r.reference||'auto')?'selected':''}>${o==='auto'?'Bester Frame':'Master von '+esc(o.slice(7))}</option>`).join('')}</select></div>
+          <select data-ref="${i}">${runOpts(r).map(o=>`<option value="${esc(o)}" ${o===(r.reference||'auto')?'selected':''}>${o==='auto'?'Bester Frame':'Master von '+esc(runLabel(o.slice(7)))}</option>`).join('')}</select></div>
         <div class="optrow"><div class="ot"><span class="on">Platzbedarf</span><span class="od">Zwischendateien und Arbeitsspeicher für diesen Lauf.</span></div><span class="small" style="white-space:nowrap">~${fmt(r.gb,0)} GB · ~${fmt(r.ram_gb,0)} GB RAM</span></div>
         ${(r.light_dirs||[]).length?`<div class="optrow" style="flex-wrap:wrap;align-items:flex-start"><div class="ot" style="flex:0 0 auto"><span class="on">Light-Ordner</span></div><div style="display:flex;flex-wrap:wrap;gap:4px 14px;flex:1;justify-content:flex-end">${r.light_dirs.map(d=>dirLink(d)).join('')}</div></div>`:''}
         <div class="optrow"><div class="ot"><span class="od">${esc(r.why||'')}</span></div></div></div>`:''}
     </div>`}).join('')}</div></section>
   <section class="sec">${secHd('Optionen','Gelten für alle Läufe. Die Voreinstellung passt für die meisten Aufnahmen.')}
+    <div class="panel optrow" style="flex-wrap:wrap;border-radius:12px"><div class="ot" style="flex:1 1 300px"><span class="on">Welche Lights stacken?${top<100?'<span class="pill warn">Probe-Stack</span>':''}</span>
+      <span class="od">Für einen schnellen ersten Stack oder zum Qualitätsvergleich nur die besten Frames je Lauf nehmen – gereiht nach Signal/Rauschen und Sternschärfe aus der Analyse. Deine Auswahl in „Frames“ bleibt unverändert.</span></div>
+      <select data-opt-sel="top_percent" aria-label="Anteil der Lights">${[100,90,75,50,25,10].map(v=>`<option value="${v}" ${top===v?'selected':''}>${v===100?'Alle gewählten Lights':'Nur die besten '+v+' %'}</option>`).join('')}${[100,90,75,50,25,10].includes(top)?'':`<option value="${top}" selected>Nur die besten ${top} %</option>`}</select></div>
     <button class="panel clickable collhd ${UI.opts?'open':''}" id="optHd"><span style="flex:1;text-align:left;font-size:14.5px">${custom?'Angepasst':'Empfohlene Einstellungen'}</span>
       <span class="small" style="opacity:.6">${OPTS.filter(([k])=>optOn(k)).length} von ${OPTS.length} aktiv · ${esc({psf_signal:'PSF Signal',psf_snr:'PSF SNR',snr:'SNR'}[op.weighting||'psf_signal'])}</span>${chev(UI.opts)}</button>
     ${UI.opts?`<div class="panel collbd" style="background:var(--panel)">
@@ -1994,7 +2104,10 @@ function renderPlan(b){
   b.querySelectorAll('[data-run]').forEach(c=>c.onchange=()=>savePlan({runs:{[runs[+c.dataset.run].name]:{enabled:c.checked}}}));
   b.querySelectorAll('[data-ref]').forEach(c=>c.onchange=()=>savePlan({runs:{[runs[+c.dataset.ref].name]:{reference:c.value}}}));
   b.querySelectorAll('[data-opt]').forEach(c=>c.onchange=()=>savePlan({options:{[c.dataset.opt]:c.checked}}));
-  b.querySelectorAll('[data-opt-sel]').forEach(c=>c.onchange=()=>savePlan({options:{[c.dataset.optSel]:c.value}}));
+  b.querySelectorAll('[data-opt-sel]').forEach(c=>c.onchange=()=>savePlan({options:{[c.dataset.optSel]:c.dataset.optSel==='top_percent'?Number(c.value):c.value}}));
+  b.querySelectorAll('[data-rren]').forEach(x=>x.onclick=async()=>{const r=runs[+x.dataset.rren];
+    const v=await askText('Lauf umbenennen','Name',r.label||r.name,`Automatisch erkannt: „${r.name}“. Der Name erscheint in der Übersicht und im Dateinamen des Stacks. Leer lassen = automatischer Name.`);
+    if(v===null)return;await savePlan({runs:{[r.name]:{label:v===r.name?'':v}}});toast(v&&v!==r.name?'Lauf heißt jetzt „'+v+'“':'Automatischer Name');});
   updateMeters();
 }
 function needs(){const en=P.plan.runs.filter(r=>r.enabled!==false);return {gb:Math.max(0,...en.map(r=>r.gb||0))+2,ram:Math.max(0,...en.map(r=>r.ram_gb||0)),en};}
@@ -2019,7 +2132,8 @@ function updateMeters(){
   if(S.disk_free_gb!=null&&S.disk_free_gb<n.gb)bl.push(`Zu wenig Platz: ${fmt(n.gb,0)} GB nötig, ${fmt(S.disk_free_gb,0)} GB frei.`);
   if(needsAnalysis())bl.push('Quellordner geändert – erst „Neu analysieren“, danach kann gestackt werden.');
   if(!n.en.length)bl.push('Kein Lauf ausgewählt.');
-  if(active)bl.push('Es läuft gerade ein Auftrag.');
+  if(active)wn.push('Es läuft gerade ein Auftrag – das Stacking wird eingereiht und startet danach automatisch.');
+  const topP=Number((P.plan.options||{}).top_percent||100);
   if(S.ram_free_gb!=null&&S.ram_free_gb<Math.min(n.ram,S.settings.min_free_ram_gb))wn.push(`Wenig freier Arbeitsspeicher (${fmt(S.ram_free_gb,1)} GB). Andere Programme schließen.`);
   n.en.forEach(r=>{if(!r.flats.length)wn.push(`${r.name}: keine passenden Flats.`);else if(!r.flat_ok)wn.push(`${r.name}: Flats haben ein Problem – siehe Kalibrierung.`);if(!r.bias.length)wn.push(`${r.name}: kein Bias – Flats werden ungenauer kalibriert.`);
     const g=(r.flat_groups||[]);if(g.length>1&&g.some(x=>!x.flats.length))wn.push(`${r.name}: nicht für jede Kamerastellung eigene Flats.`);});
@@ -2027,14 +2141,15 @@ function updateMeters(){
   const gb=$('#goBox'); if(!gb)return;
   const title=bl.length?'Stacken gesperrt':wn.length?'Bereit mit Hinweisen':'Bereit';
   const col=bl.length?'var(--err)':wn.length?'var(--warn)':'var(--ok)';
-  const text=bl.length?bl.join(' '):(`Ergibt ${plural(outs.length,'Stack','Stacks')}: ${outs.join(', ')}. `+(wn.length?wn.join(' '):'PixInsight läuft unsichtbar im Hintergrund, der PC bleibt wach. Fertige Dateien heißen z. B. '+P.plan.target.replace(/[^\w-]/g,'')+'_'+(n.en[0]?.name||'RGB')+'_'+new Date().toISOString().slice(0,10)+'_'+fmt(n.en[0]?.hours,1).replace(',','.')+'h.xisf'));
+  const text=bl.length?bl.join(' '):(`Ergibt ${plural(outs.length,'Stack','Stacks')}: ${outs.join(', ')}. `+(topP<100?`Probe-Stack mit den besten ${topP} % der Lights. `:'')+(wn.length?wn.join(' '):'PixInsight läuft unsichtbar im Hintergrund, der PC bleibt wach. Fertige Dateien heißen z. B. '+P.plan.target.replace(/[^\w-]/g,'')+'_'+(n.en[0]?.name||'RGB')+'_'+new Date().toISOString().slice(0,10)+'_'+fmt(n.en[0]?.hours,1).replace(',','.')+'h.xisf'));
   const html=`<span style="display:flex;color:${col}">${ic(bl.length?'error':wn.length?'warn':'check','s18')}</span>
     <div class="gm"><b style="color:${col}">${title}</b><span>${esc(text)}</span></div>
-    <button class="btn primary big" id="goBtn" ${bl.length?'disabled':''}>${ic('play')} ${outs.length>1?outs.length+' Stacks erzeugen':'Stacken'}</button>`;
+    <button class="btn primary big" id="goBtn" ${bl.length?'disabled':''}>${ic(active?'clock':'play')} ${active?'Stacking einreihen':outs.length>1?outs.length+' Stacks erzeugen':'Stacken'}</button>`;
   if(gb.dataset.h!==html){gb.innerHTML=html;gb.dataset.h=html;
     $('#goBtn').onclick=async()=>{
       if(dirty&&!await ask('Plan noch nicht neu berechnet','Du hast Frames ein- oder ausgeschlossen, der Plan ist aber noch nicht neu berechnet. Trotzdem mit dem alten Plan stacken?','Trotzdem stacken'))return;
-      $('#goBtn').disabled=true;try{await api('/api/project/'+encodeURIComponent(cur.project)+'/stack',{});await refresh();renderJob();
+      $('#goBtn').disabled=true;try{const busy=jobActive();await api('/api/project/'+encodeURIComponent(cur.project)+'/stack',{});await refresh();renderJob();
+        if(busy)toast('Stacking eingereiht – startet nach dem laufenden Auftrag');
         document.querySelector('section.view').scrollTo({top:0,behavior:'smooth'});}catch(e){toast(e.message,true);$('#goBtn').disabled=false}};}
 }
 function renderDirty(){

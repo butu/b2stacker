@@ -126,20 +126,29 @@ def test_empty_roots_can_be_saved_and_block_stacking(tmp_path):
         assert "Quellordner" in str(e) or "Analyse" in str(e)
 
 
-def test_mutations_are_refused_while_a_job_runs(monkeypatch):
+def test_only_same_project_analysis_blocks_selection(monkeypatch):
+    """Während Aufträgen darf man weiterarbeiten; nur Auswahl/Plan/Quellen des gerade analysierten Projekts warten."""
+    from types import SimpleNamespace as NS
     from astrostack.app import server
 
     class Busy:
-        def active(self):
-            return object()
-    monkeypatch.setattr(server, "JOBS", Busy())
-    for action in ("override", "sources", "delete", "stack-meta", "stack-delete", "asset-link", "stack", "plan"):
+        def __init__(self, job):
+            self.job = job
+
+        def running(self):
+            return self.job
+    monkeypatch.setattr(server, "JOBS", Busy(NS(kind="analyze", project="A")))
+    for action in ("override", "sources", "plan"):
         try:
-            server.check_idle(action)
-            raise AssertionError(action + " muss während eines Auftrags gesperrt sein")
+            server.check_idle(action, "A")
+            raise AssertionError(action + " muss während der Analyse dieses Projekts warten")
         except RuntimeError:
             pass
-    server.check_idle("frames")                     # Lesen bleibt frei
+        server.check_idle(action, "B")              # anderes Projekt: frei
+    for action in ("delete", "stack-meta", "stack-delete", "asset-link", "stack", "meta", "frames"):
+        server.check_idle(action, "A")
+    monkeypatch.setattr(server, "JOBS", Busy(NS(kind="stack", project="A")))
+    server.check_idle("override", "A")               # Stacking hat den Plan schon gelesen
 
 
 def test_truncated_pixels_plan_and_frames_agree(tmp_path):
