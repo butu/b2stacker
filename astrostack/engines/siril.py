@@ -263,6 +263,21 @@ def build_script(spec: dict) -> str:
 
 # ------------------------------------------------------------------ Lauf
 
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][A-Za-z0-9]|\x1b[=>]")
+
+
+def clean_line(raw: str) -> str:
+    """Eine Ausgabezeile von Terminal-Steuerzeichen befreien. Fortschritt überschreibt sich mit „\\r“ bzw. ANSI-Codes
+    (z. B. Zeilen-Löschen + Cursor hoch) → nur der letzte sichtbare Stand bleibt; „Tprogress:“ wird zu „progress:“."""
+    parts = [p for p in raw.rstrip("\r\n").split("\r") if p.strip()]
+    line = _ANSI.sub("", parts[-1] if parts else "").replace("\x1b", "")
+    line = re.sub(r"^(?:\[\d*[AKJ])+", "", line)            # ESC verloren gegangen: „[A[2K“ am Zeilenanfang
+    i = line.find("progress:")
+    if i > 0 and not line[:i].strip(" [T\t"):              # Fortschritt mit Steuerrest davor (z. B. „[A[2KT“)
+        line = line[i:]
+    return line.strip()
+
+
 class SirilRunner:
     """Startet siril-cli mit dem Skript und sammelt die Ausgabe (Fehlerausgabe in derselben Leitung)."""
 
@@ -288,7 +303,7 @@ class SirilRunner:
     def _pump(self):
         for line in self.proc.stdout:
             with self._lock:
-                self._out.append(line.rstrip("\r\n"))
+                self._out.append(clean_line(line))
 
     def drain(self) -> list[str]:
         with self._lock:
@@ -541,7 +556,10 @@ def _check_registration(run: dict, outdir: str, seq_name: str, ref_frames: int, 
     except Exception as e:  # noqa: BLE001 – Prüfung darf das Ergebnis nicht gefährden
         log("  Hinweis: Registrierung nicht geprüft (%s)" % e)
         return None
-    frames = [r for r in regs if not r.get("reference")]
+    frames = [r for r in regs if "file" in r]
+    if not frames:                       # nichts auswertbar – „alle 0 plausibel“ wäre irreführend
+        log("  Hinweis: Registrierung nicht geprüft (keine Frames in der Siril-Auswertung)")
+        return None
     lock = [b for b in bad if b.get("lock")]
     logbook.event("registration_check", engine="siril", run=run["name"], frames=len(frames),
                   retry=bool(run.get("_retry")), lock_retry=bool(run.get("_lock_retry")), locked=len(lock),

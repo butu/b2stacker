@@ -82,6 +82,7 @@ def test_suspect_frames_are_reported_not_dropped(tmp_path, monkeypatch):
 
 @posix_only
 def test_lock_twice_stops_with_plain_message(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKESIRIL_ZERO_SHIFT", "1")          # alle Frames „0,0 px“ = am Sensor ausgerichtet
     monkeypatch.setattr(siril, "_VERSION_CACHE", {})
     cli = make_cli(tmp_path / "siril-cli")
     plan, _, lights = make_plan(tmp_path)
@@ -135,3 +136,15 @@ def test_darks_use_cosmetic_correction_with_configured_sigmas(tmp_path, monkeypa
     assert st.state == "done", st.error
     script = open(os.path.join(os.path.dirname(st.runs["L"]["master"]), "siril.ssf")).read()
     assert "-cc=dark %.1f %.1f" % (pi.CC_COLD_SIGMA, pi.CC_HOT_SIGMA) in script
+
+
+def test_registration_without_rows_is_not_reported_as_plausible(tmp_path):
+    seq_dir = tmp_path / "seq_light"
+    seq_dir.mkdir()
+    (seq_dir / "r_pp_light_.seq").write_text("#Siril sequence file\nS 'pp_light_' 1 0 0 5 0 6 0 0 0\n")
+    logs = []
+    lights = [str(tmp_path / ("light_%d.fit" % i)) for i in range(3)]
+    assert siril._check_registration(dict(name="L", lights=lights), str(tmp_path), "pp_light_", 0, [],
+                                     logs.append) is None
+    assert any("nicht geprüft" in m for m in logs)
+    assert not any("plausibel" in m for m in logs)

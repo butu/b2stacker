@@ -45,7 +45,10 @@ def _write_seq(seq: str, n: int, ref: int = 0) -> None:
         if i in bad:
             L.append("R0 0 0 0 0 0 0 H 0 0 0 0 0 0 0 0 0")
         else:
-            L.append("R0 4.6 4.6 0.77 0 0.02 38 H 1 0 0 0 1 0 0 0 1")
+            # Drift wie bei echten Nächten: Referenz 0 px, weitere Frames 1–4 px (nie „0,0 px“ = Sensormuster)
+            zero = os.environ.get("FAKESIRIL_ZERO_SHIFT") == "1"     # Sensormuster: alle „0,0 px“ auf der Referenz
+            tx, ty = (0.0, 0.0) if zero or i - 1 == ref else (1.0 + 0.9 * i, -0.6 * i)
+            L.append("R0 4.6 4.6 0.77 0 0.02 38 H 1 0 %g 0 1 %g 0 0 1" % (tx, ty))
     open(seq + ".seq", "w", encoding="utf-8").write("\n".join(L) + "\n")
 
 

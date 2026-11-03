@@ -29,6 +29,13 @@ stack r_pp_light_ rej w 3 3 -norm=addscale -weight=wfwhm -output_norm -32b -out=
 """
 
 
+def test_clean_line_strips_terminal_codes_and_keeps_last_progress_state():
+    assert siril.clean_line("\x1b[A\x1b[2KTprogress: 40.00%\r\n") == "progress: 40.00%"
+    assert siril.clean_line("10%\r20%\r30%\r") == "30%"
+    assert siril.clean_line("[A[2Kprogress: 100.00%") == "progress: 100.00%"
+    assert siril.clean_line("log: Running command: stack\n") == "log: Running command: stack"
+
+
 def test_phases_follow_script_order_with_totals():
     subs = siril.phases_from_script(SCRIPT, n=5, n_flats=3)
     assert [s["key"] for s in subs] == ["master_flat", "cal_light", "register", "integrate"]

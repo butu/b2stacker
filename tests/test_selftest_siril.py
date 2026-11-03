@@ -44,8 +44,6 @@ def test_selftest_siril_dispatches_to_siril_and_reports_version(tmp_path, monkey
 
 
 @posix_only
-@pytest.mark.xfail(strict=True, reason="tests/fake_siril.py liefert nur 0-px-Verschiebungen; die Engine meldet das "
-                   "korrekt als Sensormuster-Ausrichtung. Strict: nach Fake-Fix entfernen.")
 def test_selftest_siril_full_stack_done_with_fake_cli(tmp_path, monkeypatch):
     s, folder = _siril_settings(tmp_path, monkeypatch)
     res = selftest.run(s, folder, log=lambda *a: None)
