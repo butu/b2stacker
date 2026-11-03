@@ -388,6 +388,7 @@ const $=()=>dummy, document={querySelector:()=>null,querySelectorAll:()=>[],acti
 class Image{set src(v){}}
 const toasts=[]; const toast=m=>toasts.push(String(m));
 const renderDirty=()=>{};
+const engName=()=>'PixInsight';
 let P={name:'p',sources:{roots:['r']}}, cur={project:'p',tab:'frames'};
 const FRAME={path:'a',type:'light',exposure:60,night:'2026-01-01',status:'ok',auto_status:'ok',flags:[],metrics:{},
   selected:true,selection_source:'auto',thumb_url:'/api/frame-thumb/p?path=a',preview_url:'/api/frame-preview/p?path=a'};

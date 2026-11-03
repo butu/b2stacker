@@ -53,6 +53,21 @@ STACK = [
 
 BY_KEY = {s["key"]: s for s in ANALYZE + STACK}
 
+# Siril-Texte: nennen kein PixInsight/WBPP (Siril hat keine PixInsight-Fenster und keine CosmeticCorrection).
+_SIRIL = {
+    "check": dict(what="Platz, Arbeitsspeicher und Kalibrierdateien werden geprüft."),
+    "cosmetic": dict(what="Keine Darks vorhanden: b2stacker entfernt einzelne heiße und kalte Pixel vor dem Stacken.",
+                     why="Sonst richtet Siril die Bilder an den Hotpixeln statt an den Sternen aus (Geistersterne), "
+                         "und ohne Dithering bleiben sie als farbige Punkte im Stack."),
+}
+
+
+def stack_for(engine: str) -> list[dict]:
+    """Schrittliste für die Oberfläche je Engine. PixInsight-Texte bleiben unverändert."""
+    if engine != "siril":
+        return STACK
+    return [dict(s, **_SIRIL.get(s["key"], {})) for s in STACK]
+
 
 def stack_steps(mode: str, osc: bool = True, cosmetic: str | bool = False) -> list[str]:
     """cosmetic: "after" = PixInsight CosmeticCorrection nach dem Kalibrieren, "before"/True = eigene Bereinigung vorher."""

@@ -179,7 +179,7 @@ def cmd_settings(args, s: Settings):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="astrostack", description="Rohdaten sichten, bewerten und mit PixInsight stacken.")
+    ap = argparse.ArgumentParser(prog="astrostack", description="Rohdaten sichten, bewerten und mit PixInsight oder Siril stacken.")
     ap.add_argument("--version", action="version", version="astrostack " + __version__)
     ap.add_argument("--json", action="store_true", help="maschinenlesbare Ausgabe")
     sub = ap.add_subparsers(dest="cmd")
@@ -204,10 +204,10 @@ def main(argv=None):
     p.add_argument("project")
     p.add_argument("value", choices=["in", "out", "auto"])
     p.add_argument("paths", nargs="+")
-    p = sub.add_parser("stack", help="Plan eines Projekts mit PixInsight stacken")
+    p = sub.add_parser("stack", help="Plan eines Projekts mit der eingestellten Engine (PixInsight oder Siril) stacken")
     p.add_argument("project")
     p.add_argument("--only", nargs="*", help="nur diese Läufe")
-    p.add_argument("--no-open", action="store_true", help="Ergebnisse nicht in PixInsight öffnen")
+    p.add_argument("--no-open", action="store_true", help="Ergebnisse nicht in der Engine öffnen")
     p = sub.add_parser("status", help="letzte Aufträge und Stacking-Läufe")
     p.add_argument("--last", type=int, default=5)
     p.add_argument("--tail", type=int, default=20)

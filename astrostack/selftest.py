@@ -1,7 +1,7 @@
-"""Selbsttest auf dem echten Rechner: kleiner synthetischer Datensatz → Analyse → Stacking mit dem echten PixInsight.
+"""Selbsttest auf dem echten Rechner: kleiner synthetischer Datensatz → Analyse → Stacking mit der gewählten Engine.
 
 Prüft genau die Dinge, die Linux-Tests nicht sehen: Netzlaufwerk, Komma im Ordnernamen, Flat-Gruppen, Symlink-Recht
-(Entwicklermodus), lange Pfade, WBPP-Version und die Hotpixel-Korrektur in PixInsight. Der Testordner wird nur neu
+(Entwicklermodus), lange Pfade, WBPP-Version und die Hotpixel-Korrektur in PixInsight bzw. die Siril-Version. Der Testordner wird nur neu
 angelegt (``b2stacker-selbsttest, mit Komma``) – vorhandene Daten werden nicht angefasst. Das Testprojekt liegt in einem
 eigenen Arbeitsordner (``<arbeitsverzeichnis>/selbsttest``) und erscheint nicht in der Projektliste.
 """
@@ -83,6 +83,15 @@ def environment(settings, folder: str) -> dict:
     from .engines.pixinsight import is_remote_path
     wd = os.path.join(settings.workdir, "selbsttest")
     os.makedirs(wd, exist_ok=True)
+    env = dict(engine=settings.engine, test_folder=folder, test_folder_remote=is_remote_path(folder),
+               symlinks_allowed=staging.symlinks_allowed(wd), long_paths=staging.long_paths_enabled(),
+               workdir=settings.workdir, workdir_free_gb=system.free_disk_gb(settings.workdir))
+    if settings.engine == "siril":
+        from .engines import siril
+        c = siril.check(settings.siril)
+        env.update(siril=settings.siril, siril_ok=c["ok"], siril_version=c["version"], siril_cmd=c["cmd"],
+                   siril_message=c["message"])
+        return env
     pi_dir = os.path.dirname(os.path.dirname(settings.pixinsight))
     version = None
     for cand in (os.path.join(pi_dir, "doc", "PixInsight.txt"), os.path.join(pi_dir, "bin", "version.txt")):
@@ -91,22 +100,21 @@ def environment(settings, folder: str) -> dict:
                 version = open(cand, encoding="utf-8", errors="replace").readline().strip()[:80]
             except OSError:
                 pass
-    return dict(
-        pixinsight=settings.pixinsight, pixinsight_ok=os.path.exists(settings.pixinsight),
-        wbpp_ok=os.path.exists(settings.wbpp_script), pixinsight_version=version,
-        symlinks_allowed=staging.symlinks_allowed(wd), long_paths=staging.long_paths_enabled(),
-        test_folder=folder, test_folder_remote=is_remote_path(folder),
-        workdir=settings.workdir, workdir_free_gb=system.free_disk_gb(settings.workdir))
+    env.update(pixinsight=settings.pixinsight, pixinsight_ok=os.path.exists(settings.pixinsight),
+               wbpp_ok=os.path.exists(settings.wbpp_script), pixinsight_version=version)
+    return env
 
 
 def run(settings, folder: str, log=print, progress=None, cancel=None, with_pixinsight: bool = True,
         runner_factory=None) -> dict:
+    """Selbsttest mit der in den Einstellungen gewählten Engine (PixInsight/WBPP oder Siril)."""
     from dataclasses import replace
 
-    from . import project
-    from .engines import pixinsight as pi
+    from . import engines, project
     t0 = time.time()
-    res = dict(started=datetime.datetime.now().isoformat(timespec="seconds"), steps=[])
+    siril_mode = settings.engine == "siril"
+    label = engines.LABELS.get(settings.engine, settings.engine)
+    res = dict(started=datetime.datetime.now().isoformat(timespec="seconds"), engine=settings.engine, steps=[])
 
     def step(name, ok, detail=""):
         res["steps"].append(dict(name=name, ok=ok, detail=detail))
@@ -114,7 +122,12 @@ def run(settings, folder: str, log=print, progress=None, cancel=None, with_pixin
 
     env = environment(settings, folder)
     res["environment"] = env
-    step("PixInsight gefunden", env["pixinsight_ok"] and env["wbpp_ok"], env["pixinsight"])
+    if siril_mode:
+        step("Siril gefunden", env["siril_ok"], env["siril_message"])
+        engine_ok = env["siril_ok"]
+    else:
+        step("PixInsight gefunden", env["pixinsight_ok"] and env["wbpp_ok"], env["pixinsight"])
+        engine_ok = env["pixinsight_ok"]
     step("Datei-Symlinks erlaubt (Entwicklermodus)", env["symlinks_allowed"],
          "" if env["symlinks_allowed"] else "ohne: Dateien vom Netzlaufwerk werden kopiert")
     if env["long_paths"] is not None:
@@ -132,27 +145,29 @@ def run(settings, folder: str, log=print, progress=None, cancel=None, with_pixin
     plan["workdir"] = pdir
     groups = len(plan["runs"][0].get("flat_groups") or []) if plan.get("runs") else 0
     step("Analyse", bool(plan.get("runs")), "%d Lights, %d Flat-Gruppen" % (plan.get("total_frames") or 0, groups))
-    if with_pixinsight and (env["pixinsight_ok"] or runner_factory):
+    if with_pixinsight and (engine_ok or runner_factory):
         if progress:
-            progress(stage="Stacken mit PixInsight", step="stack", done=2, total=3)
+            progress(stage="Stacken mit %s" % label, step="stack", done=2, total=3)
         for r in plan["runs"]:
             r["gb"] = min(r.get("gb") or 0, 1)
-        st = pi.run_plan(plan, s2, log=log, cancel=cancel, open_results=False, runner_factory=runner_factory)
+        st = engines.run_plan(plan, s2, log=log, cancel=cancel, open_results=False, runner_factory=runner_factory)
         res["stack"] = dict(state=st.state, error=st.error, causes=st.causes, finals=st.finals)
-        step("Stacking mit PixInsight", st.state == "done", st.error or ", ".join(os.path.basename(f) for f in st.finals))
+        step("Stacking mit %s" % label, st.state == "done", st.error or ", ".join(os.path.basename(f) for f in st.finals))
         jobs = sorted(os.listdir(os.path.join(pdir, "runs")))
         jobdir = os.path.join(pdir, "runs", jobs[-1]) if jobs else None
         if jobdir:
             res["jobdir"] = jobdir
+        if jobdir and not siril_mode:
+            from . import wbpplog
+            from .engines import pixinsight as pi
             for r in plan["runs"]:
                 out = os.path.join(jobdir, pi.safe_file(r["name"]))
                 if os.path.isdir(os.path.join(out, "logs")):
                     cc = pi.cc_check(out)
                     res.setdefault("cosmetic", {})[r["name"]] = {k: v for k, v in cc.items() if k != "log"}
-                    from . import wbpplog
                     res.setdefault("wbpp_causes", {})[r["name"]] = wbpplog.diagnose(out)
     else:
-        step("Stacking mit PixInsight", False, "übersprungen (PixInsight nicht gefunden)")
+        step("Stacking mit %s" % label, False, "übersprungen (%s nicht gefunden)" % label)
     res["ok"] = all(s["ok"] for s in res["steps"] if not s["name"].startswith(("Datei-Symlinks", "Testordner")))
     res["duration_s"] = round(time.time() - t0, 1)
     out = os.path.join(settings.workdir, "selbsttest", "bericht-%s.json" % datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))

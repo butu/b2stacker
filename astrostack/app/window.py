@@ -140,7 +140,7 @@ def run(port: int = 8765):
             return True
         ok = w.create_confirmation_dialog(
             "b2stacker beenden?",
-            "Es läuft gerade: %s.\n\nBeim Schließen wird der Auftrag abgebrochen (PixInsight wird beendet). "
+            "Es läuft gerade: %s.\n\nBeim Schließen wird der Auftrag abgebrochen (das Stacking-Programm wird beendet). "
             "Trotzdem schließen?" % j.title)
         if not ok:
             return False

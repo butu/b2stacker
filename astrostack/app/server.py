@@ -774,7 +774,7 @@ def start_requality(name: str, stack_id: str) -> dict:
 
 
 def start_selftest(folder: str) -> dict:
-    """Selbsttest mit echtem PixInsight: legt nur einen neuen Testordner an, stackt ihn und schreibt einen Bericht."""
+    """Selbsttest mit der gewählten Engine: legt nur einen neuen Testordner an, stackt ihn und schreibt einen Bericht."""
     folder = (folder or "").strip().strip('"')
     if not folder or not os.path.isdir(folder):
         raise ValueError("Ordner für den Selbsttest nicht gefunden: %s" % (folder or "–"))
@@ -923,7 +923,7 @@ class Handler(BaseHTTPRequestHandler):
             if parts == ["api", "update"]:
                 return self._json(updater.status())
             if parts == ["api", "steps"]:
-                return self._json(dict(analyze=steps.ANALYZE, stack=steps.STACK))
+                return self._json(dict(analyze=steps.ANALYZE, stack=steps.stack_for(settings().engine)))
             if parts[:2] == ["api", "project"] and len(parts) == 4 and parts[3] == "frames":
                 return self._json(project_frames(parts[2]))
             if parts[:2] == ["api", "project"] and len(parts) == 4 and parts[3] == "insights":

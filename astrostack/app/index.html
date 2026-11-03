@@ -805,7 +805,7 @@ $('#menuBtn').onclick=e=>openPop('menuPop',e.currentTarget);
 $('#menuUpd').onclick=()=>{closePops();openUpdate();checkUpdate();};
 $('#menuAbout').onclick=()=>{closePops();openUpdate();};
 $('#menuSelf').onclick=async()=>{closePops();
-  if(!await ask('Selbsttest starten?','b2stacker legt im gewählten Ordner einen neuen Unterordner „b2stacker-selbsttest, mit Komma“ mit kleinen Testbildern an (ca. 50 MB), analysiert und stackt ihn mit PixInsight (wenige Minuten) und schreibt einen Bericht. Vorhandene Dateien werden nicht verändert.\n\nAm aussagekräftigsten auf dem Netzlaufwerk, auf dem deine Aufnahmen liegen.','Ordner wählen …'))return;
+  if(!await ask('Selbsttest starten?',`b2stacker legt im gewählten Ordner einen neuen Unterordner „b2stacker-selbsttest, mit Komma“ mit kleinen Testbildern an (ca. 50 MB), analysiert und stackt ihn mit ${engName()} (wenige Minuten) und schreibt einen Bericht. Vorhandene Dateien werden nicht verändert.\n\nAm aussagekräftigsten auf dem Netzlaufwerk, auf dem deine Aufnahmen liegen.`,'Ordner wählen …'))return;
   let f='';try{f=(await api('/api/pick-folder',{initial:(S.settings.sources||[])[0]||''})).path||'';}
   catch(e){f=await askText('Selbsttest','Ordner für die Testdaten','', 'z. B. \\\\JUPITER\\disk2','Starten')||'';}
   if(!f)return;
@@ -908,7 +908,7 @@ function openUpdate(){renderUpdate();updDlg.showModal();}
 function renderUpdate(){
   const u=UPD||{}, d=u.download, busy=S&&S.job&&['queued','running'].includes(S.job.state);
   document.getElementById('updTitle').textContent=u.newer?`Version ${u.latest} ist da`:'b2stacker';
-  let h=`<div class="sub" style="opacity:.8">Stapelt Astrofotos je Objekt – Frames prüfen, Kalibrierung zuordnen, mit PixInsight stacken.</div>
+  let h=`<div class="sub" style="opacity:.8">Stapelt Astrofotos je Objekt – Frames prüfen, Kalibrierung zuordnen, mit PixInsight oder Siril stacken.</div>
     <div class="kvgrid" style="max-width:360px"><span>Installiert</span><span><b>${esc(u.current||(S&&S.version)||'?')}</b></span>${u.latest?`<span>Neueste</span><span>${esc(u.latest)}${u.published?' · '+dt(u.published):''}</span>`:''}</div>`;
   if(u.notes)h+=`<div class="notes">${esc(u.notes)}</div>`;
   if(d&&d.state==='download'){const pc=d.total?Math.round(100*d.done/d.total):0;
@@ -942,7 +942,7 @@ function jobProgress(j){
     :j.kind==='assets'?[{key:'assets',title:'Bilder vorbereiten',icon:'image',what:'Bildbestand und Vorschauen werden lokal gespeichert.',why:''}]
     :j.kind==='selftest'?[{key:'scan',title:'Testdaten anlegen',icon:'folder',what:'Kleine Testbilder in einem Ordner mit Komma (Flats in zwei Kamerastellungen).',why:''},
       {key:'measure',title:'Analysieren',icon:'star',what:'Testbilder werden wie echte Aufnahmen vermessen.',why:''},
-      {key:'stack',title:'Stacken mit PixInsight',icon:'layers',what:'Das echte PixInsight stackt die Testbilder.',why:''}]
+      {key:'stack',title:'Stacken mit '+engName(),icon:'layers',what:'Das echte '+engName()+' stackt die Testbilder.',why:''}]
     :j.kind==='previews'?[{key:'previews',title:'Vorschauen vorbereiten',icon:'image',what:'Miniaturen und Bildschirmvorschauen werden lokal gespeichert.',why:''}]
     :[{key:'quality',title:'Qualität messen',icon:'gauge',what:'Kennzahlen werden berechnet.',why:''}];
   const keys=j.kind==='stack'?(p.run_steps&&p.run_steps.length?p.run_steps:defs.map(d=>d.key)):defs.map(d=>d.key);
@@ -1184,8 +1184,8 @@ function jobCard(j){
       <div><b>${esc(d.title)}</b>${p.total?` <span style="opacity:.6">· ${p.done} von ${p.total}</span>`:''}${p.target?` <span style="opacity:.6">· ${esc(p.target)}</span>`:''}
         <div class="what">${esc(p.message&&/beendet/.test(p.message)?p.message:d.what)}</div>${d.why?`<div class="why">Wozu: ${esc(d.why)}</div>`:''}
         ${(p.substeps||[]).length?`<div class="subs">${p.substeps.map(x=>`<div class="sub ${x.state}"><span>${x.state==='done'?ic('check','s14'):x.state==='now'?'▸':''}</span><span>${esc(x.title)}${x.total?` <span style="opacity:.6">(${x.done}/${x.total})</span>`:''}</span></div>`).join('')}</div>`:''}
-        ${p.alert?`<div class="alertline">${ic('warn','s14')}<div><span>PixInsight meldet: ${esc(p.alert)}</span>${p.alert_raw&&p.alert_raw!==p.alert?`<details class="raw"><summary>Originaltext</summary><code>${esc(p.alert_raw)}</code></details>`:''}</div></div>`:''}
-        ${(p.hints||[]).length?`<details class="hints"><summary>${ic('info','s14')} ${p.hints.length===1?esc(p.hints[0]):p.hints.length+' Hinweise von PixInsight'}</summary>${p.hints.length>1?p.hints.map(h=>`<div>${esc(h)}</div>`).join(''):''}</details>`:''}
+        ${p.alert?`<div class="alertline">${ic('warn','s14')}<div><span>${engName()} meldet: ${esc(p.alert)}</span>${p.alert_raw&&p.alert_raw!==p.alert?`<details class="raw"><summary>Originaltext</summary><code>${esc(p.alert_raw)}</code></details>`:''}</div></div>`:''}
+        ${(p.hints||[]).length?`<details class="hints"><summary>${ic('info','s14')} ${p.hints.length===1?esc(p.hints[0]):p.hints.length+' Hinweise von '+engName()}</summary>${p.hints.length>1?p.hints.map(h=>`<div>${esc(h)}</div>`).join(''):''}</details>`:''}
         <div class="progress ${pct==null?'indet':''}"><div style="width:${pct??0}%"></div></div></div>
       <div class="eta">${p.eta_s!=null?`<span class="small" style="opacity:.6">noch ca.</span><b>${dur(p.eta_s)}</b>`:`<span class="small" style="opacity:.6">Restzeit</span><b style="font-size:14px">wird geschätzt …</b>`}<span class="small" style="opacity:.6">läuft seit ${dur(p.step_elapsed_s)}</span></div></div>`:''}
     ${j.state==='failed'?failBanner(j,p):''}
@@ -1202,7 +1202,7 @@ function failBanner(j,p){
       <div class="bx">${esc(j.error||'')}</div>
       ${errs.slice(1).concat(warns).map(c=>`<div class="bx" style="opacity:.75">• ${esc(c.text)}</div>`).join('')}
       <div class="row" style="gap:6px;margin-top:4px">${j.project?`<button class="btn sm" onclick='openProject(${jsArg(j.project)}).then(()=>goTab("plan"))'>Kalibrierdaten ändern</button>`:''}
-        ${p.logdir?`<button class="btn sm" onclick='openDir(${jsArg(p.logdir)})'>${ic('folder-open')} WBPP-Protokoll öffnen</button>`:''}
+        ${p.logdir?`<button class="btn sm" onclick='openDir(${jsArg(p.logdir)})'>${ic('folder-open')} ${isSiril()?'Protokoll':'WBPP-Protokoll'} öffnen</button>`:''}
         ${j.kind==='stack'&&j.project?`<button class="btn sm" onclick='retryStack(${jsArg(j.project)})'>${ic('refresh')} Erneut versuchen</button>`:''}</div></div></div>`;
 }
 async function retryStack(name){try{await startJob('/api/project/'+encodeURIComponent(name)+'/stack',{},'Stacking');}catch(e){toast(e.message,true)}}
@@ -1273,7 +1273,7 @@ async function loadInsights(force){
 const OPTS=[
   ['fix_fringes','Farbsäume korrigieren','Richtet Rot und Blau nach dem Stacken an den Sternen exakt auf Grün aus. Entfernt farbige Sternränder durch die Atmosphäre – besonders bei tief stehenden Objekten.',true],
   ['local_normalization','Local Normalization','Gleicht Helligkeitsverläufe zwischen den Nächten an, etwa durch Mond oder Lichtverschmutzung. Bei mehreren Nächten empfohlen.',true],
-  ['hot_pixels','Hotpixel entfernen (wenn keine Darks)','Ohne Darks ersetzt b2stacker heiße Pixel vor dem Stacken. Sonst kann PixInsight die Bilder an den Hotpixeln statt an den Sternen ausrichten – das gibt Geistersterne. Mit Darks nicht nötig.',true],
+  ['hot_pixels','Hotpixel entfernen (wenn keine Darks)','Ohne Darks ersetzt b2stacker heiße Pixel vor dem Stacken. Sonst kann das Stacking-Programm die Bilder an den Hotpixeln statt an den Sternen ausrichten – das gibt Geistersterne. Mit Darks nicht nötig.',true],
   ['distortion_correction','Verzerrungskorrektur','Richtet auch leicht verzerrte Sterne am Bildrand sauber aus.',true],
   ['large_scale_rejection','Satelliten- und Flugzeugspuren entfernen','Erkennt lange, helle Spuren und lässt sie beim Mitteln weg.',true],
   ['autocrop','Ränder automatisch beschneiden','Aus lassen, wenn du die Filter später kombinierst. Sonst passen die Bilder nicht mehr genau aufeinander.',false],
@@ -2053,7 +2053,7 @@ function fvSyncStrip(){
     <button type="button" class="btn sm fvfit" id="fvFit">Ganzes Bild</button>
     ${ftype(f.type)==='light'?`<div class="fvov"><span class="fvo">Einblenden</span>
       <button type="button" class="ovc ${OV.s?'on':''}" data-ov="s"><i style="border-color:#8ff0a4"></i>Sterne<span class="kbd">S</span></button>
-      <button type="button" class="ovc ${OV.x?'on':''}" data-ov="x" title="Näherung der StarAlignment-Regel maxStarDistortion"><i style="border-color:#ffa348"></i>Würde PixInsight verwerfen<span class="kbd">X</span></button>
+      <button type="button" class="ovc ${OV.x?'on':''}" data-ov="x" title="Näherung der StarAlignment-Regel maxStarDistortion"><i style="border-color:#ffa348"></i>Würde ${engName()} verwerfen<span class="kbd">X</span></button>
       <button type="button" class="ovc ${OV.h?'on':''}" data-ov="h"><i style="border-color:#ff7b63;border-radius:50%"></i>Hotpixel<span class="kbd">H</span></button>
       <div class="fvo" id="fvOvInfo"></div></div>`:''}
     <div class="fvk"><span class="kbd">←</span><span class="kbd">→</span><span>blättern ·</span><span class="kbd">Leertaste</span><span>umschalten ·</span><span class="kbd">Esc</span><span>schließen · nach V/N geht es automatisch weiter</span></div>`;
@@ -2267,7 +2267,7 @@ function renderPlan(b){
           <span class="small"><b data-topp="${i}">${runTop(r,op)} %</b> · <span data-topt2="${i}">${topText(r,runTop(r,op))}</span></span></div></div>
         <div class="optrow" style="flex-wrap:wrap"><div class="ot" style="flex:1 1 260px"><span class="on">Referenz</span><span class="od">Frame, auf den alle anderen ausgerichtet werden. Ein Master eines anderen Laufs hält mehrere Filter deckungsgleich.</span></div>
           <select data-ref="${i}">${runOpts(r).map(o=>`<option value="${esc(o)}" ${o===(r.reference||'auto')?'selected':''}>${o==='auto'?'Bester Frame':'Master von '+esc(runLabel(o.slice(7)))}</option>`).join('')}</select></div>
-        ${r.star_detection?`<div class="optrow" style="flex-wrap:wrap"><div class="ot" style="flex:1 1 260px"><span class="on">Sternerkennung angepasst</span><span class="od">${esc(r.star_detection.why)} – damit PixInsight an echten Sternen ausrichtet, nicht an Hotpixeln. Aus der Analyse von ${r.star_detection.stats?.n||'?'} Lights abgeleitet.</span></div>
+        ${r.star_detection?`<div class="optrow" style="flex-wrap:wrap"><div class="ot" style="flex:1 1 260px"><span class="on">Sternerkennung angepasst</span><span class="od">${esc(r.star_detection.why)} – damit ${engName()} an echten Sternen ausrichtet, nicht an Hotpixeln. Aus der Analyse von ${r.star_detection.stats?.n||'?'} Lights abgeleitet.</span></div>
           <span class="small mono" style="opacity:.7;text-align:right">${Object.entries(r.star_detection.params).map(([k,v])=>esc(k)+' = '+esc(String(v).replace('.',','))).join('<br>')}</span></div>`:''}
         <div class="optrow"><div class="ot"><span class="on">Platzbedarf</span><span class="od">Zwischendateien und Arbeitsspeicher für diesen Lauf.</span></div><span class="small" style="white-space:nowrap">~${fmt(r.gb,0)} GB · ~${fmt(r.ram_gb,0)} GB RAM</span></div>
         ${(r.light_dirs||[]).length?`<div class="optrow" style="flex-wrap:wrap;align-items:flex-start"><div class="ot" style="flex:0 0 auto"><span class="on">Light-Ordner</span></div><div style="display:flex;flex-wrap:wrap;gap:4px 14px;flex:1;justify-content:flex-end">${r.light_dirs.map(d=>dirLink(d)).join('')}</div></div>`:''}
@@ -2407,7 +2407,7 @@ function calResHtml(r){
   if(r.error)return `<div class="calres" style="border-color:var(--err)">✗ ${esc(r.error)}</div>`;
   return `<div class="calres" style="border-color:${r.ok?(r.warnings.length?'var(--warn)':'var(--ok)'):'var(--err)'}"><b>${r.ok?'✓':'✗'} ${r.frames} Dateien</b> · erkannt: ${esc(Object.entries(r.types).map(([t,n])=>n+'× '+t).join(', '))}
     ${r.problems.map(x=>`<div class="errc">✗ ${esc(x)}</div>`).join('')}${r.warnings.map(x=>`<div style="opacity:.7">⚠ ${esc(x)}</div>`).join('')}
-    ${!r.ok?'<div style="opacity:.7">Passt nicht zu den Lights – WBPP würde diese Dateien wahrscheinlich ignorieren oder falsch kalibrieren.</div>':''}</div>`;
+    ${!r.ok?'<div style="opacity:.7">Passt nicht zu den Lights – das Stacking-Programm würde diese Dateien wahrscheinlich ignorieren oder falsch kalibrieren.</div>':''}</div>`;
 }
 $('#calSave').onclick=async()=>{
   const st=calState; let choice=st.sel;
@@ -2458,8 +2458,8 @@ const SETF=[
 ];
 function openSettings(first){
   const s=S.settings;
-  $('#setBody').innerHTML=(first?`<div class="banner info"><span class="infoc" style="display:flex">${ic('info','s18')}</span><div class="grow bx">Willkommen! Bitte kurz prüfen: Wo soll gearbeitet werden, und wo ist PixInsight installiert?</div></div>`:'')+
-    `<div class="field"><label>Stacking mit</label><div class="frow"><select data-k="engine" id="engSel" style="flex:1 1 0">${[['pixinsight','PixInsight (WBPP)'],['siril','Siril']].map(([v,l])=>`<option value="${v}" ${s.engine===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="d">Welches Programm stapelt. Stacking mit Siril ist noch in Arbeit – bis dahin meldet ein Lauf das klar, statt auf PixInsight zurückzufallen.</div></div>`+
+  $('#setBody').innerHTML=(first?`<div class="banner info"><span class="infoc" style="display:flex">${ic('info','s18')}</span><div class="grow bx">Willkommen! Bitte kurz prüfen: Wo soll gearbeitet werden, und wo ist ${s.engine==='siril'?'Siril':'PixInsight'} installiert?</div></div>`:'')+
+    `<div class="field"><label>Stacking mit</label><div class="frow"><select data-k="engine" id="engSel" style="flex:1 1 0">${[['pixinsight','PixInsight (WBPP)'],['siril','Siril']].map(([v,l])=>`<option value="${v}" ${s.engine===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="d">Welches Programm stapelt. Siril ab Version 1.4 (Linux: Flatpak oder siril-cli, Windows/macOS: siril-cli). Ein Lauf nutzt nur die gewählte Engine, ohne Rückfall auf die andere.</div></div>`+
     SETF.filter(f=>f[2]!=='bool').map(([k,l,t,d,pick,eng])=>`<div class="field"${eng?` data-eng="${eng}"${s.engine===eng?'':' hidden'}`:''}><label>${l}</label><div class="frow"><input type="${t}" data-k="${k}" value="${esc(s[k])}" ${t==='text'&&k!=='timezone'?'class="mono" style="font-size:13.5px"':''}>${pick?`<button class="btn" data-pickset="${k}" data-kind="${pick===true?'folder':pick}" data-pickkind="${k}">Durchsuchen …</button>`:''}</div>${d?`<div class="d">${d}</div>`:''}${pick==='file'?`<div class="d" id="${k==='siril'?'sirilCheck':'piCheck'}"></div>`:''}</div>`).join('')+
     `<div class="field"><label>Ersatz-Standort</label><div class="frow">
       ${[['site_lat','Breite','48,86'],['site_lon','Länge','15,01'],['site_elev','Höhe (m)','500']].map(([k,l,ph])=>`<input type="text" inputmode="decimal" data-site="${k}" aria-label="${l}" placeholder="${l}, z. B. ${ph}" value="${s[k]==null?'':esc(String(s[k]).replace('.',','))}" style="flex:1 1 0;min-width:0">`).join('')}</div>

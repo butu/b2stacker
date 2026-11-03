@@ -52,7 +52,7 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
             if alt_med is not None and alt_med < low_alt:
                 why += " Objekt stand tief (Median %.0f°): Farbsäume in der Bearbeitung (BlurX „Correct only“) korrigieren." % alt_med
         elif proc.mode == "extract":
-            why = proc.note + ". WBPP stackt das Farbbild, danach wird aufgeteilt (%s)." % ", ".join(
+            why = proc.note + ". Das Stacking-Programm stackt das Farbbild, danach wird aufgeteilt (%s)." % ", ".join(
                 "%s = %s" % (k, {"R": "Rot", "GB": "(Grün+Blau)/2", "G": "Grün", "B": "Blau"}.get(v, v)) for k, v in proc.channel_map.items())
         else:
             why = proc.note
@@ -92,8 +92,8 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
     samp = (fw / scale) if (fw and scale) else None
     has_darks = any(r["darks"] for r in runs)
     settings += [("Kalibrierung", "Bias%s + Flats je Filter%s" % (" / Dark-Flats" if any(r["darkflats"] for r in runs) else "", " + Darks" if has_darks else ""),
-                  "Darks gefunden und zugeordnet." if has_darks else "Keine passenden Darks – b2stacker entfernt Hotpixel vor dem Stacken selbst (sonst kann PixInsight "
-                  "die Bilder an Hotpixeln statt an Sternen ausrichten).")]
+                  "Darks gefunden und zugeordnet." if has_darks else "Keine passenden Darks – b2stacker entfernt Hotpixel vor dem Stacken selbst (sonst kann das "
+                  "Stacking-Programm die Bilder an Hotpixeln statt an Sternen ausrichten).")]
     settings += [("Verarbeitung " + r["name"], {"debayer": "Farbbild", "extract": "Kanäle " + " + ".join(r["outputs"]), "mono": "Mono"}[r["mode"]], r["why"]) for r in runs]
     settings += [
         ("Registrierung", "Verzerrungskorrektur an", "Großes Bildfeld: Sterne am Rand leicht verzerrt."),
@@ -102,7 +102,7 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
         ("Gewichtung", "PSF Signal Weight", ("%d von %d Nächten mit Mond: schwache Frames zählen automatisch weniger." % (moon_n, nn)) if moon_n else "Gewichtet nach Signal und Schärfe."),
         ("Local Normalization", "an" if nn > 1 else "aus", ("%d Nächte mit unterschiedlichem Hintergrund." % nn) if nn > 1 else "Nur eine Nacht."),
         ("Rejection", "automatisch + Large-Scale (hoch)", "Entfernt Satelliten- und Flugzeugspuren."),
-        ("Drizzle", "aus" if (samp is None or samp > 3) else "2× empfohlen (in WBPP von Hand)",
+        ("Drizzle", "aus" if (samp is None or samp > 3) else "2× empfohlen (im Stacking-Programm von Hand)",
          ("FWHM %.1f\" = %.1f px: überabgetastet." % (fw, samp)) if (samp and samp > 3) else (("FWHM %.1f\" = %.1f px: Drizzle 2× lohnt." % (fw, samp)) if samp else "Keine FWHM-Daten.")),
         ("Farbsäume", "nach dem Stacken korrigieren",
          "Rot und Blau werden an den Sternen auf Grün ausgerichtet (atmosphärische Dispersion, v. a. bei tiefem Objekt)."),

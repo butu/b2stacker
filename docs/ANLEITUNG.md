@@ -28,6 +28,8 @@ Diese Anleitung erklärt die Bedienung von b2stacker Schritt für Schritt. Techn
      lokale Platte wählen, nicht OneDrive.
    - **PixInsight-Programm** – meist `C:\Program Files\PixInsight\bin\PixInsight.exe`. Ein grünes Häkchen zeigt,
      dass PixInsight und das WBPP-Skript gefunden wurden.
+    - **Stacking mit** – PixInsight (Standard) oder Siril. Mit Siril brauchst du PixInsight nicht; siehe
+      [Stacking mit Siril](#stacking-mit-siril).
 3. Neue Versionen meldet oben rechts ein grüner Knopf „Update x.y.z“.
 
 ## 2. Projekt anlegen
@@ -88,17 +90,19 @@ Der Reiter **Stacken** zeigt den Plan. b2stacker stackt jeden Filter in einem ei
   - **Sternerkennung angepasst** – erscheint, wenn die Sterne groß oder leicht oval sind (z. B. lange Brennweite).
     b2stacker leitet dann aus der Analyse passende Werte für PixInsights StarAlignment ab (`maxStarDistortion`,
     `minStructureSize`, Hotpixel- und Rauschfilter), damit an echten Sternen statt an Hotpixeln ausgerichtet wird.
+     Mit Siril wirkt derselbe Befund auf die Sternerkennung von Siril.
   - Platzbedarf und Light-Ordner des Laufs.
 - **Empfohlene Einstellungen** gelten für alle Läufe (Hotpixel, Local Normalization, Gewichtung …).
   „Warum diese Einstellungen?“ erklärt jede Wahl.
-- Unten zeigt ein Kasten, ob alles bereit ist (Platz, Arbeitsspeicher, PixInsight) – dann **Stacken**.
+- Unten zeigt ein Kasten, ob alles bereit ist (Platz, Arbeitsspeicher, PixInsight bzw. Siril) – dann **Stacken**.
 
 Ein Klick auf ein Ergebnis öffnet den **Ergebnis-Betrachter**: blättern mit den Pfeiltasten, rechts Aufnahme,
-Kalibrierung, Qualitätskennzahlen und Hinweise des Stacks, dazu „In PixInsight öffnen“, „Ordner öffnen“,
+Kalibrierung, Qualitätskennzahlen und Hinweise des Stacks, dazu „In PixInsight öffnen“ (bzw. „In Siril öffnen“), „Ordner öffnen“,
 „Als Projektbild“ (**P**), „Kennzahlen messen“ und „Umbenennen“. Bearbeitete Bilder sind in derselben Reihe.
 
 Fertige Stacks liegen in `<Arbeitsverzeichnis>/projects/<Projekt>/final/` als
-`Ziel_Filter_Datum_Stunden.xisf`. Dualband an der Farbkamera wird danach in Ha + OIII bzw. SII + OIII geteilt.
+`Ziel_Filter_Datum_Stunden.xisf`. Dualband an der Farbkamera wird danach in Ha + OIII bzw. SII + OIII geteilt
+(mit PixInsight; im Siril-Modus bleibt das Ergebnis vorerst ein Farbbild – siehe [Stacking mit Siril](#stacking-mit-siril)).
 
 ## 6. Aufträge und Warteschlange
 
@@ -106,7 +110,7 @@ Analyse, Vorschauen und Stacking sind **Aufträge**. Es läuft immer einer; weit
 und lassen sich dort abbrechen. Das Symbol oben rechts zeigt den laufenden Auftrag mit Projekt, Schritt und
 Restzeit. Während ein Auftrag läuft, kannst du weiter Frames sichten und andere Projekte bearbeiten.
 
-Beim Kalibrieren zeigt die Karte die Unterschritte aus dem PixInsight-Protokoll, z. B. „✓ Master-Bias erstellt ·
+Beim Kalibrieren zeigt die Karte mit PixInsight die Unterschritte aus dem Protokoll, z. B. „✓ Master-Bias erstellt ·
 ✓ Flats kalibriert (60/60) · ▸ Master-Flat erstellen · Lights kalibrieren (0/28)“. Gibt es noch keine
 Schätzgrundlage, steht bei der Restzeit „wird geschätzt …“.
 
@@ -124,8 +128,8 @@ fehlgeschlagen mit Erklärung.
 Scheitert ein Stacking, zeigt b2stacker einen roten Kasten mit:
 
 - **dem Schritt**, an dem es gescheitert ist (z. B. „Bias integrieren“),
-- **der Ursache** aus dem WBPP-Protokoll in Klartext (z. B. „nur 1 Bias – mindestens 3 nötig“),
-- Knöpfen **Kalibrierdaten ändern**, **WBPP-Protokoll öffnen** und **Erneut versuchen**.
+- **der Ursache** aus dem Engine-Protokoll in Klartext (z. B. „nur 1 Bias – mindestens 3 nötig“),
+- Knöpfen **Kalibrierdaten ändern**, **WBPP-Protokoll öffnen** (mit Siril: **Protokoll öffnen**) und **Erneut versuchen**.
 
 Offensichtliche Probleme fängt b2stacker schon **vor** dem Start von PixInsight ab, etwa zu wenige
 Roh-Kalibrierbilder ohne Master.
@@ -141,7 +145,7 @@ Menü (☰) → **Einstellungen**:
 | Einstellung | Bedeutung |
 |---|---|
 | Arbeitsverzeichnis | Zwischendateien, Berichte, Stacks, Historie. Beim Wechsel bietet b2stacker an, Projekte mitzunehmen. |
-| Stacking mit | PixInsight (WBPP) oder Siril. Siril-Stacking ist noch in Arbeit: ein Lauf mit Siril meldet das derzeit klar. |
+| Stacking mit | PixInsight (WBPP) oder Siril – siehe [Stacking mit Siril](#stacking-mit-siril). |
 | PixInsight-Programm | Pfad zu `PixInsight.exe`. |
 | Siril-Programm | Leer = automatisch (PATH, Standardordner, Flatpak `org.siril.Siril`). Sonst Pfad zur `siril-cli` bzw. `flatpak:org.siril.Siril`. Mindestversion 1.4.0. |
 | Gleichzeitige Vermessungen | Mehr = schnellere Analyse, je ~1 GB Arbeitsspeicher. |
@@ -150,21 +154,56 @@ Menü (☰) → **Einstellungen**:
 | **Ersatz-Standort** | Breite, Länge (Grad, Osten positiv) und optional Höhe in m. Wird verwendet, wenn die FITS-Daten **keinen Standort** enthalten – für Mondstand, Objekthöhe und die Zuordnung zur Nacht. Steht ein Standort im Header, gilt immer dieser. Wirkt ab der nächsten Analyse. |
 | PC wach halten | Kein Energiesparmodus während eines Stackings. |
 | Zwischendateien löschen | Spart viel Platz; Masters, Stacks und Protokolle bleiben. |
-| Ergebnisse öffnen | Fertige Stacks am Ende in PixInsight öffnen. |
+| Ergebnisse öffnen | Fertige Stacks am Ende in der gewählten Engine (PixInsight oder Siril) öffnen. |
+
+### Stacking mit Siril
+
+**Schalter:** Einstellungen → **Stacking mit** → *Siril*. Danach stackt b2stacker ausschließlich mit Siril:
+Stacken, Selbsttest und „In Siril öffnen“ nutzen Siril, PixInsight wird nicht gestartet. Es gibt keinen stillen
+Rückfall auf PixInsight; fehlt Siril, bricht der Lauf mit einer klaren Meldung ab.
+
+**Erkennung** (Siril ab Version 1.4.0; geprüft mit 1.4.4). Das Feld „Siril-Programm“ bleibt leer für die
+automatische Suche in dieser Reihenfolge:
+
+- `siril-cli` im PATH,
+- Standardordner: Linux `/usr/bin/siril-cli` bzw. `/usr/local/bin/siril-cli`, Windows
+  `C:\Program Files\Siril\bin\siril-cli.exe`, macOS `/Applications/Siril.app/Contents/MacOS/siril-cli`,
+- Flatpak `org.siril.Siril` (nur Linux, wenn installiert).
+
+Alternativ einen Pfad eintragen: die `siril-cli` selbst, das Siril-Programm (die CLI muss daneben liegen)
+oder den Installationsordner. Für Flatpak `flatpak:org.siril.Siril` eintragen. Die Einstellungen zeigen, was
+gefunden wurde (z. B. „Siril 1.4.4 gefunden“). Bei Flatpak gibt b2stacker Siril beim Start die nötigen Ordner frei;
+Originale werden nie verändert.
+
+**Gleich wie bei PixInsight:** Analyse, Flat-Prüfung, Stacking-Plan, Kalibrierung (Bias, Flats, Darks,
+Flat-Gruppen bei gedrehter Kamera), Sternschärfe-Bewertung, Referenz, Kennzahlen des fertigen Stacks,
+Ablage unter `projects/<Projekt>/final/`. Erkennt b2stacker einen unbrauchbaren Stack (Ausrichtung an
+Hotpixeln), wird der Lauf wie bei PixInsight einmal mit stärkerer Hotpixel-Korrektur wiederholt.
+
+**Anders als bei PixInsight:**
+
+- **Hotpixel:** Mit Darks übernimmt Siril die Korrektur. Ohne Darks entfernt b2stacker die Hotpixel vor dem
+  Stacken selbst; die CosmeticCorrection von PixInsight entfällt.
+- **Dualband an der Farbkamera:** Siril stackt das Farbbild; die Aufteilung in Ha/OIII bzw. SII/OIII findet im
+  Siril-Modus derzeit nicht statt.
+- **Protokoll:** Jeder Lauf schreibt sein Siril-Skript (`siril.ssf`) in `runs/<Zeit>/<Lauf>/`. Es gibt kein
+  WBPP-Protokoll und keine PixInsight-Fensterprüfung.
+- **Öffnen:** „In Siril öffnen“ startet Siril mit den fertigen Stacks.
 
 ## 9. Selbsttest
 
-Menü → **Selbsttest …** prüft, ob b2stacker auf **deinem** Rechner mit deinem PixInsight funktioniert.
+Menü → **Selbsttest …** prüft, ob b2stacker auf **deinem** Rechner mit deiner Engine (PixInsight oder Siril) funktioniert.
 Du wählst einen Ordner – am besten auf dem Laufwerk, auf dem auch deine Aufnahmen liegen (z. B. das NAS).
 b2stacker legt dort einen kleinen Testdatensatz an (`b2stacker-selbsttest, mit Komma`: zwei Nächte, gedrehte
-Kamera, Flats je Nacht, Bias), analysiert und stackt ihn mit PixInsight und prüft dabei:
+Kamera, Flats je Nacht, Bias), analysiert und stackt ihn mit der eingestellten Engine und prüft dabei:
 
-- PixInsight und WBPP gefunden, Version,
+- PixInsight und WBPP gefunden, Version (mit Siril: Siril gefunden, Version),
 - Datei-Verknüpfungen erlaubt (Entwicklermodus), lange Pfade,
 - Netzlaufwerk, Komma im Ordnernamen, Flat-Gruppen, Hotpixel-Korrektur.
 
 Das Testprojekt liegt getrennt unter `<Arbeitsverzeichnis>/selbsttest/` und erscheint nicht in der Projektliste.
-Dort liegt auch der Bericht `bericht-<Zeit>.json` – den kannst du bei Problemen mitschicken.
+Dort liegt auch der Bericht `bericht-<Zeit>.json` – den kannst du bei Problemen mitschicken. Er nennt die
+Engine (`engine`) und mit Siril die Version (`environment.siril_version`).
 
 ## 10. Netzlaufwerk (NAS) und Windows-Entwicklermodus
 
