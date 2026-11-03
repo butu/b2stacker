@@ -88,3 +88,15 @@ def test_report_engine_text_from_last_stack(tmp_path):
     recs[1] = dict(id="b", date="2026-02-01T10:00:00")
     json.dump(recs, open(os.path.join(pdir, "stacks.json"), "w", encoding="utf-8"))
     assert report_build.engine_meta(pdir, "siril")["engine_text"] == "PixInsight WBPP"
+
+
+def test_cached_report_shows_engine_version_from_later_stack(tmp_path):
+    pdir = str(tmp_path)
+    snap = dict(version=1, generated="01.01.2026 10:00", target="T",
+                data=dict(meta=dict(target="T", engine="siril", engine_text="Siril", planned_engine="siril"),
+                          frames=[], filters=[], kpi=[], nights=[], checks=[], rec=[], plan=dict(runs=[])))
+    os.makedirs(os.path.dirname(os.path.join(pdir, report_build.REPORT_DATA)))
+    json.dump(snap, open(os.path.join(pdir, report_build.REPORT_DATA), "w", encoding="utf-8"))
+    json.dump([dict(id="b", date="2026-02-01T10:00:00", engine="siril", engine_version="1.4.4")],
+              open(os.path.join(pdir, "stacks.json"), "w", encoding="utf-8"))
+    assert report_build.cached_data(pdir)["meta"]["engine_text"] == "Siril 1.4.4"

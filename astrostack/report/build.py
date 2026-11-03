@@ -214,7 +214,7 @@ def build(target: str, groups, inv, calib: dict, analysis_dir: str, workdir: str
     pub_plan = dict(planview.apply(plan, engine))
     pub_plan["runs"] = [dict(r, lightDirs=r["nights"]) for r in pub_plan["runs"]]
     pub_plan["job"] = {k: v for k, v in plan.items() if k not in ("settings",)}
-    meta.update(engine_meta(pdir, engine))
+    meta.update(engine_meta(pdir, engine), planned_engine=engine)
     frames = [{k: r.get(k) for k in ["file", "path", "night", "filter", "frame", "t", "exp", "fwhm", "fwhm_as", "ecc", "nstars", "bg",
                                      "noise", "alt", "moon_illum", "moon_alt", "temp", "status", "auto_status", "override", "weight", "img"]}
               | {"flags": [f[1] for f in r["flags"]]} for r in rows]
@@ -343,6 +343,8 @@ def cached_data(pdir: str) -> dict:
     _recompute_counts(data, selected)
     meta = data["meta"] if isinstance(data.get("meta"), dict) else {}
     meta["target"] = snap.get("target") or meta.get("target") or os.path.basename(pdir)
+    # Engine text follows the current stack records: a snapshot taken before a stack must not keep the old text.
+    meta.update(engine_meta(pdir, meta.get("planned_engine") or meta.get("engine") or "pixinsight"))
     data["meta"] = meta
     if isinstance(plan, dict) and plan.get("runs") is not None:
         pub_plan = dict(plan)
