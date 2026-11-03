@@ -485,3 +485,16 @@ def test_inline_handlers_escape_apostrophes(tmp_path):
     # kein Handler bettet JSON oder esc() roh in ein Attribut mit Apostrophen ein
     assert not re.search(r"onclick='[^'\n]*\$\{JSON\.stringify", APP)
     assert not re.search(r"onclick=\"[^\"\n]*\('\$\{esc\(", APP)
+
+
+def test_design_sections_and_review_keys():
+    # Projektansicht nach Entwurf: drei Bereiche, Übersicht mit Analyse/Nächten aus /insights
+    for label in ("'Übersicht'", "'Frames'", "'Stacken'"):
+        assert label in APP
+    assert "/insights'" in APP and "analysisModel" in APP and "nightsModel" in APP
+    # Sichtung: V/N entscheiden und springen weiter, A setzt auf Automatik zurück; Leertaste bleibt Umschalter
+    key = _fn("fvKey")
+    assert "fvDecideCur" in key and "fvToggleCur" in key
+    decide = _fn("fvDecideCur")
+    assert "p.next()" in decide and "fvSetSnapshotUse(f,null)" in decide
+    assert "p.next" not in _fn("fvToggleCur")

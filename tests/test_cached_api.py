@@ -373,3 +373,35 @@ def test_project_and_thumb_do_not_stat_external_sources(workdir, monkeypatch, tm
         assert request(url, "/api/project-thumb/Test")[0] == 200
         if case == "frame":
             assert request(url, "/api/project/Test/frames")[0] == 200
+
+
+def test_insights_summarise_cached_report_without_frame_payload(workdir, monkeypatch):
+    data = dict(meta=dict(target="Test", camera="Cam", scale=0.97), kpi=[dict(filter="RGB", nights=2)],
+                nights=[dict(night="2026-10-01", filter="RGB", n=3, n_used=2, grade="A", quality=1.0)],
+                diag=dict(checks=[dict(level="warning", area="Dithering", title="Nur jeder 3. Frame", text="x")]),
+                checks=[dict(level="good", title="Flats RGB", text="ok")], rec=["r"],
+                sky=[dict(night="2026-10-01", x=[18, 19], obj=[30, 40], moon=[0, 5], sun=[-20, -20], illum=40,
+                          frames=[dict(x=18.5), dict(x=18.9)])],
+                frames=[dict(path="a", status="ok", auto_status="ok", flags=[], img="data:image/jpeg;base64,AAA"),
+                        dict(path="b", status="suggest", auto_status="suggest", flags=["Wolken/Dunst (wenige Sterne)"]),
+                        dict(path="c", status="rejected", auto_status="suggest", flags=["Wolken/Dunst (wenige Sterne)"])])
+    monkeypatch.setattr(report_build, "cached_data", lambda pdir: json.loads(json.dumps(data)))
+    with client() as url:
+        code, _, body = request(url, "/api/project/Test/insights")
+    assert code == 200
+    got = json.loads(body)
+    assert got["available"] is True
+    assert got["counts"] == dict(lights=3, used=1, suggest=2, warn=0, error=0)
+    assert got["reasons"][0] == ["Wolken/Dunst (wenige Sterne)", 2]
+    assert got["diag"][0]["area"] == "Dithering" and got["calib"][0]["title"] == "Flats RGB"
+    assert got["sky"][0]["shots"] == [18.5, 18.9] and "frames" not in got["sky"][0]
+    assert b"base64" not in body                     # no per-frame thumbnails in the overview payload
+
+
+def test_insights_without_snapshot_are_unavailable_not_an_error(workdir, monkeypatch):
+    def missing(pdir):
+        raise FileNotFoundError("Reportdaten fehlen")
+    monkeypatch.setattr(report_build, "cached_data", missing)
+    with client() as url:
+        code, _, body = request(url, "/api/project/Test/insights")
+    assert code == 200 and json.loads(body) == {"available": False}

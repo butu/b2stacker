@@ -129,29 +129,36 @@ def _pick_folder_dialog(initial: str = ""):
     sys.stdout.flush()
 
 
-def _pick_file_dialog(initial: str = ""):
+IMAGE_PATTERNS = "*.psd *.tif *.tiff *.jpg *.jpeg *.png *.xisf *.fits *.fit"
+
+
+def _pick_file_dialog(initial: str = "", kind: str = ""):
     import tkinter as tk
     from tkinter import filedialog
     root = tk.Tk()
     root.withdraw()
     root.attributes("-topmost", True)
     d = initial if os.path.isdir(initial) else os.path.dirname(initial)
-    p = filedialog.askopenfilename(initialdir=d or None, title="PixInsight.exe wählen",
-                                   filetypes=[("Programme", "*.exe"), ("Alle Dateien", "*.*")])
+    if kind == "image":
+        title, types = "Bild wählen", [("Bilder", IMAGE_PATTERNS), ("Alle Dateien", "*.*")]
+    else:
+        title, types = "PixInsight.exe wählen", [("Programme", "*.exe"), ("Alle Dateien", "*.*")]
+    p = filedialog.askopenfilename(initialdir=d or None, title=title, filetypes=types)
     sys.stdout.write(p or "")
     sys.stdout.flush()
 
 
-def pick_file(initial: str = "") -> str | None:
-    """Datei wählen (z. B. PixInsight.exe): im Programmfenster direkt, sonst über einen Hilfsprozess."""
+def pick_file(initial: str = "", kind: str = "") -> str | None:
+    """Datei wählen (PixInsight.exe oder mit kind="image" ein Bild): im Programmfenster direkt, sonst über einen Hilfsprozess."""
     from . import window
-    r = window.pick_file(initial)
+    kind = "image" if kind == "image" else ""
+    r = window.pick_file(initial, ("Bilder (%s)" % IMAGE_PATTERNS, "Alle Dateien (*.*)")) if kind else window.pick_file(initial)
     if r is not False:
         return r
     if getattr(sys, "frozen", False):
-        cmd = [sys.executable, "_pick-file", initial or ""]
+        cmd = [sys.executable, "_pick-file", initial or "", kind]
     else:
-        cmd = [sys.executable, "-m", "astrostack", "_pick-file", initial or ""]
+        cmd = [sys.executable, "-m", "astrostack", "_pick-file", initial or "", kind]
     out = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900,
                          env=dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1"),
                          creationflags=0x08000000 if sys.platform == "win32" else 0)
@@ -571,6 +578,49 @@ def project_detail(name: str) -> dict:
                 checklist=checklist.items(outs), pdir=pdir)
 
 
+def _first_flag(flags) -> str | None:
+    for f in flags or []:
+        txt = f.get("text") if isinstance(f, dict) else f
+        if txt:
+            return str(txt)
+    return None
+
+
+def project_insights(name: str) -> dict:
+    """Compact analysis summary for the overview (diagnosis, nights, sky tracks, counts).
+
+    Read-only from the cached report snapshot: no originals are touched and the heavy
+    per-frame thumbnails stay out of the response."""
+    from ..report import build as report_build
+    pdir = project.pdir_of(settings(), name)
+    try:
+        data = report_build.cached_data(pdir)
+    except FileNotFoundError:
+        return dict(available=False)
+    frames = data.get("frames") or []
+    reasons: dict[str, int] = {}
+    counts = dict(lights=len(frames), used=0, suggest=0, warn=0, error=0)
+    for f in frames:
+        auto = f.get("auto_status") or f.get("status")
+        if f.get("status") not in ("rejected", "suggest"):
+            counts["used"] += 1
+        if auto in ("suggest", "warn", "error"):
+            counts[auto] += 1
+        if auto == "suggest":
+            r = _first_flag(f.get("flags"))
+            if r:
+                reasons[r] = reasons.get(r, 0) + 1
+    sky = []
+    for n in data.get("sky") or []:
+        xs = [fr.get("x") for fr in n.get("frames") or [] if fr.get("x") is not None]
+        sky.append(dict(night=n.get("night"), x=n.get("x"), obj=n.get("obj"), moon=n.get("moon"), sun=n.get("sun"),
+                        illum=n.get("illum"), shots=[min(xs), max(xs)] if xs else None, filters=n.get("filters")))
+    diag = data.get("diag") or {}
+    return dict(available=True, meta=data.get("meta") or {}, kpi=data.get("kpi") or [], nights=data.get("nights") or [],
+                diag=diag.get("checks") or [], calib=data.get("checks") or [], rec=data.get("rec") or [],
+                sky=sky, counts=counts, reasons=sorted(reasons.items(), key=lambda kv: -kv[1]))
+
+
 MUTATING_ACTIONS = {"override", "sources", "delete", "stack-meta", "stack-delete", "asset-link", "stack", "plan",
                     "prepare-previews", "prepare-assets"}
 
@@ -781,6 +831,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(dict(analyze=steps.ANALYZE, stack=steps.STACK))
             if parts[:2] == ["api", "project"] and len(parts) == 4 and parts[3] == "frames":
                 return self._json(project_frames(parts[2]))
+            if parts[:2] == ["api", "project"] and len(parts) == 4 and parts[3] == "insights":
+                return self._json(project_insights(parts[2]))
             if parts[:2] == ["api", "frame-thumb"] and len(parts) == 3:
                 pdir = project.pdir_of(settings(), parts[2])
                 try:
@@ -871,7 +923,7 @@ class Handler(BaseHTTPRequestHandler):
             if parts == ["api", "settings"]:
                 return self._json(save_settings(b))
             if parts == ["api", "pick-file"]:
-                return self._json({"path": pick_file(b.get("initial", ""))})
+                return self._json({"path": pick_file(b.get("initial", ""), b.get("kind", ""))})
             if parts == ["api", "check-pixinsight"]:
                 return self._json(check_pixinsight(b.get("path", "")))
             if parts == ["api", "pick-folder"]:

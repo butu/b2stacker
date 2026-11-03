@@ -52,7 +52,7 @@ def run():
             pass
     if len(sys.argv) >= 2 and sys.argv[1] == "_pick-file":
         from .app.server import _pick_file_dialog
-        _pick_file_dialog(sys.argv[2] if len(sys.argv) > 2 else "")
+        _pick_file_dialog(sys.argv[2] if len(sys.argv) > 2 else "", sys.argv[3] if len(sys.argv) > 3 else "")
         return
     if len(sys.argv) >= 2 and sys.argv[1] == "_pick-folder":
         from .app.server import _pick_folder_dialog
