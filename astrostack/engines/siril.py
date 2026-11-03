@@ -284,7 +284,7 @@ def _calib_spec(paths: list[str], prefix: str, raw_dir: str, log) -> dict | None
     masters = [p for p in paths if _is_master(p)]
     if masters:
         return dict(master=masters[0])
-    return dict(raw=raw_dir, prefix=prefix, ext=os.path.splitext(paths[0])[1], paths=paths)
+    return dict(raw=raw_dir, prefix=prefix, paths=paths)
 
 
 def _causes(lines: list[str]) -> list[dict]:
@@ -353,7 +353,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     stg = staging.Stager(jobdir, os.path.join(settings.workdir, "cache"), log)
     lights = []
     for i, p in enumerate(run["lights"], 1):
-        dst = os.path.join(raw, "light", "light_%05d%s" % (i, os.path.splitext(p)[1].lower() or ".fit"))
+        dst = os.path.join(raw, "light", "light_%05d.fit" % i)          # setext fit: Siril liest nur diese Endung
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         lights.append(stg.place(p, dst))
     if len(lights) != n:
@@ -368,7 +368,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
             d = os.path.join(raw, kind)
             os.makedirs(d, exist_ok=True)
             for i, p in enumerate(cs.pop("paths"), 1):
-                stg.place(p, os.path.join(d, "%s_%05d%s" % (prefix, i, cs["ext"] or ".fit")))
+                stg.place(p, os.path.join(d, "%s_%05d.fit" % (prefix, i)))
         spec[kind] = cs
     sd = run.get("star_detection") or {}
     params = dict(sd.get("params") or {})
