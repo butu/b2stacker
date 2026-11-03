@@ -77,6 +77,10 @@ class Status:
     runs_total: int = 0
     run_steps: list = field(default_factory=list)
     steps_done: list = field(default_factory=list)
+    alert: str = ""                   # letzte Fehlermeldung von PixInsight (live)
+    causes: list = field(default_factory=list)    # verständliche Ursachen bei Fehlschlag
+    failed_step: str = ""
+    logdir: str = ""
 
     def as_dict(self):
         return dict(self.__dict__)
@@ -548,7 +552,7 @@ def run_plan(plan: dict, settings, log=print, on_status=None, cancel: threading.
         st.state, st.error = "cancelled", "vom Benutzer abgebrochen"
         _log("Abgebrochen.")
     except (StackError, staging.StagingError) as e:
-        st.state, st.error = "failed", str(e)
+        st.state, st.error, st.failed_step = "failed", str(e), st.step
         _log("FEHLER: " + str(e))
         logbook.event("error", project=project_name, run_id=stamp, run=st.run, step=st.step, message=str(e))
     except Exception as e:  # noqa: BLE001 – alles melden statt still sterben
@@ -665,6 +669,9 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
             log("  → %s" % steps.BY_KEY[key]["title"])
         for line in tail.new_lines():
             log("    PI: " + line)
+            if wbpplog.ALERT.search(line):
+                st.alert = line
+                log("  ⚠ PixInsight meldet: " + line)
         st.done, st.total = d, total
         st.eta_s = _eta(st, n, timing)
         st.stage = steps.BY_KEY[key]["title"]
@@ -676,14 +683,23 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
         if cancel.wait(3):
             runner.kill()
             raise Cancelled("abgebrochen")
+    st.message = "PixInsight beendet – werte Ergebnis aus …"
+    st.logdir = os.path.join(outdir, "logs")
+    save()
+    for line in tail.new_lines():               # letzte Zeilen nach dem Ende
+        log("    PI: " + line)
     _finish_step(st, settings.workdir, n)
     logbook.event("pixinsight_exit", run=name, code=code, code_hex="0x%08X" % (code & 0xFFFFFFFF) if code else "0",
                   duration_s=round(time.time() - t0, 1), command=cmd[:3000], wbpp_logs=os.path.join(outdir, "logs"),
                   master=find_master(outdir))
     master = find_master(outdir)
     if not master:
-        raise StackError("%s Kein Master entstanden – Details in %s" % (
-            crash_text(code) if code else "WBPP lief durch, aber", os.path.join(outdir, "logs")))
+        causes = wbpplog.diagnose(outdir)
+        st.causes = causes
+        errs = [c["text"] for c in causes if c["level"] == "error"]
+        why = errs[0] if errs else (crash_text(code) if code else "PixInsight lief durch, hat aber keinen Master erzeugt.")
+        logbook.event("stack_diagnosis", run=name, causes=causes)
+        raise StackError("Stacking fehlgeschlagen beim %s: %s" % (steps.BY_KEY.get(st.step, {}).get("title", "Stacken"), why))
     log("  Master: %s (%s)" % (os.path.basename(master), _elapsed(time.time() - t0)))
     notes = list(orig_run.get("_notes") or [])
     if run.get("_cc_pixinsight"):

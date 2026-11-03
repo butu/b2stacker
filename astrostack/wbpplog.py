@@ -187,3 +187,59 @@ def map_to_lights(bad: list[dict], lights: list[str]) -> list[str]:
         if p and p not in out:
             out.append(p)
     return out
+
+
+# ---------------------------------------------------------------- Fehler verständlich machen (Bericht 0.8 §9)
+
+_CAUSES = [
+    # (Muster, Schweregrad, Text) – Text darf {n}, {kind}, {path} aus dem Treffer nutzen
+    (re.compile(r"Canceled: Integration \[(Bias|Dark|Flat|Dark ?flat)[^\]]*frames = (\d+)", re.I), "error",
+     "PixInsight konnte keinen Master-{kind} erstellen (nur {n} {kind}-Bild{pl}). Vermutlich ist die Datei schon ein fertiger "
+     "Master (z. B. aus Astro Pixel Processor) oder es fehlen Kalibrierbilder – Kalibrierdaten prüfen."),
+    (re.compile(r"Cannot create files with a path longer than (\d+) characters", re.I), "error",
+     "Windows erlaubt nur Pfade bis {n} Zeichen. Lange Pfade in Windows aktivieren (LongPathsEnabled) oder ein "
+     "kürzeres Arbeitsverzeichnis wählen (z. B. D:\\b2)."),
+    (re.compile(r"Pipeline builder script failed.*?(TypeError|Error)[: ]*(.*)$", re.I | re.M), "warning",
+     "Die Hotpixel-Korrektur in PixInsight ist fehlgeschlagen (Pipeline-Skript passt nicht zu dieser WBPP-Version)."),
+    (re.compile(r"Cosmetic Correction requires a master dark", re.I), "warning",
+     "PixInsight-Hotpixel-Korrektur braucht einen Master-Dark."),
+    (re.compile(r"(?:File|Directory) not found:\s*(.+)$", re.I | re.M), "error",
+     "PixInsight findet eine Datei nicht: {path} – ist das Laufwerk erreichbar?"),
+    (re.compile(r"Invalid argument", re.I), "error",
+     "PixInsight hat ein Argument nicht verstanden (Sonderzeichen im Pfad?)."),
+    (re.compile(r"Flat frames not calibrated", re.I), "error",
+     "Die Flats konnten nicht kalibriert werden, weil ein Master-Bias bzw. Dark-Flat fehlt."),
+    (re.compile(r"Light frames not calibrated", re.I), "error",
+     "Die Lights konnten nicht kalibriert werden, weil ein Master (Bias/Dark/Flat) fehlt."),
+    (re.compile(r"No frames to be measured|(\d+) frame\(s\) excluded", re.I), "error",
+     "Kein Light blieb für die Integration übrig."),
+]
+ALERT = re.compile(r"(\*\*\* Error|\*\*\* Failed|\*\* Canceled|Problems found before the execution|"
+                   r"Pipeline builder script failed|path longer than)", re.I)
+
+
+def diagnose_text(text: str) -> list[dict]:
+    """Bekannte WBPP-Fehler → verständliche Ursachen (Reihenfolge = Wichtigkeit, ohne Doppelte)."""
+    out, seen = [], set()
+    for rx, level, msg in _CAUSES:
+        m = rx.search(text)
+        if not m:
+            continue
+        g = m.groups()
+        kind = (g[0] or "").replace("Dark flat", "Dark-Flat").replace("Darkflat", "Dark-Flat").capitalize() if g else ""
+        n = next((x for x in g if x and x.isdigit()), "") if g else ""
+        txt = msg.format(n=n, kind=kind, pl="" if n == "1" else "er", path=(g[-1] if g else "").strip())
+        if txt not in seen:
+            seen.add(txt)
+            out.append(dict(level=level, text=txt, line=m.group(0)[:200]))
+    return out
+
+
+def diagnose(outdir: str) -> list[dict]:
+    log = newest_log(os.path.join(outdir, "logs"))
+    if not log:
+        return []
+    try:
+        return diagnose_text(open(log, encoding="utf-8", errors="replace").read())
+    except OSError:
+        return []

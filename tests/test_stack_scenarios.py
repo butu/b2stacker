@@ -180,6 +180,9 @@ def test_single_raw_bias_fails_like_wbpp(tmp_path, monkeypatch):
     st, got, _cmd, _j = stack(s, plan, monkeypatch)
     assert st.state == "failed" and not got["ok"]
     assert any("only 1 active" in e for e in got["errors"])
+    # verständliche Ursache statt "Kein Master entstanden"
+    assert "Master-Bias" in st.error and "nur 1 Bias-Bild" in st.error, st.error
+    assert st.failed_step and st.causes and st.logdir
 
 
 def test_staging_invariants_unit(tmp_path):
@@ -204,3 +207,18 @@ def test_staging_invariants_unit(tmp_path):
     assert lay.calib["flats"] and all(os.path.exists(p) for p in lay.lights + lay.calib["flats"])
     pi.remove_link_tree(str(tmp_path / "job" / "_grp"))
     assert all(os.path.exists(p) for g in files.values() for p in g)   # Originale bleiben
+
+
+def test_selftest_end_to_end_with_fake_pixinsight(tmp_path, monkeypatch):
+    """Selbsttest: legt Daten mit Komma + zwei Kamerastellungen an, analysiert, stackt, schreibt Bericht."""
+    from astrostack import selftest
+    monkeypatch.setenv("ASTROSTACK_SETTINGS", str(tmp_path / "s.json"))
+    monkeypatch.setattr(pi.system, "pixinsight_processes", lambda: [])
+    s = Settings(workdir=str(tmp_path / "work"), analysis_workers=1, keep_awake=False, open_results=False, min_free_ram_gb=0.1)
+    folder = tmp_path / "nas"
+    folder.mkdir()
+    res = selftest.run(s, str(folder), log=lambda *a: None, runner_factory=ProcRunner)
+    assert res["stack"]["state"] == "done", res
+    assert any(st["name"] == "Analyse" and "2 Flat-Gruppen" in st["detail"] for st in res["steps"]), res["steps"]
+    assert os.path.exists(res["report"]) and "," in os.listdir(str(folder))[0]
+    assert project.list_projects(s) == []                      # Testprojekt nicht in der Projektliste
