@@ -10,6 +10,7 @@ import math
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -268,6 +269,7 @@ class SirilRunner:
     def __init__(self, inst: Install, script: str, workdir: str, dirs):
         # Siril löst den Skriptpfad relativ zum (mit -d gewechselten) Arbeitsordner auf → absolut übergeben
         self.args = inst.command(dirs, ["-d", os.path.abspath(workdir), "-s", os.path.abspath(script)])
+        self.flatpak = inst.flatpak
         self.proc = None
         self.thread = None
         self._out: list[str] = []
@@ -275,9 +277,11 @@ class SirilRunner:
 
     def start(self) -> str:
         env = dict(os.environ, LC_ALL="C", LANG="C", LANGUAGE="en")       # Siril-Meldungen auf Englisch
+        # Eigene Prozessgruppe: Abbruch beendet auch Kindprozesse (Flatpak-Sandbox, siril-cli)
         self.proc = subprocess.Popen(self.args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                      stderr=subprocess.STDOUT, env=env, text=True, encoding="utf-8",
-                                     errors="replace", creationflags=_NO_WINDOW if sys.platform == "win32" else 0)
+                                     errors="replace", creationflags=_NO_WINDOW if sys.platform == "win32" else 0,
+                                     start_new_session=sys.platform != "win32")
         self.thread = threading.Thread(target=self._pump, daemon=True)
         self.thread.start()
         return " ".join(self.args)
@@ -296,8 +300,22 @@ class SirilRunner:
         return self.proc.poll() if self.proc else None
 
     def kill(self):
-        if self.proc and self.proc.poll() is None:
-            self.proc.kill()
+        if not self.proc or self.proc.poll() is not None:
+            return
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(self.proc.pid)], capture_output=True,
+                           creationflags=_NO_WINDOW)
+        else:
+            try:
+                os.killpg(self.proc.pid, signal.SIGKILL)
+            except OSError:
+                self.proc.kill()
+        if self.flatpak:                 # Sandbox-Prozess kann die Gruppe verlassen → Flatpak selbst beenden
+            subprocess.run(["flatpak", "kill", FLATPAK_ID], capture_output=True)
+        try:
+            self.proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
 
     def finish(self):
         if self.thread:
@@ -444,10 +462,21 @@ def _reference_files(src: str, osc: bool, shape: tuple, folder: str) -> str:
     return folder
 
 
-def _causes(lines: list[str]) -> list[dict]:
+SIGNAL_CAUSES = {                 # POSIX: negativer Exit-Code = Signalnummer
+    -9: "Siril wurde vom Betriebssystem beendet (SIGKILL) – meist fehlt Arbeitsspeicher.",
+    -11: "Siril ist abgestürzt (Speicherzugriffsfehler) – meist zu wenig Arbeitsspeicher.",
+    -6: "Siril ist abgebrochen (SIGABRT).",
+}
+
+
+def _causes(lines: list[str], code: int | None = None) -> list[dict]:
     """Verständliche Ursachen aus der Siril-Ausgabe (englische Meldungen, siehe docs/ERKENNTNISSE.md)."""
     text = "\n".join(lines).lower()
     out = []
+    if code is not None and code < 0 and code in SIGNAL_CAUSES:
+        out.append(dict(level="error", text=SIGNAL_CAUSES[code]))
+    elif code is not None and (code & 0xFFFFFFFF) in pi.CRASH_CODES:
+        out.append(dict(level="error", text="Siril ist abgestürzt: " + pi.CRASH_CODES[code & 0xFFFFFFFF] + "."))
     rules = [
         ("not enough stars", "Zu wenige Sternpaare zum Ausrichten – Bilder zu dunkel, unscharf oder Wolken."),
         ("not enough star pairs", "Zu wenige Sternpaare zum Ausrichten – Bilder zu dunkel, unscharf oder Wolken."),
@@ -772,7 +801,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     logbook.event("siril_exit", run=name, code=code, duration_s=round(time.time() - t0, 1), command=cmd[:3000],
                   logdir=logdir, master=result if ok else None)
     if not ok:
-        causes = _causes(seen)
+        causes = _causes(seen, code)
         st.causes = causes
         why = causes[0]["text"] if causes else (
             "Siril hat keinen Stack erzeugt (Exit-Code %s)." % code if code else "Siril lief durch, hat aber keinen Stack erzeugt.")
