@@ -146,3 +146,51 @@ def test_job_without_lights_refused(stacked):
     ws, db, plan, _, _ = stacked
     with pytest.raises(handover.HandoverError):
         handover.build_job(db, dict(_ha(plan), light_ids=[]), ws.temp)
+
+
+def test_stack_project_end_to_end(stacked, monkeypatch):
+    from astrostack import stacking
+    ws, db, plan, popen, tmp = stacked
+    pid = db.value("SELECT id FROM projects")
+    exe = str(tmp / "pi" / "bin" / "PixInsight.exe")
+    runner = lambda *a, **kw: handover.run(*a, popen=popen, poll_s=0.05, **kw)          # noqa: E731
+    open(os.path.join(ws.temp, "rest-vom-letzten-mal.xisf"), "w").close()
+    res = stacking.stack_project(db, ws, pid, exe, runner=runner)
+    assert [r["status"] for r in res] == ["done"] and res[0]["run"] == "HaO3"   # RGB ist aus (keine Flats)
+    sdir = os.path.join(ws.project_dir("vdB 131"), res[0]["folder"])
+    assert res[0]["folder"].endswith("HaO3 0h30") and os.listdir(sdir) == ["masterLight_HaO3.xisf"]
+    assert os.listdir(ws.temp) == []                                          # temp vor und nach dem Lauf geleert
+    st = db.one("SELECT * FROM stacks")
+    assert st["status"] == "done" and st["frames"] == 3 and st["wbpp_version"] == "3.2.0" and st["size_bytes"] == 1
+    assert db.value("SELECT COUNT(*) FROM stack_files WHERE stack_id = ?", (st["id"],)) == 3
+    assert db.value("SELECT stacked_at FROM projects") is not None
+    # zweiter Stack bekommt einen eigenen Ordner, der erste bleibt
+    res2 = stacking.stack_project(db, ws, pid, exe, runner=runner)
+    assert res2[0]["folder"] != res[0]["folder"] and len(os.listdir(ws.project_dir("vdB 131"))) == 2
+    # Löschen entfernt nur eigene Dateien
+    open(os.path.join(sdir, "final_final.tif"), "w").close()
+    stacking.set_note(db, pid, st["id"], "erster Versuch")
+    removed = stacking.delete_stack(db, ws, pid, st["id"])
+    assert len(removed) == 1 and os.listdir(sdir) == ["final_final.tif"]
+    assert db.value("SELECT COUNT(*) FROM stacks") == 1
+    kinds = [r[0] for r in db.query("SELECT kind FROM events WHERE kind LIKE 'stack%' ORDER BY id")]
+    assert kinds == ["stack_done", "stack_done", "stack_deleted"]
+
+
+def test_stack_failure_is_recorded(stacked, monkeypatch):
+    from astrostack import stacking
+    ws, db, plan, popen, tmp = stacked
+    pid = db.value("SELECT id FROM projects")
+    monkeypatch.setenv("FAKE_MODE", "crash")
+    runner = lambda *a, **kw: handover.run(*a, popen=popen, poll_s=0.05, **kw)          # noqa: E731
+    res = stacking.stack_project(db, ws, pid, str(tmp / "pi" / "bin" / "PixInsight.exe"), runner=runner)
+    assert res[0]["status"] == "failed" and res[0]["error"]
+    assert db.one("SELECT status, error FROM stacks")["status"] == "failed"
+    with pytest.raises(ValueError, match="Kein Lauf"):
+        stacking.stack_project(db, ws, pid, "x", run_ids=["gibt-es-nicht"])
+
+
+def test_stack_name():
+    import datetime
+    from astrostack import stacking
+    assert stacking.stack_name({"name": "Ha", "hours": 12.5}, datetime.date(2026, 11, 4)) == "2026-11-04 Ha 12h30"
