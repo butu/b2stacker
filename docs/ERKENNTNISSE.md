@@ -34,6 +34,36 @@
   `onPipelineEnd`; Beispiel `BatchPreprocessing/examples/event-script-example.js`).
 - Parameterliste: `automationMode=true,paramList` bzw. Alt+A im WBPP-Dialog; Quelle `BPP-automation.js`.
 
+## Weg B mit echtem PixInsight (04.11.2026, PixInsight 1.9.6 build 1713, WBPP 3.2.0)
+Getestet über das MCP-Werkzeug `run_pixinsight_script` mit dem Selbsttest-Datensatz (8 Lights in 2 Nächten,
+je 5 Flats, 5 Bias, Ordnername mit Komma) und 210 kleinen Test-Lights. Skripte: `astrostack/pjsr/b2launch.js`.
+
+| Testpunkt | Ergebnis |
+|---|---|
+| 1 Versionen, Parameter | PixInsight 1.9.6.0 build 1713, WBPP 3.2.0. Parameternamen = Eigenschaften von `engine` (`BPP-ParametersManager.js`). |
+| 2 Pfade mit Leerzeichen und Komma | funktioniert: echte Pfade aus der JSON-Auftragsdatei, kein Linken/Kopieren. Nur Skript und Auftrag stehen auf der Kommandozeile. |
+| 3 Weg A vs. B | **Weg B** (eigenes Startskript, WBPP per `#include "…/BPP-main.js"`) funktioniert und ist gewählt. Weg A nicht nötig. |
+| 4 Fast Integration | Weg B: 210 Lights, ohne Einstellung → Post-Gruppe `fastIntegration: true`; mit `autoIntegrationMode=false` → aus. Alter CLI-Weg (0.10.1): ohne Schalter plant WBPP „Fast Integration“, mit `autoIntegrationMode=false` normale Integration. |
+| 5 Flat-Gruppen ohne ASFLAT | funktioniert: Gruppen-Schlüssel `B2SESSION` als `fileItem.fileKeywords` vor `engine.rebuild()`; „Master Flat automatic match“ wählt je Nacht den richtigen Master-Flat. Bias ohne Schlüssel passt zu allen. |
+| 6 Drizzle je Gruppe | offen (über Weg B direkt an der Post-Gruppe setzbar – noch nicht getestet). |
+| 7 Getrenntes Debayern | **funktioniert in 3.2.0** über Weg B: `debayerOutputMethod=1` → Kanäle einzeln registriert (`…_c_d_R_r.xisf`), Master R/G/B mono, ohne CFA-Muster (Schachbrett-Abweichung < 0,05 %). Der 2.7.8-Fehler ist damit für den Neubau erledigt. |
+| 8 Event-Script | funktioniert: `onPipelineStart/OperationStart/OperationDone/PipelineEnd` schreiben eine Statusdatei (Index, Name, Endzeit). Index ist lückenhaft (nur verfolgte Schritte) – Fortschritt = Index/Gesamtzahl. Event-Script ohne `#engine` (WBPP kompiliert es). |
+| 9 Abbruch / Recovery | Automatik-Modus speichert keinen Zwischenstand (`persistProgress`) → kein Recovery-Dialog (Quellcode). Praxistest offen. |
+| 10 Signatur | nicht nötig, solange „Allow execution of unsigned scripts“ an ist (bei Benjamin an). Pflicht ist `#engine v8` als erste Zeile. |
+| 11 NAS/OneDrive | offen. |
+
+Weitere Befunde:
+- `engine.rejection[]` enthält ImageIntegration-Konstanten, nicht 0–5: Nummern mit `engine.rejectionFromIndex()`
+  umrechnen (sonst wird 1 als MinMax gelesen). Reihenfolge wie in der Hilfe: 0 Percentile, 1 Winsorized,
+  2 Linear Fit, 3 ESD, 4 RCR, 5 Auto.
+- `autocrop=false` wird beachtet (keine `_autocrop`-Variante).
+- WBPP legt bei LN ein `LN_Reference_…xisf` im Master-Ordner ab; das Light-Master beginnt mit `masterLight`.
+- Master-Bias/-Flat entstehen im Master-Ordner mit dem Schlüssel im Namen (`…_B2SESSION-S1.xisf`) → Grundlage für
+  „Master wiederverwenden“.
+- Ausgabe von PixInsight auf stdout enthält nur Chromium-GPU-Meldungen (harmlos) und `:LOGFILE:<pfad>:LOGFILE:`.
+- Ein in der Claude-App eingetragener Werkzeug-Server ist eine eigene exe-Kopie: nach einem Update bleibt er alt,
+  bis der Eintrag auf die neue Datei zeigt (heute: `b2stacker (12).exe` statt `(13).exe`).
+
 ## WBPP-Automation (PixInsight, WBPP 2.7.8)
 - Kanaltrennung (debayerOutputMethod=separated) ist im Automation-Modus DEFEKT: WBPP zerlegt zwar,
   registriert/stackt dann aber die unzerlegten CFA-Frames -> einkanaliger, unbrauchbarer Master.

@@ -53,6 +53,14 @@ Motor: PixInsight + WBPP (JSON-Auftrag, Startskript, Event-Script)
 - `EventHub` hält die letzten Ereignisse für Wiederverbindungen (SSE `Last-Event-ID`); `snapshot()` liefert
   den Gesamtstand. Ersetzt `jobs.py`, sobald der neue Server steht.
 
+## Stand 04.11.2026, Nacht
+
+- `flow/` Schritte 1–5 (Entdecken, Header, Vermessen, Bewerten + Kalibrier-Zuordnung, Plan) – fertig, getestet.
+- `handover.py` + `pjsr/b2launch.js` (Weg B) – **mit echtem PixInsight geprüft** (siehe ERKENNTNISSE.md).
+- `stacking.py` – Stack-Ordner, Stack-Datensatz, temp/ leeren; mit nachgebautem PixInsight getestet.
+- `core.py` – Dienst-Schicht für Oberfläche/CLI/MCP. Server und Oberfläche darauf: offen.
+- Getrenntes Debayern funktioniert in WBPP 3.2.0 → Dualband künftig je Kanal registrieren (Plan anpassen).
+
 ## Reihenfolge
 
 Siehe Prioliste im Umsetzungsplan: Datenbank → Aufträge mit Live-Rückmeldung → Ordner & Watcher →
