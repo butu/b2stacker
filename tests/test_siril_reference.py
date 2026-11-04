@@ -49,7 +49,7 @@ def test_file_reference_is_appended_and_excluded_from_stack(tmp_path, cli, monke
     ssf = open(os.path.join(os.path.dirname(st.runs["L"]["master"]), "siril.ssf"), encoding="utf-8").read()
     assert "setref lights_ 5" in ssf and "unselect r_lights_ 5 6" in ssf and "-filter-included" in ssf
     assert "-2pass" not in ssf
-    assert "alle 4 Frames plausibel" in "\n".join(logs)
+    assert "Sensor-Prüfung nicht prüfbar (externe Referenz)" in "\n".join(logs)
 
 
 @posix_only
