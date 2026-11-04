@@ -15,6 +15,7 @@
 //   indexed          WBPP-Einstellungen je Bildtyp (Bias, Dark, Flat, Light), z. B. { "rejection": [null, null, null, 3] };
 //                    Rejection als Nummer wie in der WBPP-Hilfe: 0 Percentile, 1 Winsorized, 2 Linear Fit, 3 ESD, 4 RCR, 5 Auto
 //   files            [{ path, type: bias|dark|flat|light, session? }]
+//   drizzle          optional { enabled, scale, dropShrink, function } für alle Light-Gruppen nach der Kalibrierung
 //   dryRun           true = nur Gruppen bilden und melden, nicht rechnen
 //
 // Wichtig: PixInsight 1.9.6 führt Skripte ohne "#engine v8" in der ersten Zeile nicht aus.
@@ -110,10 +111,16 @@ function b2Run()
                fi.fileKeywords[ job.sessionKeyword ] = s;
          } ) );
       engine.rebuild();
+      if ( job.drizzle )
+         engine.groupsManager.groupsForMode( BPP.GroupingMode.POST ).forEach( g =>
+         {
+            if ( g.imageType == ImageType.Light )
+               g.setDrizzleData( job.drizzle );
+         } );
 
       out.groups = engine.groupsManager.groups.map( g => ( {
          mode: g.mode == BPP.GroupingMode.POST ? "post" : "pre", type: String( g.imageType ), filter: g.filter,
-         n: g.fileItems.length, keywords: g.keywords,
+         n: g.fileItems.length, keywords: g.keywords, drizzle: g.isDrizzleEnabled ? g.isDrizzleEnabled() : null,
          fastIntegration: g.fastIntegrationData ? !!g.fastIntegrationData.enabled : null } ) );
       save();
       if ( job.dryRun )
