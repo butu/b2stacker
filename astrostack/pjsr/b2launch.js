@@ -12,7 +12,8 @@
 //   eventScript      Pfad zum Event-Script (optional)
 //   sessionKeyword   Name des Gruppen-Schlüssels, der Lights und Flats einer Nacht verbindet
 //   params           WBPP-Einstellungen als { engineEigenschaft: Wert }
-//   indexed          WBPP-Einstellungen je Bildtyp, z. B. { "rejection": [null, null, null, 3] }
+//   indexed          WBPP-Einstellungen je Bildtyp (Bias, Dark, Flat, Light), z. B. { "rejection": [null, null, null, 3] };
+//                    Rejection als Nummer wie in der WBPP-Hilfe: 0 Percentile, 1 Winsorized, 2 Linear Fit, 3 ESD, 4 RCR, 5 Auto
 //   files            [{ path, type: bias|dark|flat|light, session? }]
 //   dryRun           true = nur Gruppen bilden und melden, nicht rechnen
 //
@@ -74,8 +75,10 @@ function b2Run()
          let arr = job.indexed[ k ];
          for ( let i = 0; i < arr.length; ++i )
             if ( arr[ i ] !== null && arr[ i ] !== undefined )
-               engine[ k ][ i ] = arr[ i ];
+               // engine.rejection[] erwartet ImageIntegration-Konstanten, nicht die Nummern 0–5 der Hilfe
+               engine[ k ][ i ] = ( k == "rejection" ) ? engine.rejectionFromIndex( arr[ i ] ) : arr[ i ];
       }
+      out.rejection = engine.rejection.map( r => engine.rejectionName( r ) );
       engine.outputDirectory = job.outputDirectory;
       engine.platesolveFallbackManual = false;
       engine.frameSelectionInteractive = false;
