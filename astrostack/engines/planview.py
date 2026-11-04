@@ -1,7 +1,4 @@
-"""Plan- und Berichtsansicht für die gewählte Engine: zeigt, was der Lauf wirklich anwendet.
-
-Siril nutzt dieselben Umsetzungen wie der Lauf (siril.map_wbpp, NOT_MAPPED). Der gespeicherte Plan bleibt unverändert.
-"""
+"""Plan view for the selected engine: shows what the run actually applies (shared with the Siril run)."""
 from __future__ import annotations
 
 # Plan-Optionen ohne Wirkung in Siril → Begründung aus siril.NOT_MAPPED (Schlüssel = WBPP-Name)

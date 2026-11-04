@@ -7,7 +7,7 @@ from astrostack import engines, wbpplog
 from astrostack.engines import siril
 from astrostack.engines import pixinsight as pi
 
-from .test_siril_run import make_cli, make_plan, posix_only, settings
+from .test_siril_run import cli, make_cli, make_plan, posix_only, settings
 
 FIX = os.path.join(os.path.dirname(__file__), "fixtures", "siril")
 LIGHTS4 = ["/d/a.fit", "/d/b.fit", "/d/c.fit", "/d/d.fit"]
@@ -170,3 +170,13 @@ def test_external_reference_without_sensor_check_is_not_called_plausible(tmp_pat
                                      logs.append) is None
     assert any("nicht prüfbar (externe Referenz)" in m for m in logs)
     assert not any("plausibel" in m for m in logs)
+
+
+@posix_only
+def test_hot_pixels_off_skips_dark_cosmetic_like_pixinsight(tmp_path, cli):
+    plan, _, _ = make_plan(tmp_path, darks=3)
+    plan["options"]["hot_pixels"] = False
+    st = engines.run_plan(plan, settings(tmp_path, cli), log=lambda *a: None, open_results=False)
+    assert st.state == "done", st.error
+    script = open(os.path.join(os.path.dirname(st.runs["L"]["master"]), "siril.ssf")).read()
+    assert "-cc=dark" not in script

@@ -1,4 +1,4 @@
-"""Siril-Engine Phase 1: Erkennung, Version, Einstellungen, Dispatch, FITS-Master aus einem Siril-Lauf."""
+"""Siril engine: detection, version, settings, dispatch, FITS master from a Siril run."""
 import os
 import subprocess
 import sys

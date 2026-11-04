@@ -53,7 +53,7 @@ STACK = [
 
 BY_KEY = {s["key"]: s for s in ANALYZE + STACK}
 
-# Siril-Texte: nennen kein PixInsight/WBPP (Siril hat keine PixInsight-Fenster und keine CosmeticCorrection).
+# Siril texts: no PixInsight/WBPP wording (Siril has neither those windows nor CosmeticCorrection).
 _SIRIL = {
     "check": dict(what="Platz, Arbeitsspeicher und Kalibrierdateien werden geprüft."),
     "cosmetic": dict(what="Keine Darks vorhanden: b2stacker entfernt einzelne heiße und kalte Pixel vor dem Stacken.",

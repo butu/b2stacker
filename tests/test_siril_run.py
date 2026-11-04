@@ -1,4 +1,4 @@
-"""Siril-Lauf (Phase 2) gegen tests/fake_siril.py: Skript, Mono/OSC, Fehler, Vorab-Prüfungen, Originale unberührt."""
+"""Siril run against tests/fake_siril.py: script, mono/OSC, errors, preflight, originals untouched."""
 import hashlib
 import os
 import sys

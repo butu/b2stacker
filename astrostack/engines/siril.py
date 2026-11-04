@@ -1,6 +1,6 @@
 """Siril als Stacking-Engine: Erkennung der siril-cli (Linux, Windows, macOS, Flatpak).
 
-Phase 1: nur Erkennung und Prüfung. Der Lauf selbst (.ssf-Skript) folgt in Phase 2.
+Detection, version check and the Siril run (.ssf script).
 """
 from __future__ import annotations
 
@@ -234,7 +234,7 @@ def build_script(spec: dict) -> str:
         if spec.get(kind):
             masters[kind] = master_of(kind, spec[kind], None)
     if masters.get("darkflat"):
-        flat_dark = ("dark", masters["darkflat"])          # Dark-Flats bevorzugt, sonst Bias
+        flat_dark = ("dark", masters["darkflat"])          # prefer dark-flats, else bias
     elif masters.get("bias"):
         flat_dark = ("bias", masters["bias"])
     else:
@@ -256,7 +256,7 @@ def build_script(spec: dict) -> str:
         if g.get("flat"):
             cal.append(_kv("-flat", master_of("flat", g["flat"], flat_dark, sub)))
         seq_light = os.path.join(out, sub, "seq_light")
-        # Lights (Original-Dateien werden verknüpft/kopiert, nie verändert)
+        # originals are linked or copied, never modified
         L.extend(["cd " + _quote(g["lights"]), "convert light %s" % _kv("-out", seq_light), "cd " + _quote(seq_light)])
         L.append("calibrate light_ %s -prefix=pp_" % " ".join(cal))
         seqs.append(_p(os.path.join(seq_light, "pp_light_")))
@@ -270,7 +270,7 @@ def build_script(spec: dict) -> str:
         L.extend(["cd " + _quote(ref), "convert ref %s" % _kv("-out", os.path.join(out, "seq_ref")), ])
         seqs.append(_p(os.path.join(out, "seq_ref", "ref_")))
     seq = _stack_seq(len(seqs))
-    framing = " -framing=min" if spec.get("framing") == "min" else ""     # WBPP Autocrop: gemeinsame Fläche
+    framing = " -framing=min" if spec.get("framing") == "min" else ""     # autocrop: common area only
     if len(seqs) > 1:                                      # Gruppen (+ Referenz) → eine Sequenz in dieser Reihenfolge
         L.append("cd " + _quote(os.path.join(out, "seq_light")))
         L.append("merge %s lights" % " ".join(_quote(s) for s in seqs))
@@ -278,7 +278,7 @@ def build_script(spec: dict) -> str:
         L.append(sigma_line)
     if ref:
         n = sum(g.get("n", 0) for g in groups)
-        # Referenz = erster Referenzframe; Registrierung ohne -2pass, sonst würde Siril die Referenz neu wählen
+        # Reference = first reference frame; no -2pass, which would let Siril pick its own reference
         L.append("setref %s %d" % (seq, n + 1))
         L.append("register %s -minpairs=10 %s -maxstars=2000" % (seq, REG_TRANSFORM))
         L.append("seqapplyreg %s -interp=%s%s -prefix=r_" % (seq, INTERP, framing))
@@ -517,7 +517,7 @@ SIGNAL_CAUSES = {                 # POSIX: negativer Exit-Code = Signalnummer
 
 
 def _causes(lines: list[str], code: int | None = None) -> list[dict]:
-    """Verständliche Ursachen aus der Siril-Ausgabe (englische Meldungen, siehe docs/ERKENNTNISSE.md)."""
+    """Plain-language causes from Siril output (Siril messages are English)."""
     text = "\n".join(lines).lower()
     out = []
     if code is not None and code < 0 and code in SIGNAL_CAUSES:
@@ -710,9 +710,12 @@ def siril_processes() -> list[dict]:
 
 
 def siril_max_path(outdir: str) -> int:
-    """Längster Pfad, den Siril im Arbeitsordner erzeugt: Sequenzen sind mit kurzen Namen angelegt (light_00001)."""
+    """Längster Pfad, den Siril im Arbeitsordner anlegt (Gruppen, Sequenzen mit kurzen Namen)."""
     base = outdir if re.match(r"^([A-Za-z]:)?[\\/]", outdir) else os.path.abspath(outdir)
-    return len(base) + len("\\seq_light\\r_pp_light_00001.fit")
+    tails = ["\\seq_light\\r_lights_00001.fit",               # zusammengeführte Sequenz
+             "\\g99\\seq_light\\r_pp_light_00001.fit",         # Gruppenordner (Kamera-Stellung je Nacht)
+             "\\raw\\g99\\light\\light_00001.fit"]              # bereitgestellte Lights
+    return len(base) + max(len(t) for t in tails)
 
 
 LOG_LINES_PER_COMMAND = 20       # Siril-Ausgabe je Befehl im Lauf-Log; alles Weitere steht in siril.log
@@ -842,7 +845,8 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     if len(merged) != n:
         raise StackError("Interner Fehler: %d Lights bereitgestellt, %d gewählt." % (len(merged), n))
     spec = dict(outdir=outdir, osc=bool(run.get("is_osc")) and run.get("mode") in ("debayer", "extract"),
-                cosmetic=bool(calib["darks"]), groups=spec_groups)
+                cosmetic=bool(calib["darks"]) and plan.get("options", {}).get("hot_pixels", True) is not False,
+                groups=spec_groups)
     if spec["osc"]:
         spec["bayer"] = bayer_override(merged, log)
     for kind, key, prefix in (("bias", "bias", "bias"), ("dark", "darks", "dark"), ("darkflat", "darkflats", "darkflat")):
