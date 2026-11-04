@@ -39,9 +39,12 @@ def config_candidates() -> list[str]:
     return out
 
 
-def server_entry() -> dict:
-    """Wie die Claude-App b2stacker startet: dieselbe exe bzw. derselbe Python wie jetzt."""
-    if getattr(sys, "frozen", False):
+def server_entry(command: str | None = None) -> dict:
+    """Wie die Claude-App b2stacker startet: die installierte exe (``command``), sonst dieselbe exe bzw. derselbe
+    Python wie jetzt."""
+    if command:
+        entry = {"command": command, "args": ["mcp"]}
+    elif getattr(sys, "frozen", False):
         entry = {"command": sys.executable, "args": ["mcp"]}
     else:
         entry = {"command": sys.executable, "args": ["-m", "astrostack", "mcp"]}
@@ -115,7 +118,7 @@ def status() -> dict:
     return dict(claude_found=claude, installed=installed, current=current, files=files, entry=want, text=text)
 
 
-def install() -> dict:
+def install(command: str | None = None) -> dict:
     targets = _targets()
     if not targets:
         raise ValueError("Claude-Desktop-App nicht gefunden. Gesucht in: %s. Falls Claude installiert ist: in Claude "
@@ -127,7 +130,7 @@ def install() -> dict:
         servers = d.get("mcpServers")
         if servers is not None and not isinstance(servers, dict):
             raise ValueError("mcpServers in %s hat ein unerwartetes Format – nichts geändert." % p)
-        d["mcpServers"] = dict(servers or {}, **{KEY: server_entry()})
+        d["mcpServers"] = dict(servers or {}, **{KEY: server_entry(command)})
         _write(p, d)
     return dict(status(), changed=targets,
                 next="Claude-App ganz beenden (auch im Infobereich) und neu starten, damit sie b2stacker lädt.")

@@ -99,9 +99,15 @@ def status() -> dict:
 
 SWAP_CMD = r"""@echo off
 setlocal
+title b2stacker wird aktualisiert
+echo.
+echo   b2stacker wird auf Version {new_version} aktualisiert.
+echo   Bitte dieses Fenster offen lassen - b2stacker startet gleich von selbst neu.
+echo.
 set "EXE={exe}"
 set "NEW={new}"
 set "OLD={old}"
+set "CUR={cur_exe}"
 set N=0
 :wait
 tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul
@@ -117,17 +123,27 @@ goto wait
 :swap
 ping -n 2 127.0.0.1 >nul
 if exist "%OLD%" del /f /q "%OLD%" >nul 2>&1
+if not exist "%EXE%" goto place
 move /y "%EXE%" "%OLD%" >nul 2>&1
 if errorlevel 1 goto fail
+:place
 move /y "%NEW%" "%EXE%" >nul 2>&1
 if errorlevel 1 (
   move /y "%OLD%" "%EXE%" >nul 2>&1
   goto fail
 )
 set "B2_UPDATED_FROM={cur}"
+echo   Fertig. b2stacker startet ...
 start "" "%EXE%"
+ping -n 3 127.0.0.1 >nul
 goto end
 :fail
+echo   Update fehlgeschlagen - die bisherige Version wird gestartet.
+ping -n 4 127.0.0.1 >nul
+if exist "%EXE%" goto startexe
+start "" "%CUR%"
+goto end
+:startexe
 start "" "%EXE%"
 :end
 del "%~f0"
@@ -185,6 +201,10 @@ def start_install(quit_fn, busy_fn=lambda: None, downloader=_download) -> dict:
     info = check()
     if not info.get("newer") or not info.get("url"):
         raise RuntimeError("Keine neuere Version gefunden.")
+    if sys.platform == "win32":                 # immer an den festen Ort (installiert oder nicht)
+        from . import install as inst
+        exe = inst.install_exe()
+        os.makedirs(os.path.dirname(exe), exist_ok=True)
     folder = os.path.dirname(exe)
     if not os.access(folder, os.W_OK):
         raise RuntimeError("Keine Schreibrechte in %s – b2stacker.exe bitte in einen eigenen Ordner legen." % folder)
@@ -207,9 +227,10 @@ def start_install(quit_fn, busy_fn=lambda: None, downloader=_download) -> dict:
             cmd = os.path.join(tempfile.gettempdir(), "b2stacker_update_%d.cmd" % os.getpid())
             # onefile: der Starter (Elternprozess) hält die exe offen – auf beide warten
             ppid = os.getppid() if _onefile() else os.getpid()
-            text = SWAP_CMD.format(exe=exe, new=new, old=old, pid=os.getpid(), ppid=ppid, cur=__version__)
+            text = SWAP_CMD.format(exe=exe, new=new, old=old, pid=os.getpid(), ppid=ppid, cur=__version__,
+                                   new_version=info["latest"], cur_exe=exe_path() or exe)
             _write_cmd(cmd, text)
-            flags = 0x08000000 | 0x00000008 if sys.platform == "win32" else 0   # kein Fenster, losgelöst
+            flags = 0x00000010 if sys.platform == "win32" else 0   # eigenes, sichtbares Fenster mit Hinweis
             from .appclient import independent_env
             subprocess.Popen(["cmd.exe", "/c", cmd], creationflags=flags, close_fds=True,
                              cwd=tempfile.gettempdir(), env=independent_env())   # neue exe eigenständig

@@ -2530,7 +2530,17 @@ $('#setSave').onclick=async()=>{
 $('#setBtn').onclick=()=>{closePops();openSettings(false);};
 
 $('#pSearch').oninput=e=>{pFilter=e.target.value.trim();renderProjects();if(cur.view==='home')renderHome();};
-refresh().then(()=>{pollSys();if(S&&S.job&&['queued','running'].includes(S.job.state))cur.view='job';else if(S&&!S.projects.length)cur.view='new';render();});
+async function offerInstall(){
+  const i=S&&S.install; if(!i||!i.offer)return;
+  let later=null; try{later=localStorage.getItem('b2-install-later');}catch(e){}
+  if(later===S.version)return;
+  if(!await ask('b2stacker installieren?',`b2stacker läuft gerade aus\n${i.exe}\n\nInstalliert liegt es immer an derselben Stelle:\n${i.target}\n\nDann funktionieren Updates zuverlässig, die Claude-Verbindung zeigt immer auf die aktuelle Version, und im Startmenü gibt es eine Verknüpfung. Die heruntergeladene Datei kann danach gelöscht werden.`,'Installieren')){
+    try{localStorage.setItem('b2-install-later',S.version);}catch(e){} return;}
+  try{const r=await api('/api/install',{});
+    document.body.innerHTML=`<div style="display:grid;place-items:center;height:100vh;text-align:center;padding:24px"><div><div style="font-size:20px;font-weight:700;margin-bottom:10px">Installiert</div><div style="opacity:.75;max-width:520px">${esc(r.text)}</div></div></div>`;}
+  catch(e){toast(e.message,true)}
+}
+refresh().then(()=>{pollSys();offerInstall();if(S&&S.job&&['queued','running'].includes(S.job.state))cur.view='job';else if(S&&!S.projects.length)cur.view='new';render();});
 </script>
 </body>
 </html>

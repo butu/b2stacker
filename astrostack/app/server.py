@@ -56,7 +56,8 @@ def state() -> dict:
     return dict(
         version=__version__,
         app_window=_safe(lambda: __import__("astrostack.app.window", fromlist=["STATE"]).STATE.get("window") is not None, False),
-        settings=asdict(s),
+        settings={k: v for k, v in asdict(s).items() if k != "mcp_token"},
+        install=_safe(lambda: __import__("astrostack.install", fromlist=["status"]).status(), {}),
         settings_file=Settings.path(),
         settings_problems=list(__import__("astrostack.settings", fromlist=["LOAD_PROBLEMS"]).LOAD_PROBLEMS),
         first_run=not os.path.exists(Settings.path()),
@@ -1187,6 +1188,10 @@ class Handler(BaseHTTPRequestHandler):
                                                             b.get("timeout_min"))))
             if parts == ["api", "selftest"]:
                 return self._json(self._via(start_selftest(b.get("folder", ""))))
+            if parts == ["api", "install"]:
+                from .. import install
+                res = install.install(quit_fn=lambda: threading.Timer(1.5, quit_app).start())
+                return self._json(res)
             if parts == ["api", "mcp-info"]:
                 from .. import mcp_http
                 return self._json(mcp_http.info(self._base_url(), mcp_http.ensure_token(settings())))
@@ -1298,6 +1303,15 @@ def serve(port: int = 8765, open_browser: bool = True) -> ThreadingHTTPServer:
                   frozen=bool(getattr(sys, "frozen", False)), python=sys.version.split()[0], platform=sys.platform)
     try:
         updater.cleanup_after_update()
+    except Exception:  # noqa: BLE001
+        pass
+    try:                                      # installiert: Claude-Eintrag auf diese Datei halten
+        from .. import claude_link, install
+        if install.is_installed():
+            st = claude_link.status()
+            if st.get("installed") and not st.get("current"):
+                claude_link.install()
+                logbook.event("claude_link", action="repoint", files=st.get("files"))
     except Exception:  # noqa: BLE001
         pass
     if not os.environ.get("B2_NO_UPDATE_CHECK"):
