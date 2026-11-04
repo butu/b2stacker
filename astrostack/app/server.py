@@ -841,6 +841,27 @@ def start_selftest(folder: str) -> dict:
     return JOBS.submit("selftest", "Selbsttest", s.workdir, fn).as_dict()
 
 
+def start_pi_script(script: str, args: list | None = None, timeout_min: float | None = None) -> dict:
+    """Eigenes PixInsight-Skript aus dem Arbeitsverzeichnis ausführen (Diagnose/Entwicklung, per KI bedienbar)."""
+    from .. import piscript
+    s = settings()
+    path, args, notes = piscript.check(script, s.workdir, args)
+
+    def fn(job):
+        for n in notes:
+            job.write("Hinweis: " + n)
+        job.set_progress(stage="PixInsight-Skript", step="pi_script")
+        res = piscript.run(s.pixinsight, path, args, s.workdir, log=job.write, cancel=job.cancel,
+                           timeout_s=(timeout_min or 30) * 60)
+        res["notes"] = notes
+        logbook.event("pi_script", script=path, args=args, exit_code=res["exit_code"], state=res["state"],
+                      duration_s=res["duration_s"], logfile=res["logfile"])
+        if res["state"] == "timeout":           # Ergebnis bleibt lesbar, Auftrag gilt als fehlgeschlagen
+            res.update(state="failed", error="Zeitlimit erreicht – PixInsight wurde beendet.")
+        return res
+    return JOBS.submit("pi_script", "PixInsight-Skript " + os.path.basename(path), s.workdir, fn).as_dict()
+
+
 def quit_app() -> dict:
     """Programm beenden (Knopf in den Einstellungen) – wichtig, wenn kein eigenes Fenster läuft."""
     from . import window
@@ -1121,6 +1142,9 @@ class Handler(BaseHTTPRequestHandler):
                 moved = project.move_projects(b["old"], settings().workdir, b.get("projects", []))
                 logbook.event("move_projects", old=b["old"], new=settings().workdir, moved=moved)
                 return self._json({"moved": moved})
+            if parts == ["api", "pi-script"]:
+                return self._json(self._via(start_pi_script(b.get("script", ""), b.get("args") or [],
+                                                            b.get("timeout_min"))))
             if parts == ["api", "selftest"]:
                 return self._json(self._via(start_selftest(b.get("folder", ""))))
             if parts == ["api", "ui-event"]:          # Diagnose aus dem Fenster (z. B. "Auftrag fertig gesehen")

@@ -2,6 +2,16 @@
 
 Neueste Version oben. Der Abschnitt der aktuellen Version erscheint auch im Update-Dialog von b2stacker.
 
+## 0.10.2 – 04.11.2026
+
+**Für die Weiterentwicklung:** Claude kann jetzt eigene PixInsight-Skripte aus dem Arbeitsverzeichnis ausführen
+(MCP-Werkzeug `run_pixinsight_script`). Damit testet Claude die neue Übergabe an WBPP direkt auf deinem Rechner,
+ohne dass du Dateien doppelklicken musst.
+
+- Läuft als normaler Auftrag in der Warteschlange: sichtbar im Fenster, abbrechbar, nie gleichzeitig mit dem Stacken.
+- Nur Skripte (`.js`, `.scp`) im Arbeitsverzeichnis; Rohdaten und die PixInsight-Installation bleiben unberührt.
+- Die Ausgabe von PixInsight steht im Protokoll des Auftrags und vollständig unter `logs/pixinsight-scripts/`.
+
 ## 0.10.1 – 04.11.2026
 
 **Mehr Bildqualität bei vielen Frames.** WBPP hat Gruppen ab 200 Lights (ältere Versionen ab 150) bisher still auf
