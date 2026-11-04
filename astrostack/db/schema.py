@@ -205,6 +205,16 @@ MIGRATIONS: list[str] = [
         UNIQUE (project_id, path)
     );
 
+    -- Stacking-Plan je Projekt (Schritt 5): automatisch erzeugt, Änderungen des Nutzers getrennt in edits_json,
+    -- damit eine Neuberechnung sie nie überschreibt.
+    CREATE TABLE plans (
+        project_id  INTEGER PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        version     INTEGER NOT NULL,
+        created_at  TEXT NOT NULL,
+        plan_json   TEXT NOT NULL,
+        edits_json  TEXT NOT NULL DEFAULT '{}'
+    );
+
     -- Grundlage der History (allgemein und je Projekt).
     CREATE TABLE events (
         id          INTEGER PRIMARY KEY,

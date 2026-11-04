@@ -96,7 +96,7 @@ def _label(frames) -> str:
 def match_project(db: dbm.Database, pid: int, th: calibcheck.Thresholds | None = None) -> list[dict]:
     """Läufe des Projekts mit zugeordneten Kalibriersätzen. Liest keine Datei."""
     th = th or calibcheck.Thresholds()
-    base = ("SELECT f.id, f.path, f.type, f.is_master, f.filter, f.exposure, f.ccd_temp, f.night, f.date_obs, "
+    base = ("SELECT f.id, f.path, f.type, f.is_master, f.filter, f.filter_kind, f.exposure, f.ccd_temp, f.night, f.date_obs, "
             "f.bayer, " + ", ".join("f.\"%s\"" % c for c in SETTINGS) + ", m.data_json, "
             "COALESCE(s.status, 'use') AS status FROM files f JOIN project_files pf ON pf.file_id = f.id "
             "LEFT JOIN frame_metrics m ON m.file_id = f.id "
@@ -115,7 +115,8 @@ def match_project(db: dbm.Database, pid: int, th: calibcheck.Thresholds | None =
         nights = defaultdict(list)
         for f in frames:
             nights[f["night"] or ""].append(f)
-        run = dict(filter=ref["filter"], settings=dict(zip(SETTINGS, settings)), lights=len(frames),
+        run = dict(filter=ref["filter"], filter_kind=ref["filter_kind"], bayer=ref["bayer"],
+                   settings=dict(zip(SETTINGS, settings)), lights=len(frames),
                    exposure_s=sum(f["exposure"] or 0 for f in frames), nights=[], light_ids=[f["id"] for f in frames],
                    problems=[])
         for night, nf in sorted(nights.items()):

@@ -278,3 +278,48 @@ def test_calibration_too_few_and_old(env):
         assert "zu alt" in run["nights"][0]["flats"]["reason"]
     finally:
         calib.FLAT_MAX_DAYS = old
+
+
+def test_plan_settings_reasons_and_edits(env):
+    from astrostack.flow import plan as fp
+    ws, db, data = env
+    _calib_tree(data)
+    pid = library.create_project(db, ws, "vdB 131", folders=[data])
+    flow.run_project(db, ws, pid, workers=1)
+    p = fp.update_plan(db, pid, ws.root)
+    runs = {r["filter"]: r for r in p["runs"]}
+    ha, rgb = runs["HaO3"], runs["RGB"]
+    assert p["runs"][0]["filter"] == "RGB"                          # Breitband zuerst (Referenz für alle)
+    assert ha["mode"] == "extract" and ha["stack_mode"] == "debayer" and ha["outputs"] == ["Ha", "OIII"]
+    assert ha["enabled"] and ha["why_off"] is None and ha["reference_id"] in ha["light_ids"]
+    assert rgb["enabled"] is False and "keine Flats" in rgb["why_off"]
+    assert ha["align_to"] is None                                   # RGB ist aus → HaO3 ist erster aktiver Lauf
+    s = {x["key"]: x for x in ha["settings"]}
+    assert s["fast_integration"]["value"] is False and "200" in s["fast_integration"]["why"]
+    assert s["rejection"]["value"] == "percentile" and "3 Frames" in s["rejection"]["why"]
+    assert s["local_normalization"]["value"] is False and "eine Nacht" in s["local_normalization"]["why"]
+    assert all(x["why"] for x in ha["settings"])
+    assert fp.wbpp_values(ha)["autoIntegrationMode"] is False and fp.wbpp_values(ha)["rejection_4"] == 0
+    assert fp.load_plan(db, pid)["runs"][0]["id"] == p["runs"][0]["id"]
+    # Änderungen überleben eine Neuberechnung
+    p2 = fp.edit_plan(db, pid, ws.root, options={"local_normalization": True},
+                      runs={rgb["id"]: {"enabled": True}})
+    r2 = {r["filter"]: r for r in p2["runs"]}
+    ln = next(x for x in r2["HaO3"]["settings"] if x["key"] == "local_normalization")
+    assert ln["value"] is True and ln["edited"] and ln["auto"] is False
+    assert r2["RGB"]["enabled"] is True
+    flow.run_project(db, ws, pid, workers=1)
+    p3 = fp.update_plan(db, pid, ws.root)
+    assert {r["filter"]: r for r in p3["runs"]}["RGB"]["enabled"] is True
+    p4 = fp.edit_plan(db, pid, ws.root, options={"local_normalization": None}, runs={rgb["id"]: {"enabled": None}})
+    assert {r["filter"]: r for r in p4["runs"]}["RGB"]["enabled"] is False
+    with pytest.raises(ValueError):
+        fp.edit_plan(db, pid, ws.root, options={"turbo": True})
+    assert fp.explain(p4)[0].startswith("RGB: 3 Lights")
+
+
+def test_rejection_rules():
+    from astrostack.flow import plan as fp
+    assert fp.rejection_for(5)[0] == "percentile"
+    assert fp.rejection_for(7)[0] == "winsorized" and fp.rejection_for(14)[0] == "winsorized"
+    assert fp.rejection_for(15)[0] == "esd" and fp.rejection_for(400)[0] == "esd"
