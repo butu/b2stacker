@@ -52,6 +52,17 @@ print("status: App %s, Version %s, neu gestartet %s, %d Projekte (%.1f s)" % (st
 send({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "list_projects", "arguments": {}}})
 m, dt = answer(4)
 print("list_projects: %s (%.2f s)" % (m["result"]["content"][0]["text"][:200], dt))
+t0 = time.time()
 p.stdin.close()
-p.wait(timeout=30)
+try:
+    p.wait(timeout=30)
+except subprocess.TimeoutExpired:
+    p.kill()
+    raise SystemExit("MCP-Server beendet sich nicht, wenn die Verbindung endet. stderr: %s" % p.stderr.read()[-3000:])
+print("MCP-Server beendet nach %.1f s (Exit %s)" % (time.time() - t0, p.returncode))
+import urllib.request
+time.sleep(2)
+with urllib.request.urlopen(st["app"] + "api/sys", timeout=10) as r:      # App muss das MCP-Ende überleben
+    json.loads(r.read())
+print("App läuft nach dem Ende der MCP-Verbindung weiter")
 print("MCP-Server der exe OK")

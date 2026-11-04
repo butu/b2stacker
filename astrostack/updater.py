@@ -210,8 +210,9 @@ def start_install(quit_fn, busy_fn=lambda: None, downloader=_download) -> dict:
             text = SWAP_CMD.format(exe=exe, new=new, old=old, pid=os.getpid(), ppid=ppid, cur=__version__)
             _write_cmd(cmd, text)
             flags = 0x08000000 | 0x00000008 if sys.platform == "win32" else 0   # kein Fenster, losgelöst
+            from .appclient import independent_env
             subprocess.Popen(["cmd.exe", "/c", cmd], creationflags=flags, close_fds=True,
-                             cwd=tempfile.gettempdir())
+                             cwd=tempfile.gettempdir(), env=independent_env())   # neue exe eigenständig
             with _LOCK:
                 _STATE["dl"].update(state="restart")
             logbook.event("update_restart", latest=info["latest"])

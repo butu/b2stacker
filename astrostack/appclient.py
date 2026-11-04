@@ -70,10 +70,21 @@ def _can_show_window() -> bool:
     return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
+def independent_env() -> dict:
+    """Umgebung für einen eigenständigen Neustart der exe. Ohne PYINSTALLER_RESET_ENVIRONMENT hält sich eine
+    Einzeldatei-exe für einen Unterprozess ihres Starters: sie teilt dessen entpackten Temp-Ordner, der Starter kann
+    beim Beenden nicht aufräumen (hängt), und das neue Programm verliert seine Dateien, wenn der Starter endet."""
+    env = dict(os.environ)
+    if getattr(sys, "frozen", False):
+        env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    return env
+
+
 def start(window: bool | None = None, timeout: float = START_TIMEOUT) -> str:
     """App im Hintergrund starten (losgelöst: läuft weiter, wenn der Aufrufer endet) und auf sie warten."""
     window = _can_show_window() if window is None else window
-    kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+    kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True,
+              env=independent_env())
     if sys.platform == "win32":
         kw["creationflags"] = 0x00000008 | 0x00000200        # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
     else:
