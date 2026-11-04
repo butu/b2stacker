@@ -17,6 +17,14 @@ def _attach_std_streams():
     import msvcrt
     k32 = ctypes.windll.kernel32
     attached = False
+    if sys.stdin is None:                     # MCP-Server (b2stacker.exe mcp) liest Anfragen von stdin
+        h = k32.GetStdHandle(-10)
+        if h not in (0, -1, None) and k32.GetFileType(h) in (1, 3):
+            try:
+                fd = msvcrt.open_osfhandle(h, os.O_RDONLY)
+                sys.stdin = io.TextIOWrapper(os.fdopen(fd, "rb"), encoding="utf-8", errors="replace")
+            except OSError:
+                pass
     for name, std in (("stdout", -11), ("stderr", -12)):
         if getattr(sys, name) is not None:
             continue

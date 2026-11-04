@@ -426,17 +426,30 @@ def reanalyze(name: str) -> dict:
     return start_analysis(src["roots"], project.meta(pdir)["target"], into=project.meta(pdir)["target"], project_name=name)
 
 
-def start_stack(name: str) -> dict:
+def start_stack(name: str, only: list[str] | None = None) -> dict:
+    """Stacking einreihen. only = nur diese Läufe (einmalig; die gespeicherten Plan-Einstellungen bleiben)."""
     s = settings()
     pdir = project.pdir_of(s, name)
     project.assert_stack_ready(pdir)
-    target = project.apply_edits(pdir, write=False)["target"]
+    preview = project.apply_edits(pdir, write=False)
+    target = preview["target"]
+    if only is not None:
+        if isinstance(only, str):
+            only = [only]
+        known = [r["name"] for r in preview.get("runs", [])]
+        bad = [n for n in only if n not in known]
+        if bad or not only:
+            raise ValueError("Unbekannter Lauf %s – vorhanden: %s" % (", ".join(bad) or "(keiner angegeben)", ", ".join(known)))
 
     def fn(job):
         # Plan erst beim Start lesen: in der Warteschlange darf man noch Frames und Optionen ändern.
         project.assert_stack_ready(pdir)
         plan = project.apply_edits(pdir)
         plan["workdir"] = pdir
+        if only is not None:
+            for r in plan["runs"]:
+                r["enabled"] = r["name"] in only
+            job.write("Nur diese Läufe: " + ", ".join(only))
         for line in project.apply_top_percent(pdir, plan):
             job.write(line)
         st = pi.run_plan(plan, s, log=job.write, cancel=job.cancel,
@@ -447,7 +460,8 @@ def start_stack(name: str) -> dict:
                              causes=x.causes,
                              failed_step=x.failed_step, logdir=x.logdir))
         return st.as_dict()
-    job = JOBS.submit("stack", "Stacking " + target, s.workdir, fn, project=name)
+    job = JOBS.submit("stack", "Stacking " + target + (" (" + ", ".join(only) + ")" if only else ""), s.workdir, fn,
+                      project=name)
     return job.as_dict()
 
 
@@ -655,7 +669,14 @@ def project_detail(name: str) -> dict:
         asset_rows.append(a)
     asset_state = assets.state(pdir)
     plan = project.with_ranking(pdir, dict(plan, runs=[dict(r) for r in plan.get("runs", [])]))
-    return dict(name=name, meta=project.meta(pdir), plan=plan, sources=project.sources(pdir),
+    blockers = []
+    try:
+        project.assert_stack_ready(pdir)
+    except ValueError as e:
+        blockers.append(str(e))
+    if not os.path.exists(settings().pixinsight):
+        blockers.append("PixInsight wurde nicht gefunden – Pfad in den Einstellungen prüfen.")
+    return dict(name=name, meta=project.meta(pdir), plan=plan, sources=project.sources(pdir), stack_blockers=blockers,
                 analysis_required=ex["analysis_required"], assets=asset_rows,
                 asset_scan_locations=ex["asset_scan_locations"],
                 assets_migration_needed=asset_state["migration_needed"],
@@ -710,7 +731,7 @@ def project_insights(name: str) -> dict:
 
 # Nur diese Änderungen kollidieren mit einer laufenden Analyse desselben Projekts (sie schreibt Plan und Auswahl neu).
 # Alles andere – Häkchen in anderen Projekten, Namen, Löschen, neue Aufträge einreihen – geht jederzeit.
-ANALYSIS_CONFLICTS = {"override", "sources", "plan"}
+ANALYSIS_CONFLICTS = {"override", "overrides", "sources", "plan"}
 
 
 def check_idle(action: str, name: str | None = None) -> None:
@@ -868,6 +889,9 @@ def open_in_pixinsight(paths: list[str]):
 
 # ------------------------------------------------------------------ HTTP
 
+VIA_AI = " · per Claude"
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "astrostack/" + __version__
 
@@ -922,6 +946,15 @@ class Handler(BaseHTTPRequestHandler):
         host = (self.headers.get("Host") or "").split(":")[0]
         return host in ("127.0.0.1", "localhost", "[::1]")
 
+    def _via(self, d):
+        """Aufträge, die eine KI über den MCP-Server anstößt, im Fenster als solche kennzeichnen."""
+        if self.headers.get("X-B2-Client") == "mcp" and isinstance(d, dict) and d.get("id"):
+            j = JOBS.get(d["id"])
+            if j and not j.title.endswith(VIA_AI):
+                j.title += VIA_AI
+                d["title"] = j.title
+        return d
+
     def _body(self) -> dict:
         n = int(self.headers.get("Content-Length") or 0)
         b = json.loads(self.rfile.read(n) or b"{}") if n else {}
@@ -948,6 +981,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(sysinfo())
             if parts == ["api", "update"]:
                 return self._json(updater.status())
+            if parts == ["api", "claude"]:                 # Verbindung zur Claude-Desktop-App (MCP)
+                from .. import claude_link
+                return self._json(claude_link.status())
             if parts == ["api", "steps"]:
                 return self._json(dict(analyze=steps.ANALYZE, stack=steps.STACK))
             if parts[:2] == ["api", "project"] and len(parts) == 4 and parts[3] == "frames":
@@ -1069,9 +1105,10 @@ class Handler(BaseHTTPRequestHandler):
             if parts == ["api", "pick-folder"]:
                 return self._json({"path": pick_folder(b.get("initial", ""))})
             if parts == ["api", "scan-preview"]:
-                return self._json(start_preview(b.get("folders", [])))
+                return self._json(self._via(start_preview(b.get("folders", []))))
             if parts == ["api", "analyze"]:
-                return self._json(start_analysis(b.get("folders", []), b.get("target"), b.get("assign"), b.get("title")))
+                return self._json(self._via(start_analysis(b.get("folders", []), b.get("target"), b.get("assign"),
+                                                           b.get("title"))))
             if parts[:2] == ["api", "job"] and len(parts) == 4 and parts[3] == "cancel":
                 j = JOBS.get(parts[2])
                 if j:
@@ -1085,7 +1122,7 @@ class Handler(BaseHTTPRequestHandler):
                 logbook.event("move_projects", old=b["old"], new=settings().workdir, moved=moved)
                 return self._json({"moved": moved})
             if parts == ["api", "selftest"]:
-                return self._json(start_selftest(b.get("folder", "")))
+                return self._json(self._via(start_selftest(b.get("folder", ""))))
             if parts == ["api", "ui-event"]:          # Diagnose aus dem Fenster (z. B. "Auftrag fertig gesehen")
                 kind = "".join(c for c in str(b.get("kind", "event")) if c.isalnum() or c == "_")[:40]
                 logbook.event("ui_" + kind, **{k: str(v)[:300] for k, v in b.items() if k != "kind"})
@@ -1095,6 +1132,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": window.focus()})
             if parts == ["api", "quit"]:
                 return self._json(quit_app())
+            if parts in (["api", "claude", "install"], ["api", "claude", "uninstall"]):
+                from .. import claude_link
+                res = claude_link.install() if parts[2] == "install" else claude_link.uninstall()
+                logbook.event("claude_link", action=parts[2], files=res.get("changed"), text=res.get("text"))
+                return self._json(res)
             if parts == ["api", "update", "check"]:
                 return self._json(updater.check(force=True))
             if parts == ["api", "update", "install"]:
@@ -1137,9 +1179,12 @@ class Handler(BaseHTTPRequestHandler):
                 if action == "prepare-assets":
                     return self._json(start_prepare_assets(name))
                 if action == "reanalyze":
-                    return self._json(reanalyze(name))
+                    return self._json(self._via(reanalyze(name)))
                 if action == "stack":
-                    return self._json(start_stack(name))
+                    return self._json(self._via(start_stack(name, b.get("only"))))
+                if action == "overrides":              # viele Entscheidungen auf einmal (KI/MCP)
+                    project.set_overrides(pdir, b.get("decisions") or {})
+                    return self._json(_selection_status(pdir))
                 if action == "meta":
                     project.save_meta(pdir, **{k: v for k, v in b.items() if k in ("name", "description", "checklist")})
                     return self._json(project_detail(name))

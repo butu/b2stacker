@@ -93,6 +93,12 @@ in anderen Projekten wiederverwendet. Ein schneller Dateistatus-Vergleich vermei
 Hashen; bei neuen oder geänderten Dateien prüft ein SHA256-Hash den Inhalt. Die Bewertung und
 die Zuordnung von Kalibrierbildern werden für jedes Projekt neu berechnet.
 
+## Bedienung durch Claude (MCP)
+
+b2stacker hat einen MCP-Server: Claude kann Projekte ansehen, Frames prüfen, Pläne anpassen und Stacking einreihen –
+sichtbar im b2stacker-Fenster („· per Claude“). Einrichten: **Einstellungen → Mit Claude verbinden**, dann die
+Claude-App neu starten. Details: [Anleitung, Abschnitt 12](docs/ANLEITUNG.md#12-bedienung-durch-claude-ki).
+
 ## Kommandozeile (auch für KI-Bedienung)
 
 Alle Befehle antworten mit `--json` maschinenlesbar. Die exe nimmt dieselben Befehle an
@@ -107,7 +113,11 @@ Alle Befehle antworten mit `--json` maschinenlesbar. Die exe nimmt dieselben Bef
 | `astrostack report <ordner…> [--target <ziel>]` | vermessen, Bericht + Plan erzeugen |
 | `astrostack plan <projekt> [--set option=wert] [--disable Lauf] [--reference Lauf=master:RGB]` | Plan zeigen/ändern |
 | `astrostack override <projekt> in\|out\|auto <datei…>` | Frames manuell aufnehmen/ausschließen |
-| `astrostack stack <projekt> [--only Lauf]` | mit PixInsight stacken |
+| `astrostack frames <projekt> [--status problems]` | Frames mit Bewertung, Messwerten und Gründen |
+| `astrostack reanalyze <projekt>` | Projekt neu analysieren |
+| `astrostack stack <projekt> [--only Lauf]` | mit PixInsight stacken (läuft b2stacker, dort eingereiht) |
+| `astrostack selftest [--folder X]` | Selbsttest mit echtem PixInsight |
+| `astrostack mcp [--install]` | MCP-Server für Claude bzw. in der Claude-Desktop-App eintragen |
 | `astrostack status` | letzte Aufträge und Läufe |
 | `astrostack logs [--kind error] [--project X] [--trace]` | Protokoll-Ereignisse |
 | `astrostack settings [--set schluessel=wert]` | Einstellungen |

@@ -43,6 +43,7 @@ class FrameMeta:
     binning: int = 1
     width: int | None = None
     height: int | None = None
+    planes: int = 1                     # NAXIS3: >1 = Farbbild/Würfel, kein Rohbild
     bayer: str | None = None            # RGGB … oder None (Mono)
     ccd_temp: float | None = None
     set_temp: float | None = None
@@ -364,6 +365,8 @@ def from_header(h, path: str) -> FrameMeta:
     m.binning = int(_f(h, "XBINNING", "BINNING", "CCDXBIN") or 1)
     m.width = int(_f(h, "NAXIS1") or 0) or None
     m.height = int(_f(h, "NAXIS2") or 0) or None
+    if int(_f(h, "NAXIS") or 0) >= 3:
+        m.planes = int(_f(h, "NAXIS3") or 1)
     m.bayer = _s(h, "BAYERPAT", "COLORTYP", "CFAPATT", "BAYER")
     if m.bayer and m.bayer.upper() not in ("RGGB", "BGGR", "GRBG", "GBRG"):
         m.bayer = None

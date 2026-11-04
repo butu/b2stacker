@@ -4,7 +4,7 @@
 
 - **Qualität vor Bequemlichkeit.** Stacking-Motor ist PixInsight (WBPP bzw. eigene Prozess-Pipeline).
 - **Keine KI im Normalbetrieb.** Alle Regeln sind deterministisch und in Code/Config abgebildet.
-- **KI-bedienbar.** Jede Funktion ist über die CLI (`--json`) erreichbar; später zusätzlich als MCP-Server.
+- **KI-bedienbar.** Jede Funktion ist über die CLI (`--json`) und als MCP-Server (`b2stacker.exe mcp`) erreichbar.
 - **Quelle egal.** NINA, ASIAIR, Ekos, SharpCap, APT … werden über einen Header-Übersetzer vereinheitlicht.
 - **Filter egal.** Breitband, Dualband an Farbkamera (Ha/OIII, SII/OIII), Mono-Filter (L, R, G, B, Ha, SII, OIII).
 - **Nachvollziehbar.** Jeder Vorschlag hat eine Begründung; jeder Lauf ein Log und eine Statusdatei.
@@ -13,7 +13,7 @@
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ Oberfläche: Browser-UI (localhost)  ·  CLI  ·  (später MCP)   │
+│ Oberfläche: Programmfenster/Browser · CLI · MCP (KI)          │
 ├──────────────────────────────────────────────────────────────┤
 │ Projekt: Scan → Analyse → Prüfung → Plan → Job → Ergebnis     │
 ├───────────────┬───────────────┬──────────────┬───────────────┤
@@ -56,6 +56,9 @@
 | `jobs.py` | Hintergrund-Aufträge in einer Warteschlange (einer läuft, weitere warten, jeder abbrechbar), eindeutiger Endzustand (Fertig/Fehlgeschlagen/Abgebrochen), gespiegelt nach `<workdir>/jobs/`. |
 | `system.py` | RAM/Disk prüfen, Energiesparmodus verhindern (Windows), hängende PixInsight-Prozesse erkennen. |
 | `cli.py` | Kommandozeile (`--json` für KI). |
+| `appclient.py` | Verbindung zur laufenden App (sucht Ports 8765–8784, startet sie bei Bedarf losgelöst). CLI (`stack`, `reanalyze`, `selftest`) und MCP reihen Aufträge darüber ein – eine Warteschlange, nie zwei PixInsight. Die CLI nutzt die App nur bei gleichem Arbeitsverzeichnis. |
+| `mcp.py` | MCP-Server (JSON-RPC 2.0 über stdin/stdout, ohne Zusatzpakete): 17 Werkzeuge mit kompakten Antworten; jeder Aufruf wird beantwortet (auch bei internen Fehlern) und als `mcp_call` protokolliert. Aufträge per KI tragen „· per Claude“ (Header `X-B2-Client: mcp`). |
+| `claude_link.py` | Eintrag `mcpServers.b2stacker` in `claude_desktop_config.json` (normale und Store-Installation): nur dieser Schlüssel, mit Sicherung, unlesbare Dateien bleiben unangetastet. |
 
 ## Motoren
 
@@ -153,3 +156,7 @@ Einstellungen: `%APPDATA%\AstroStack\settings.json` (bzw. `~/.config/astrostack/
 - `.github/workflows/tests-windows.yml` läuft auf jedem Branch unter Windows, inklusive `\\localhost\C$` als
   echte Netzwerkfreigabe. `build-exe.yml` baut und veröffentlicht auf `main`.
 - Echtes WBPP prüft nur der **Selbsttest** in der App; sein Bericht liegt in `<workdir>/selbsttest/`.
+- `tests/test_mcp.py`: MCP-Protokoll, echter Unterprozess über Pipes, offizieller MCP-Client (falls installiert) und
+  der komplette Ablauf anlegen → analysieren → Frames → Plan → Stacken (nachgebautes PixInsight). Tests sprechen nie
+  mit einer echten laufenden App (`B2_APP_URL` in `conftest.py`). `packaging/mcp_smoke.py` prüft im Release-Bau die
+  fertige exe genauso, wie die Claude-App sie startet.

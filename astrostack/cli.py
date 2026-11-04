@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 from . import __version__, calibcheck, project
@@ -69,8 +70,60 @@ def cmd_gui(args, s: Settings):
     server.main(args.port, not args.no_browser)
 
 
+def _follow(args, c, job: dict) -> dict:
+    """Auftrag der App bis zum Ende verfolgen; Fortschritt als Text (oder gar nicht bei --json)."""
+    if getattr(args, "no_wait", False):
+        return job
+    last = [None, 0]
+
+    def show(j):
+        if args.json:
+            return
+        p = j.get("progress") or {}
+        line = "%s  %s%s%s" % (j.get("state"), p.get("stage") or "",
+                              "  %s/%s" % (p.get("done"), p.get("total")) if p.get("total") else "",
+                              "  noch ca. %d min" % max(1, round(p["eta_s"] / 60)) if p.get("eta_s") else "")
+        if line != last[0]:
+            print(line, flush=True)
+            last[0] = line
+    j = job
+    while j.get("state") in ("queued", "running"):
+        j = c.wait_job(job["id"], 30, log_tail=40, on_progress=show)
+    if not args.json:
+        for line in (j.get("log") or [])[-15:]:
+            print("  " + line)
+        print("Ergebnis: %s %s" % (j.get("state"), j.get("error") or ""))
+    return j
+
+
+def _app(s: Settings | None = None):
+    """Laufende App mit demselben Arbeitsverzeichnis (eine Warteschlange, ein PixInsight) oder None."""
+    from . import appclient
+    url = appclient.find()
+    if not url:
+        return None
+    c = appclient.Client(url, autostart=False, who="cli")
+    if s is not None:
+        try:
+            same = os.path.normcase(os.path.realpath(c.workdir() or "")) == os.path.normcase(os.path.realpath(s.workdir))
+        except appclient.AppError:
+            same = False
+        if not same:
+            return None                       # andere Instanz/andere Einstellungen: nicht deren Projekte anfassen
+    return c
+
+
 def cmd_stack(args, s: Settings):
     from .engines import pixinsight as pi
+    c = _app(s)
+    if c:                                     # App läuft: dort einreihen statt ein zweites PixInsight zu starten
+        name = c.project_name(args.project)
+        job = c.post("api/project/%s/stack" % c.q(name), {"only": args.only} if args.only else {})
+        if not args.json:
+            print("In b2stacker eingereiht: %s (Auftrag %s)" % (job.get("title"), job.get("id")))
+        j = _follow(args, c, job)
+        _out(args, j, lambda d: None)
+        sys.exit(0 if j.get("state") in ("done", "queued", "running") else 1)
     pdir = project.pdir_of(s, args.project)
     project.assert_stack_ready(pdir)
     plan = project.apply_edits(pdir)
@@ -168,6 +221,68 @@ def cmd_override(args, s: Settings):
     _out(args, ov, lambda d: print("%d manuelle Entscheidungen. Danach: astrostack report … (Plan neu berechnen)" % len(d)))
 
 
+def cmd_reanalyze(args, s: Settings):
+    c = _app(s)
+    if c:
+        name = c.project_name(args.project)
+        job = c.post("api/project/%s/reanalyze" % c.q(name))
+        if not args.json:
+            print("In b2stacker eingereiht: %s (Auftrag %s)" % (job.get("title"), job.get("id")))
+        j = _follow(args, c, job)
+        _out(args, j, lambda d: None)
+        sys.exit(0 if j.get("state") in ("done", "queued", "running") else 1)
+    pdir = project.pdir_of(s, args.project)
+    roots = project.sources(pdir).get("roots") or []
+    if not roots:
+        sys.exit("Fehler: Für dieses Projekt sind keine Quellordner gespeichert.")
+    target = project.meta(pdir)["target"]
+    res = project.run_report(roots, target, s, (lambda *a: None) if args.json else print, into=target)
+    _out(args, res, lambda d: None)
+
+
+def cmd_frames(args, s: Settings):
+    from .mcp import _frame
+    pdir = project.pdir_of(s, args.project)
+    rows = [f for f in project.frames(pdir) if args.type == "all" or f.get("type") == args.type]
+    if args.status == "problems":
+        rows = [f for f in rows if f.get("status") != "ok" or not f.get("selected")]
+    elif args.status in ("used", "unused"):
+        rows = [f for f in rows if bool(f.get("selected")) == (args.status == "used")]
+    elif args.status:
+        rows = [f for f in rows if f.get("status") == args.status]
+    data = [_frame(f) for f in rows]
+
+    def text(d):
+        for f in d:
+            print("%s %-8s %-10s %-9s FWHM %-6s Sterne %-5s %s" % (
+                "x" if f.get("used") else " ", f.get("status", ""), f.get("night", "")[5:], (f.get("filter") or "")[:9],
+                f.get("fwhm_px", "–"), int(f["stars"]) if f.get("stars") is not None else "–",
+                f["file"] + ("  ← " + "; ".join(f["reasons"]) if f.get("reasons") else "")
+                + ("  ← " + f["error"] if f.get("error") else "")))
+        print("%d Frames, %d verwendet" % (len(d), sum(1 for f in d if f.get("used"))))
+    _out(args, data, text)
+
+
+def cmd_selftest(args, s: Settings):
+    from . import appclient
+    c = _app(s) or appclient.Client(who="cli")  # Selbsttest läuft immer in der App (startet sie bei Bedarf)
+    job = c.post("api/selftest", {"folder": args.folder or s.workdir})
+    j = _follow(args, c, job)
+    _out(args, j, lambda d: None)
+    sys.exit(0 if j.get("state") == "done" else 1)
+
+
+def cmd_mcp(args, s: Settings):
+    from . import claude_link
+    if args.install or args.uninstall or args.check:
+        res = claude_link.install() if args.install else claude_link.uninstall() if args.uninstall else claude_link.status()
+        _out(args, res, lambda d: print(d["text"] + ("\n" + d["next"] if d.get("next") else "")
+                                        + "".join("\n  " + f for f in d.get("changed") or [])))
+        return
+    from . import mcp
+    mcp.main()
+
+
 def cmd_logs(args, s: Settings):
     from . import logbook
     ev = logbook.read_events(s.workdir, args.last, args.kind, args.project)
@@ -241,6 +356,21 @@ def main(argv=None):
     p.add_argument("project")
     p.add_argument("--only", nargs="*", help="nur diese Läufe")
     p.add_argument("--no-open", action="store_true", help="Ergebnisse nicht in PixInsight öffnen")
+    p.add_argument("--no-wait", action="store_true", help="nur einreihen, nicht auf das Ende warten (wenn b2stacker läuft)")
+    p = sub.add_parser("reanalyze", help="Projekt neu analysieren (über b2stacker, falls es läuft)")
+    p.add_argument("project")
+    p.add_argument("--no-wait", action="store_true")
+    p = sub.add_parser("frames", help="Frames eines Projekts mit Bewertung und Gründen")
+    p.add_argument("project")
+    p.add_argument("--type", default="light", choices=["light", "flat", "bias", "dark", "darkflat", "all"])
+    p.add_argument("--status", choices=["ok", "warn", "suggest", "rejected", "error", "used", "unused", "problems"])
+    p = sub.add_parser("selftest", help="Selbsttest mit echtem PixInsight (läuft in b2stacker)")
+    p.add_argument("--folder", help="Ordner für die Testdaten (Standard: Arbeitsverzeichnis)")
+    p.add_argument("--no-wait", action="store_true")
+    p = sub.add_parser("mcp", help="MCP-Server für KI-Assistenten (stdin/stdout); --install trägt ihn in Claude ein")
+    p.add_argument("--install", action="store_true", help="in der Claude-Desktop-App eintragen")
+    p.add_argument("--uninstall", action="store_true", help="aus der Claude-Desktop-App austragen")
+    p.add_argument("--check", action="store_true", help="nur prüfen, ob eingetragen")
     p = sub.add_parser("status", help="letzte Aufträge und Stacking-Läufe")
     p.add_argument("--last", type=int, default=5)
     p.add_argument("--tail", type=int, default=20)
@@ -266,8 +396,14 @@ def main(argv=None):
     if args.cmd == "app":
         from .app import window
         return window.run()
-    {"scan": cmd_scan, "check-calib": cmd_check_calib, "report": cmd_report, "settings": cmd_settings, "gui": cmd_gui,
-     "plan": cmd_plan, "override": cmd_override, "stack": cmd_stack, "status": cmd_status, "logs": cmd_logs}[args.cmd](args, s)
+    from .appclient import AppError
+    try:
+        {"scan": cmd_scan, "check-calib": cmd_check_calib, "report": cmd_report, "settings": cmd_settings,
+         "gui": cmd_gui, "plan": cmd_plan, "override": cmd_override, "stack": cmd_stack, "status": cmd_status,
+         "logs": cmd_logs, "reanalyze": cmd_reanalyze, "frames": cmd_frames, "selftest": cmd_selftest,
+         "mcp": cmd_mcp}[args.cmd](args, s)
+    except (AppError, FileNotFoundError, ValueError) as e:      # bekannte Fehler: Klartext statt Traceback
+        sys.exit("Fehler: %s" % e)
 
 
 if __name__ == "__main__":

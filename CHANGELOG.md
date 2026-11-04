@@ -2,6 +2,31 @@
 
 Neueste Version oben. Der Abschnitt der aktuellen Version erscheint auch im Update-Dialog von b2stacker.
 
+## 0.10.0 – 04.11.2026
+
+**Claude kann b2stacker jetzt bedienen.** b2stacker hat einen MCP-Server: Du kannst Claude z. B. bitten, die neuen
+Nächte anzusehen, unscharfe Frames auszusortieren und RGB zu stacken.
+
+**Neu**
+- **Mit Claude verbinden** (Einstellungen → KI-Bedienung): trägt b2stacker in der Claude-Desktop-App ein, mit
+  Sicherung der Konfiguration; andere Einträge bleiben unverändert. Danach die Claude-App neu starten.
+- Claude sieht dieselben Projekte, Frames, Messwerte, Aussortiergründe, Rig-Hinweise und Pläne wie du und kann
+  Ordner durchsuchen, Projekte anlegen und analysieren, Frames verwenden/weglassen, den Plan ändern, Stacking
+  einreihen, den Fortschritt verfolgen, Protokolle lesen und Ergebnisse in PixInsight öffnen.
+- Alles läuft sichtbar im b2stacker-Fenster und in derselben Warteschlange; Aufträge von Claude tragen
+  „· per Claude“ und lassen sich wie gewohnt abbrechen. Läuft b2stacker nicht, startet Claude es.
+- Bilddateien kann Claude nicht löschen, verschieben oder verändern; alle Änderungen sind umkehrbar. Jeder Aufruf
+  steht im Protokoll.
+- Kommandozeile: neue Befehle `frames`, `reanalyze` und `selftest`. `stack` reiht in die laufende App ein, statt ein
+  zweites PixInsight zu starten.
+- Stacken nur ausgewählter Läufe, ohne den gespeicherten Plan zu ändern; viele Frame-Entscheidungen auf einmal
+  mit nur einer Neuberechnung des Plans.
+
+**Behoben**
+- Eine Datei mit mehreren Bildebenen (bereits debayert oder bearbeitet) galt als gutes Light und ließ dann das
+  Stacken des ganzen Laufs scheitern. Sie wird jetzt bei der Analyse mit Hinweis aussortiert, auch wenn sie mit einer
+  älteren Version bereits vermessen wurde.
+
 ## 0.9.3 – 04.11.2026
 
 Härtung: b2stacker wurde mit absichtlich kaputten, ungewöhnlichen und großen Datensätzen, mit unsinnigen Eingaben

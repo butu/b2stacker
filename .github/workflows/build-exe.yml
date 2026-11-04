@@ -71,6 +71,14 @@ jobs:
           Get-Process b2stacker -ErrorAction SilentlyContinue | Stop-Process -Force
           Start-Sleep -Seconds 2
 
+      - name: MCP-Server der exe (so wie Claude ihn startet)
+        shell: pwsh
+        run: |
+          $env:ASTROSTACK_SETTINGS = "$env:RUNNER_TEMP\as\settings.json"
+          python packaging/mcp_smoke.py dist\b2stacker.exe
+          Get-Process b2stacker -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 2
+
       - name: Programmfenster öffnen (WebView2)
         shell: pwsh
         continue-on-error: true

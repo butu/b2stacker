@@ -66,6 +66,7 @@ def mixed_tree(tmp_path):
 
 
 os.environ.setdefault("B2_NO_UPDATE_CHECK", "1")   # Tests nie gegen GitHub prüfen
+os.environ["B2_APP_URL"] = "http://127.0.0.1:9/"   # nie mit einer echten, laufenden b2stacker-App sprechen
 
 
 @pytest.fixture(autouse=True)

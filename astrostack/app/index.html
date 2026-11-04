@@ -2467,6 +2467,9 @@ function openSettings(first){
       ${[['site_lat','Breite','48,86'],['site_lon','Länge','15,01'],['site_elev','Höhe (m)','500']].map(([k,l,ph])=>`<input type="text" inputmode="decimal" data-site="${k}" aria-label="${l}" placeholder="${l}, z. B. ${ph}" value="${s[k]==null?'':esc(String(s[k]).replace('.',','))}" style="flex:1 1 0;min-width:0">`).join('')}</div>
       <div class="d">Wird verwendet, wenn die FITS-Daten keinen Standort enthalten – für Mondstand, Objekthöhe und die Zuordnung zur Nacht. Breite/Länge in Grad (Osten positiv). Leer lassen = kein Ersatz. Wirkt bei der nächsten Analyse.</div></div>`+
     `<div>${SETF.filter(f=>f[2]==='bool').map(([k,l,t,d])=>`<label class="optline" style="cursor:pointer"><span class="grow"><div class="t">${l}</div>${d?`<div class="d">${d}</div>`:''}</span><span class="switch"><input type="checkbox" data-k="${k}" ${s[k]?'checked':''}><span></span></span></label>`).join('')}</div>`+
+    `<div class="field" style="border-top:1px solid var(--div);padding-top:14px"><label>KI-Bedienung (Claude)</label>
+      <div class="frow" style="align-items:center"><span class="grow" id="claudeTxt" style="font-size:14px">Wird geprüft …</span><button class="btn" id="claudeBtn" hidden></button></div>
+      <div class="d">Claude kann b2stacker dann über die Claude-Desktop-App bedienen: Projekte und Frames prüfen, Plan anpassen, Analyse und Stacking einreihen. Alles erscheint hier in der Warteschlange (mit „· per Claude“); Originaldateien werden nie verändert.</div></div>`+
     `<div class="row" style="border-top:1px solid var(--div);padding-top:14px"><div class="small grow" style="opacity:.55">Gespeichert in ${esc(S.settings_file)} · Version ${esc(S.version)}</div>
       <button class="btn sm" id="updChk" title="Auf GitHub nach einer neuen Version suchen">${ic('refresh')} Nach Updates suchen</button>
       <button class="btn sm danger" id="quitBtn" title="Programm komplett beenden">b2stacker beenden</button></div>`;
@@ -2478,7 +2481,19 @@ function openSettings(first){
   document.querySelectorAll('[data-pickset]').forEach(b=>b.onclick=async()=>{const inp=document.querySelector(`[data-k="${b.dataset.pickset}"]`);
     try{const r=await api(b.dataset.kind==='file'?'/api/pick-file':'/api/pick-folder',{initial:inp.value});if(r.path){inp.value=r.path;if(b.dataset.kind==='file')checkPi();}}catch(e){toast(e.message,true)}});
   const piIn=document.querySelector('[data-k="pixinsight"]'); if(piIn){piIn.onchange=checkPi;checkPi();}
+  claudeStatus();
   setDlg.showModal();
+}
+async function claudeStatus(r){
+  const t=$('#claudeTxt'),b=$('#claudeBtn');if(!t)return;
+  try{r=r||await api('/api/claude');}catch(e){t.textContent='Status nicht lesbar: '+e.message;return;}
+  const ok=r.installed&&r.current;
+  t.innerHTML=`<span style="color:${ok?'var(--ok)':r.claude_found?'inherit':'var(--err)'};font-weight:700">${ok?'✓ ':''}</span>${esc(r.text)}`;
+  b.hidden=!r.claude_found&&!r.installed;b.className='btn'+(ok?' ghost':'');
+  b.textContent=ok?'Verbindung entfernen':r.installed?'Neu verbinden':'Mit Claude verbinden';
+  b.onclick=async()=>{b.disabled=true;try{const x=await api('/api/claude/'+(ok?'uninstall':'install'),{});
+    toast(ok?'Verbindung entfernt – Claude-App neu starten':'Verbunden – jetzt die Claude-App ganz beenden und neu starten');claudeStatus(x);}
+    catch(e){toast(e.message,true)}finally{b.disabled=false}};
 }
 async function checkPi(){
   const inp=document.querySelector('[data-k="pixinsight"]'), out=$('#piCheck'); if(!inp||!out)return;

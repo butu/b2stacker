@@ -111,10 +111,16 @@ def _meta():
 @pytest.mark.parametrize("data,part", [
     (np.full((4, 4), 1000.0), "zu klein"), (np.full((H, W), np.nan), "keine gültigen"),
     (np.zeros((H, W)), "leer"), (np.full((H, W), 65535.0), "leer"),
+    (np.full((3, H, W), 1000.0), "3 Bildebenen"),        # Bericht 0.9.3: Würfel ließ später das Stacken scheitern
 ])
 def test_unusable_images_raise_clear_errors(data, part):
     with pytest.raises(fm.FrameUnusable, match=part):
         analyze._measure_raw(_meta(), data.astype(np.float32))
+
+
+def test_single_plane_cube_is_a_normal_frame():
+    row, _ = analyze._measure_raw(_meta(), star_field()[None].astype(np.float32))
+    assert row["fwhm"]
 
 
 def test_partial_nan_is_measured():
@@ -448,9 +454,9 @@ def test_cli_plan_text_and_errors(small_project, tmp_path):
     r = _cli(tmp_path, "--json", "plan", name)
     d = json.loads(r.stdout)
     assert d["runs"][0]["n_lights"] == 3 and "lights" not in d["runs"][0]
-    for bad, msg in ((["plan", name, "--disable", "Foo"], "unbekannter Lauf"),
+    for bad, msg in ((["plan", name, "--disable", "Foo"], "nbekannter Lauf"),
                      (["plan", name, "--set", "ohne"], "mit ="),
-                     (["stack", name, "--only", "Foo"], "unbekannter Lauf"),
+                     (["stack", name, "--only", "Foo"], "nbekannter Lauf"),
                      (["settings", "--set", "analysis_workers=zwei"], "kein gültiger Wert"),
                      (["settings", "--set", "gibts=1"], "unbekannte Einstellung")):
         r = _cli(tmp_path, *bad)
@@ -509,3 +515,21 @@ def test_changelog_has_entry_for_current_version(tmp_path):
     text = out.read_text(encoding="utf-8")
     assert "Programmfenster" in text and "abc123" in text and len(text) > 300
     assert release_notes.section("0.0.0", "## 0.1\nx") is None
+
+
+def test_cached_measurement_of_multiplane_file_is_not_reused(tmp_path):
+    good = _write_lights(str(tmp_path / "d"), 2)
+    hdr = dict(NINA_LIGHT, FILTER="RGB")
+    cube = make_fits(str(tmp_path / "d" / "cube.fits"), hdr, data=np.stack([star_field(5)] * 3))
+    frames = _metas(good + [cube])
+    assert frames[-1].planes == 3
+    out = str(tmp_path / "an")
+    analyze.analyze_group(frames, out, workers=1, catalog_dir=str(tmp_path / "cat"))
+    errs = json.load(open(os.path.join(out, analyze.ERRORS_FILE)))
+    assert [e["path"] for e in errs] == [cube] and "Bildebenen" in errs[0]["reason"]
+    import csv
+    rows = {r["path"] for r in csv.DictReader(open(os.path.join(out, "metrics.csv"), encoding="utf-8"))}
+    assert cube not in rows
+    logs = []
+    analyze.analyze_group(frames, out, workers=1, catalog_dir=str(tmp_path / "cat"), log=logs.append)
+    assert any("1 unveränderte defekte" in x for x in logs), "unveränderter Würfel wird nicht erneut gelesen"

@@ -941,18 +941,28 @@ def _save_edits(pdir: str, edits: dict) -> dict:
 
 def set_override(pdir: str, path: str, value: str | None) -> dict:
     """Persist one manual decision and rebuild the plan locally in the same step."""
+    return set_overrides(pdir, {path: value})
+
+
+def set_overrides(pdir: str, decisions: dict) -> dict:
+    """Mehrere manuelle Entscheidungen {pfad: in|out|auto|None} auf einmal – ein einziger Plan-Neubau.
+    Alles oder nichts: ist eine Angabe ungültig, wird nichts gespeichert."""
+    if not isinstance(decisions, dict):
+        raise ValueError("Entscheidungen bitte als Zuordnung Pfad → in/out/auto")
+    for path, value in decisions.items():
+        if value not in ("in", "out", "auto", None):
+            raise ValueError("Entscheidung „%s“ unbekannt – erlaubt: in, out, auto" % value)
+        if value in ("in", "out") and (not isinstance(path, str) or not path.lower().endswith(FRAME_EXT)):
+            raise ValueError("Keine Bilddatei (FITS/XISF): %s" % path)
     with _STATE_LOCK:
         p = os.path.join(pdir, "overrides.json")
         old = _read(p, {})
         ov = dict(old)
-        if value not in ("in", "out", "auto", None):
-            raise ValueError("Entscheidung „%s“ unbekannt – erlaubt: in, out, auto" % value)
-        if value in ("in", "out"):
-            if not isinstance(path, str) or not path.lower().endswith(FRAME_EXT):
-                raise ValueError("Keine Bilddatei (FITS/XISF): %s" % path)
-            ov[path] = value
-        else:
-            ov.pop(path, None)
+        for path, value in decisions.items():
+            if value in ("in", "out"):
+                ov[path] = value
+            else:
+                ov.pop(path, None)
         try:
             plan, ctx = selection.compute_plan(pdir, overrides=ov)
         except selection.SelectionUnavailable:

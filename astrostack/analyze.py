@@ -134,8 +134,11 @@ def measure(meta) -> tuple[dict, np.ndarray]:
 
 def _measure_raw(meta, raw) -> tuple[dict, np.ndarray]:
     """Measure from already loaded pixels so preview rendering can share the same read."""
-    if raw.ndim == 3:   # bereits debayert
-        raw = raw.mean(axis=0)
+    if raw.ndim == 3 and raw.shape[0] == 1:
+        raw = raw[0]
+    if raw.ndim == 3:   # Farbbild/mehrere Ebenen: kein Rohbild – kann nicht mit Rohbildern kalibriert und gestackt werden
+        raise fm.FrameUnusable("Datei enthält %d Bildebenen (bereits debayert oder bearbeitet?) – gestackt werden nur "
+                               "Rohbilder direkt aus der Kamera" % raw.shape[0])
     if raw.ndim != 2 or min(raw.shape) < 16:
         raise fm.FrameUnusable("Bild zu klein oder kein Einzelbild (%s Pixel) – kein Rohbild?" % "×".join(map(str, raw.shape)))
     sample = raw[::7, ::7]
@@ -288,6 +291,14 @@ def analyze_group(frames, outdir: str, workers: int = 2, progress=None, catalog_
             errors.append(_error(f.path, "stat", e))
             continue
         thumb_file = os.path.join(outdir, "thumbs", thumb_name(f.path))
+        e_old = old_err.get(f.path)
+        if e_old and e_old.get("sig") == sig and e_old.get("kind") == "measure":
+            errors.append(e_old)                      # unveränderte kaputte Datei nicht bei jeder Analyse neu lesen
+            n_known_bad += 1
+            continue
+        if getattr(f, "planes", 1) > 1:              # nie aus dem Cache: alte Versionen haben solche Dateien vermessen
+            todo.append((f, sig, sha, "geändert" if f.path in old else "neu"))
+            continue
         o = old.get(f.path)
         if o and o.get("file_sig") == sig and o.get("metrics_ver") == ver and os.path.exists(thumb_file):
             rows[f.path] = dict(context_row(f), **{k: o.get(k) for k in METRIC_COLS},
@@ -302,11 +313,6 @@ def analyze_group(frames, outdir: str, workers: int = 2, progress=None, catalog_
             rows[f.path] = dict(context_row(f), **metrics, file_sig=sig, sha256=sha, metrics_ver=ver)
             n_cat += 1
             reused.append(f)
-            continue
-        e_old = old_err.get(f.path)
-        if e_old and e_old.get("sig") == sig and e_old.get("kind") == "measure":
-            errors.append(e_old)                      # unveränderte kaputte Datei nicht bei jeder Analyse neu lesen
-            n_known_bad += 1
             continue
         if sha and sha in first_of_sha:               # gleicher Inhalt in mehreren Ordnern: nur einmal messen
             same.append((f, sig, sha, first_of_sha[sha]))

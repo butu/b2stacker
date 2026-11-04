@@ -16,6 +16,7 @@ Diese Anleitung erklärt die Bedienung von b2stacker Schritt für Schritt. Techn
 9. [Selbsttest](#9-selbsttest)
 10. [Netzlaufwerk (NAS) und Windows-Entwicklermodus](#10-netzlaufwerk-nas-und-windows-entwicklermodus)
 11. [Was b2stacker mit deinen Daten macht – und was nicht](#11-was-b2stacker-mit-deinen-daten-macht--und-was-nicht)
+12. [Bedienung durch Claude (KI)](#12-bedienung-durch-claude-ki)
 
 ---
 
@@ -209,3 +210,29 @@ ob der Entwicklermodus aktiv ist.
 - Alles, was b2stacker erzeugt, liegt im Arbeitsverzeichnis: Analyse, Vorschauen, Verknüpfungen, Masters, Stacks.
 - Ein gemeinsamer Katalog (`cache/catalog/`) merkt sich Header und Messwerte unveränderter Dateien, damit eine
   erneute Analyse schnell geht.
+
+## 12. Bedienung durch Claude (KI)
+
+b2stacker lässt sich von Claude bedienen – du kannst also z. B. schreiben „Schau dir die neuen M-31-Nächte an,
+sortier unscharfe Frames aus und stack RGB“. Claude sieht dieselben Projekte, Frames, Gründe und Pläne wie du und
+reiht Analyse und Stacking in dieselbe Warteschlange ein.
+
+**Einrichten (einmal):** Menü (☰) → **Einstellungen** → „KI-Bedienung (Claude)“ → **Mit Claude verbinden**. Danach
+die Claude-Desktop-App ganz beenden (auch im Infobereich neben der Uhr) und neu starten. b2stacker trägt sich dabei
+in der Konfiguration der Claude-App ein; vorher wird eine Sicherung angelegt, andere Einträge bleiben unverändert.
+„Verbindung entfernen“ macht das rückgängig. Alternativ in einer Konsole: `b2stacker.exe mcp --install`.
+
+**Was Claude kann:** Status und Projekte ansehen, Ordner durchsuchen, Projekte anlegen und analysieren, Frames mit
+Messwerten und Gründen auflisten, Frames verwenden/weglassen, den Plan ändern (Läufe, Optionen, „nur die besten
+X %“), Stacking einreihen und den Fortschritt verfolgen, Protokolle lesen, den Selbsttest starten und Ergebnisse in
+PixInsight öffnen.
+
+**Was du dabei siehst:** Alles läuft über das b2stacker-Fenster. Aufträge, die Claude startet, tragen „· per Claude“
+im Titel und lassen sich wie gewohnt abbrechen. Läuft b2stacker noch nicht, startet Claude es.
+
+**Was Claude nicht kann:** Bilddateien löschen, verschieben oder verändern – das kann b2stacker gar nicht.
+Frame-Entscheidungen und Plan-Änderungen sind jederzeit umkehrbar (Frames: „auf Automatik zurück“).
+
+Technisch ist das ein MCP-Server (Model Context Protocol): `b2stacker.exe mcp` spricht über stdin/stdout mit der
+Claude-App und leitet alles an das laufende Programm weiter. Jeder Aufruf steht im Protokoll (`logs --kind mcp_call`).
+

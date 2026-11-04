@@ -13,6 +13,7 @@
 
 ## Wiring and data safety
 - Both console scripts (`astrostack`, `b2stacker`) and module execution enter `astrostack/__main__.py`; commands dispatch through `cli.py`. Global `--json` goes **before** the subcommand.
+- AI control: `astrostack mcp` (`mcp.py`) is a dependency-free MCP stdio server; it and the CLI job commands talk to the running app via `appclient.py` (HTTP on 127.0.0.1, one job queue). stdout of `mcp` carries JSON-RPC only. New tools need an entry in `mcp.TOOLS`, a `Tools` method and a test in `tests/test_mcp.py`. Tests pin `B2_APP_URL` to a dead port so they never touch a real app.
 - `project.py` orchestrates scan → analysis/calibration → report/plan; `app/server.py` exposes this through a standard-library HTTP server. `jobs.py` serializes background jobs. Keep CLI and UI on the shared project/engine logic.
 - `astrostack/app/index.html` is the application; `astrostack/report/template.html` is the generated report template. Both contain inline JavaScript. Chart.js is vendored for offline reports; there is no frontend bundler.
 - Runtime projects live in `Settings.workdir` (outside the repo by default). `plan_edits.json` and `overrides.json` preserve user choices across reanalysis; do not replace them with regenerated `plan.json` or scan results.
