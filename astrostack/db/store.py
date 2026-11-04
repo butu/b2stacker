@@ -67,6 +67,21 @@ class Database:
             self._all.clear()
         self._local = threading.local()
 
+    def release(self) -> None:
+        """Verbindung des aktuellen Threads schließen. Für kurzlebige Threads (eine HTTP-Anfrage je Thread),
+        damit sich keine offenen Verbindungen ansammeln; die nächste Abfrage öffnet bei Bedarf eine neue."""
+        c = getattr(self._local, "con", None)
+        if c is None:
+            return
+        self._local.con = None
+        with self._lock:
+            if c in self._all:
+                self._all.remove(c)
+        try:
+            c.close()
+        except sqlite3.Error:
+            pass
+
     # ------------------------------------------------------------ Abfragen
     def execute(self, sql: str, params: Any = ()) -> sqlite3.Cursor:
         return self.con.execute(sql, params)
