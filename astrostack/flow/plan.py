@@ -90,7 +90,10 @@ def build_plan(db: dbm.Database, pid: int, workdir: str, edits: dict | None = No
         lights = _lights(db, run["light_ids"])
         is_osc = bool(run.get("bayer"))
         proc = flt.processing_for(run.get("filter_kind") or flt.UNKNOWN, is_osc)
-        mode = "debayer" if (is_osc and proc.mode in ("debayer", "extract")) else proc.mode
+        # Dualband/Schmalband an Farbkamera: WBPP 3.2.0 trennt die Kanäle selbst und registriert jeden einzeln
+        # (getrenntes Debayern; in 2.7.8 war das im Automatik-Modus defekt, siehe ERKENNTNISSE.md).
+        mode = "separated" if (is_osc and proc.mode == "extract") else \
+            "debayer" if (is_osc and proc.mode == "debayer") else proc.mode
         w = run["settings"].get("width") or 6000
         h = run["settings"].get("height") or 4000
         n = len(lights)
@@ -236,6 +239,14 @@ def edit_plan(db: dbm.Database, pid: int, workdir: str, options: dict | None = N
     return update_plan(db, pid, workdir)
 
 
+def channels(run: dict) -> set[str]:
+    """Welche Bayer-Kanäle ein getrennt debayerter Lauf braucht (z. B. HaO3: R, G, B; Ha-Filter: nur R)."""
+    out = set()
+    for src in (run.get("channel_map") or {}).values():
+        out |= {c for c in src if c in "RGB"}
+    return out or {"R", "G", "B"}
+
+
 def wbpp_values(run: dict) -> dict:
     """Die Einstellungen eines Laufs als WBPP-Parameter (Namen und Werte wie in BPP-automation.js)."""
     v = {s["key"]: s["value"] for s in run["settings"]}
@@ -254,6 +265,10 @@ def wbpp_values(run: dict) -> dict:
         "generateRejectionMaps": True,
         "debayerOutputMethod": 0,
     }
+    if run.get("stack_mode") == "separated":
+        ch = channels(run)
+        p.update(debayerOutputMethod=1, recombineRGB=False, debayerActiveChannelR="R" in ch,
+                 debayerActiveChannelG="G" in ch, debayerActiveChannelB="B" in ch)
     if v.get("fast_integration"):
         p["autoIntegrationMode"] = True              # bewusste Wahl für einen schnellen Probe-Stack
     for k, val in (v.get("star_detection") or {}).items():

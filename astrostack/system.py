@@ -98,7 +98,7 @@ def estimate_disk_gb(n_frames: int, width: int, height: int, osc: bool, mode: st
     """Zwischendateien eines WBPP-Laufs (kalibriert + debayert/extrahiert + registriert, Float32)."""
     px = width * height
     cal = px * 4
-    if mode == "debayer":
+    if mode in ("debayer", "separated"):          # getrennt: debayert + je Kanal registriert = gleich viel
         per = cal + 2 * px * 3 * 4
     elif mode == "extract":
         per = cal + 2 * (px / 4) * 4 * 2

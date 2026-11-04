@@ -290,7 +290,12 @@ def test_plan_settings_reasons_and_edits(env):
     runs = {r["filter"]: r for r in p["runs"]}
     ha, rgb = runs["HaO3"], runs["RGB"]
     assert p["runs"][0]["filter"] == "RGB"                          # Breitband zuerst (Referenz für alle)
-    assert ha["mode"] == "extract" and ha["stack_mode"] == "debayer" and ha["outputs"] == ["Ha", "OIII"]
+    assert ha["mode"] == "extract" and ha["stack_mode"] == "separated" and ha["outputs"] == ["Ha", "OIII"]
+    wv = fp.wbpp_values(ha)
+    assert wv["debayerOutputMethod"] == 1 and wv["recombineRGB"] is False
+    assert wv["debayerActiveChannelR"] and wv["debayerActiveChannelG"] and wv["debayerActiveChannelB"]
+    assert fp.channels(dict(channel_map={"Ha": "R"})) == {"R"}
+    assert fp.wbpp_values(rgb)["debayerOutputMethod"] == 0
     assert ha["enabled"] and ha["why_off"] is None and ha["reference_id"] in ha["light_ids"]
     assert rgb["enabled"] is False and "keine Flats" in rgb["why_off"]
     assert ha["align_to"] is None                                   # RGB ist aus → HaO3 ist erster aktiver Lauf
