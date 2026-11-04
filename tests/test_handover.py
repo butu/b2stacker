@@ -80,6 +80,9 @@ def test_build_job_sessions_params_and_paths(stacked):
     assert job["indexed"]["rejection"] == [None, None, None, 0]           # 3 Lights → Percentile
     assert job["sessionKeyword"] == handover.SESSION_KEYWORD
     assert any("Rohdaten, NAS" in f["path"] for f in job["files"]), "Komma im Pfad bleibt erhalten"
+    assert "drizzle" not in job
+    drz = dict(run, settings=[dict(s, value=True) if s["key"] == "drizzle" else s for s in run["settings"]])
+    assert handover.build_job(db, drz, out)["drizzle"]["scale"] == 2
 
 
 def test_scripts_and_command(stacked, tmp_path):

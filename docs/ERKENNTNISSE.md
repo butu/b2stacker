@@ -45,10 +45,10 @@ je 5 Flats, 5 Bias, Ordnername mit Komma) und 210 kleinen Test-Lights. Skripte: 
 | 3 Weg A vs. B | **Weg B** (eigenes Startskript, WBPP per `#include "…/BPP-main.js"`) funktioniert und ist gewählt. Weg A nicht nötig. |
 | 4 Fast Integration | Weg B: 210 Lights, ohne Einstellung → Post-Gruppe `fastIntegration: true`; mit `autoIntegrationMode=false` → aus. Alter CLI-Weg (0.10.1): ohne Schalter plant WBPP „Fast Integration“, mit `autoIntegrationMode=false` normale Integration. |
 | 5 Flat-Gruppen ohne ASFLAT | funktioniert: Gruppen-Schlüssel `B2SESSION` als `fileItem.fileKeywords` vor `engine.rebuild()`; „Master Flat automatic match“ wählt je Nacht den richtigen Master-Flat. Bias ohne Schlüssel passt zu allen. |
-| 6 Drizzle je Gruppe | offen (über Weg B direkt an der Post-Gruppe setzbar – noch nicht getestet). |
+| 6 Drizzle je Gruppe | funktioniert: im Startskript `group.setDrizzleData({enabled, scale, dropShrink})` an den Light-Gruppen nach der Kalibrierung → zusätzliches Master `…_drizzle_2x.xisf` (2400×1600 aus 1200×800). |
 | 7 Getrenntes Debayern | **funktioniert in 3.2.0** über Weg B: `debayerOutputMethod=1` → Kanäle einzeln registriert (`…_c_d_R_r.xisf`), Master R/G/B mono, ohne CFA-Muster (Schachbrett-Abweichung < 0,05 %). Der 2.7.8-Fehler ist damit für den Neubau erledigt. |
 | 8 Event-Script | funktioniert: `onPipelineStart/OperationStart/OperationDone/PipelineEnd` schreiben eine Statusdatei (Index, Name, Endzeit). Index ist lückenhaft (nur verfolgte Schritte) – Fortschritt = Index/Gesamtzahl. Event-Script ohne `#engine` (WBPP kompiliert es). |
-| 9 Abbruch / Recovery | Automatik-Modus speichert keinen Zwischenstand (`persistProgress`) → kein Recovery-Dialog (Quellcode). Praxistest offen. |
+| 9 Abbruch / Recovery | geprüft: Abbruch mitten in der Pipeline beendet PixInsight (Code 1), Ergebnisdatei steht auf Phase „run“, `ok: false`. Der nächste Lauf startet sofort normal, kein Recovery-Dialog (Automatik-Modus speichert keinen Zwischenstand). Achtung: Befehle über die Fernverbindung kommen bis zu ~10 s verzögert an. |
 | 10 Signatur | nicht nötig, solange „Allow execution of unsigned scripts“ an ist (bei Benjamin an). Pflicht ist `#engine v8` als erste Zeile. |
 | 11 NAS/OneDrive | offen. |
 

@@ -103,10 +103,13 @@ def build_job(db: dbm.Database, run: dict, out_dir: str, reference_path: str | N
     else:
         params["bestFrameReferenceMethod"] = 1
     os.makedirs(out_dir, exist_ok=True)
-    return dict(run=run.get("id"), name=run.get("name"), outputDirectory=pi_path(out_dir),
-                result=pi_path(os.path.join(out_dir, "b2-result.json")),
-                status=pi_path(os.path.join(out_dir, "b2-status.json")), sessionKeyword=SESSION_KEYWORD,
-                params=params, indexed=indexed, files=files)
+    job = dict(run=run.get("id"), name=run.get("name"), outputDirectory=pi_path(out_dir),
+               result=pi_path(os.path.join(out_dir, "b2-result.json")),
+               status=pi_path(os.path.join(out_dir, "b2-status.json")), sessionKeyword=SESSION_KEYWORD,
+               params=params, indexed=indexed, files=files)
+    if any(s["key"] == "drizzle" and s["value"] for s in run.get("settings") or []):
+        job["drizzle"] = dict(enabled=True, scale=2, dropShrink=0.9)       # je Light-Gruppe (WBPP 3.2.0 geprüft)
+    return job
 
 
 def write_scripts(job: dict, temp_dir: str, pixinsight_exe: str) -> tuple[str, str]:
