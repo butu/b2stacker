@@ -436,9 +436,34 @@ def tool_list() -> list[dict]:
 
 # ------------------------------------------------------------------ Protokoll
 
+def app_forwarder(client: Client, timeout: float = MAX_WAIT + 30):
+    """Weiterleitung an ``/mcp`` der laufenden App (gleicher Schlüssel aus den Einstellungen). → Funktion oder
+    None. Gibt ``None`` zurück, wenn die App den Endpunkt nicht kennt (404) oder der Schlüssel nicht passt."""
+    import urllib.error
+    import urllib.request
+
+    def forward(msg: dict):
+        from .mcp_http import ensure_token
+        from .settings import Settings
+        tok = ensure_token(Settings.load())
+        req = urllib.request.Request(client.base().rstrip("/") + "/mcp", data=json.dumps(msg).encode("utf-8"),
+                                     method="POST", headers={"Content-Type": "application/json",
+                                                             "Authorization": "Bearer " + tok})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                raw = r.read()
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403, 404, 405):
+                return None
+            raise
+        return json.loads(raw) if raw else None
+    return forward
+
+
 class Server:
-    def __init__(self, tools: Tools | None = None, out=None):
+    def __init__(self, tools: Tools | None = None, out=None, forward=None):
         self.tools = tools or Tools()
+        self.forward = forward
         self.out = out
         self.lock = threading.Lock()
         self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="mcp")
@@ -476,8 +501,27 @@ class Server:
             pass
         return result
 
+    def _forward(self, msg: dict):
+        """Werkzeugliste und Werkzeugaufrufe an den MCP-Endpunkt der laufenden App weiterreichen. → Antwort oder
+        None (App ohne Endpunkt, z. B. ältere Version: dann gilt die eingebaute Liste)."""
+        fwd = getattr(self, "forward", None)
+        if fwd is None:
+            return None
+        try:
+            return fwd(msg)
+        except Exception:  # noqa: BLE001 – Weiterleitung ist ein Zusatz; ohne sie geht es lokal weiter
+            return None
+
     def handle(self, msg: dict) -> dict | None:
         mid, method, params = msg.get("id"), msg.get("method"), msg.get("params") or {}
+        if method in ("tools/list", "tools/call") and mid is not None and getattr(self, "forward", None):
+            if method == "tools/list":
+                r = self._forward(msg)
+                if r is not None:
+                    return r
+            else:
+                self.pool.submit(self._answer_forwarded, msg)
+                return None
         if method is None:                    # Antwort des Clients – wir stellen keine Anfragen
             return None
         if method == "initialize":
@@ -517,6 +561,20 @@ class Server:
         try:
             self.send(self._ok(mid, res))
         except Exception:  # noqa: BLE001 – stdout geschlossen: Client ist weg
+            traceback.print_exc(file=sys.stderr)
+
+    def _answer_forwarded(self, msg: dict) -> None:
+        r = self._forward(msg)
+        if r is None:                         # App ohne Endpunkt → lokal beantworten
+            p = msg.get("params") or {}
+            name, args = p.get("name"), p.get("arguments") or {}
+            if name not in self.known:
+                r = self._err(msg["id"], -32602, "Unbekanntes Werkzeug: %s" % name)
+            else:
+                return self._answer(msg["id"], name, args if isinstance(args, dict) else {})
+        try:
+            self.send(r)
+        except Exception:  # noqa: BLE001
             traceback.print_exc(file=sys.stderr)
 
     @staticmethod
@@ -563,4 +621,5 @@ def main() -> None:
         logbook.event("mcp_start", version=__version__, pid=os.getpid())
     except Exception:  # noqa: BLE001
         pass
-    Server(out=out).serve(inp)
+    tools = Tools()
+    Server(tools=tools, out=out, forward=app_forwarder(tools.c)).serve(inp)

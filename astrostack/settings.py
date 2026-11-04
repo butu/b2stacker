@@ -35,6 +35,7 @@ class Settings:
     open_results: bool = True                  # Ergebnisse am Ende in PixInsight öffnen
     min_free_ram_gb: float = 8.0
     language: str = "de"
+    mcp_token: str = ""                        # Schlüssel für MCP über HTTP (OpenCode, Claude Code …); leer = beim ersten Bedarf erzeugen
     # Ersatz-Standort, wenn die FITS-Daten keinen enthalten (Mondstand, Objekthöhe, Nachtgrenze)
     site_lat: float | None = None
     site_lon: float | None = None

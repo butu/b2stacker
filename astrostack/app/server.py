@@ -862,6 +862,18 @@ def start_pi_script(script: str, args: list | None = None, timeout_min: float | 
     return JOBS.submit("pi_script", "PixInsight-Skript " + os.path.basename(path), s.workdir, fn).as_dict()
 
 
+_MCP = {"handler": None, "url": None}
+
+
+def _mcp_handler(base_url: str):
+    """MCP-Werkzeuge im eigenen Prozess, die über HTTP mit dieser App sprechen (gleiche Regeln wie stdio)."""
+    from .. import appclient, mcp, mcp_http
+    if _MCP["handler"] is None or _MCP["url"] != base_url:
+        tools = mcp.Tools(appclient.Client(url=base_url, autostart=False, who="mcp"))
+        _MCP.update(handler=mcp_http.Handler(mcp.Server(tools)), url=base_url)
+    return _MCP["handler"]
+
+
 def quit_app() -> dict:
     """Programm beenden (Knopf in den Einstellungen) – wichtig, wenn kein eigenes Fenster läuft."""
     from . import window
@@ -990,6 +1002,8 @@ class Handler(BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         parts = [urllib.parse.unquote(p) for p in u.path.strip("/").split("/") if p]
         q = urllib.parse.parse_qs(u.query)
+        if parts == ["mcp"]:                       # MCP über HTTP: nur POST (kein SSE-Strom nötig)
+            return self._send(405, b"", "text/plain", headers={"Allow": "POST"})
         try:
             if not parts:
                 return self._file(os.path.join(HERE, "index.html"), "text/html; charset=utf-8")
@@ -1111,7 +1125,33 @@ class Handler(BaseHTTPRequestHandler):
             logbook.error("HTTP %s %s" % (self.command, self.path), kind_detail="http_error")
             return self._json({"error": "%s: %s" % (type(e).__name__, e), "trace": traceback.format_exc()[-800:]}, 500)
 
+    def _base_url(self) -> str:
+        return "http://127.0.0.1:%d/" % self.server.server_address[1]
+
+    def _mcp_post(self):
+        """MCP über HTTP: Schlüssel und Origin prüfen, JSON-RPC verarbeiten."""
+        from .. import mcp_http
+        if not mcp_http.origin_ok(self.headers):
+            return self._json({"error": "forbidden origin"}, 403)
+        if not mcp_http.authorized(self.headers, mcp_http.ensure_token(settings())):
+            return self._send(401, json.dumps({"error": "Schlüssel fehlt oder ist falsch (Einstellungen → KI-Bedienung)"},
+                                              ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8",
+                              headers={"WWW-Authenticate": 'Bearer realm="b2stacker"'})
+        n = int(self.headers.get("Content-Length") or 0)
+        code, body = _mcp_handler(self._base_url()).handle_body(self.rfile.read(n) if n else b"")
+        if body is None:
+            self.send_response(code)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        return self._json(body, code)
+
     def do_POST(self):
+        if self._host_ok() and urllib.parse.urlparse(self.path).path.rstrip("/") == "/mcp":
+            try:
+                return self._mcp_post()
+            except Exception as e:  # noqa: BLE001
+                return self._json({"jsonrpc": "2.0", "id": None, "error": {"code": -32603, "message": str(e)}}, 500)
         if not self._host_ok() or self.headers.get("X-Astrostack") != "1":
             return self._json({"error": "forbidden"}, 403)
         parts = [urllib.parse.unquote(p) for p in urllib.parse.urlparse(self.path).path.strip("/").split("/") if p]
@@ -1147,6 +1187,14 @@ class Handler(BaseHTTPRequestHandler):
                                                             b.get("timeout_min"))))
             if parts == ["api", "selftest"]:
                 return self._json(self._via(start_selftest(b.get("folder", ""))))
+            if parts == ["api", "mcp-info"]:
+                from .. import mcp_http
+                return self._json(mcp_http.info(self._base_url(), mcp_http.ensure_token(settings())))
+            if parts == ["api", "mcp-token"]:
+                from .. import mcp_http
+                tok = mcp_http.new_token(settings())
+                logbook.event("mcp_token_renewed")
+                return self._json(mcp_http.info(self._base_url(), tok))
             if parts == ["api", "ui-event"]:          # Diagnose aus dem Fenster (z. B. "Auftrag fertig gesehen")
                 kind = "".join(c for c in str(b.get("kind", "event")) if c.isalnum() or c == "_")[:40]
                 logbook.event("ui_" + kind, **{k: str(v)[:300] for k, v in b.items() if k != "kind"})

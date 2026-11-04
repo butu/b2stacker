@@ -2470,6 +2470,14 @@ function openSettings(first){
     `<div class="field" style="border-top:1px solid var(--div);padding-top:14px"><label>KI-Bedienung (Claude)</label>
       <div class="frow" style="align-items:center"><span class="grow" id="claudeTxt" style="font-size:14px">Wird geprüft …</span><button class="btn" id="claudeBtn" hidden></button></div>
       <div class="d">Claude kann b2stacker dann über die Claude-Desktop-App bedienen: Projekte und Frames prüfen, Plan anpassen, Analyse und Stacking einreihen. Alles erscheint hier in der Warteschlange (mit „· per Claude“); Originaldateien werden nie verändert.</div></div>`+
+    `<div class="field"><label>Andere KI-Werkzeuge (OpenCode, Claude Code …)</label>
+      <div class="frow"><input type="text" class="mono" id="mcpUrl" readonly style="font-size:13px"><button class="btn sm" data-copy="mcpUrl">Kopieren</button></div>
+      <div class="frow" style="margin-top:6px"><input type="password" class="mono" id="mcpTok" readonly style="font-size:13px" aria-label="Schlüssel"><button class="btn sm" id="mcpShow">Zeigen</button><button class="btn sm" data-copy="mcpTok">Kopieren</button><button class="btn sm" id="mcpNew" title="Alter Schlüssel wird ungültig">Neu erzeugen</button></div>
+      <details style="margin-top:8px"><summary class="small">Fertige Einstellungen zum Kopieren</summary>
+        <div class="small" style="margin:8px 0 4px">OpenCode (<span class="mono">opencode.json</span>):</div><textarea id="mcpOc" class="mono" readonly rows="7" style="width:100%;font-size:12px"></textarea>
+        <div class="small" style="margin:8px 0 4px">Claude Code (Terminal):</div><textarea id="mcpCc" class="mono" readonly rows="2" style="width:100%;font-size:12px"></textarea>
+        <div class="small" style="margin:8px 0 4px">Andere (mcpServers-Format):</div><textarea id="mcpGen" class="mono" readonly rows="7" style="width:100%;font-size:12px"></textarea></details>
+      <div class="d">MCP über HTTP, nur auf diesem Rechner erreichbar. Jede Verbindung braucht den Schlüssel – wie ein Passwort behandeln. Neu erzeugen macht alle bisherigen Verbindungen ungültig.</div></div>`+
     `<div class="row" style="border-top:1px solid var(--div);padding-top:14px"><div class="small grow" style="opacity:.55">Gespeichert in ${esc(S.settings_file)} · Version ${esc(S.version)}</div>
       <button class="btn sm" id="updChk" title="Auf GitHub nach einer neuen Version suchen">${ic('refresh')} Nach Updates suchen</button>
       <button class="btn sm danger" id="quitBtn" title="Programm komplett beenden">b2stacker beenden</button></div>`;
@@ -2482,6 +2490,7 @@ function openSettings(first){
     try{const r=await api(b.dataset.kind==='file'?'/api/pick-file':'/api/pick-folder',{initial:inp.value});if(r.path){inp.value=r.path;if(b.dataset.kind==='file')checkPi();}}catch(e){toast(e.message,true)}});
   const piIn=document.querySelector('[data-k="pixinsight"]'); if(piIn){piIn.onchange=checkPi;checkPi();}
   claudeStatus();
+  mcpInfo();
   setDlg.showModal();
 }
 async function claudeStatus(r){
@@ -2494,6 +2503,15 @@ async function claudeStatus(r){
   b.onclick=async()=>{b.disabled=true;try{const x=await api('/api/claude/'+(ok?'uninstall':'install'),{});
     toast(ok?'Verbindung entfernt – Claude-App neu starten':'Verbunden – jetzt die Claude-App ganz beenden und neu starten');claudeStatus(x);}
     catch(e){toast(e.message,true)}finally{b.disabled=false}};
+}
+async function mcpInfo(r){
+  if(!$('#mcpUrl'))return;
+  try{r=r||await api('/api/mcp-info',{});}catch(e){$('#mcpUrl').value='nicht verfügbar: '+e.message;return;}
+  $('#mcpUrl').value=r.url;$('#mcpTok').value=r.token;$('#mcpOc').value=r.opencode;$('#mcpCc').value=r.claude_code;$('#mcpGen').value=r.generic;
+  $('#mcpShow').onclick=()=>{const t=$('#mcpTok');t.type=t.type==='password'?'text':'password';$('#mcpShow').textContent=t.type==='password'?'Zeigen':'Verbergen';};
+  $('#mcpNew').onclick=async()=>{if(!await ask('Neuen Schlüssel erzeugen?','Alle KI-Werkzeuge, die den alten Schlüssel verwenden, verlieren die Verbindung und müssen neu eingerichtet werden.','Neu erzeugen',true))return;
+    try{mcpInfo(await api('/api/mcp-token',{}));toast('Neuer Schlüssel erzeugt');}catch(e){toast(e.message,true)}};
+  document.querySelectorAll('[data-copy]').forEach(b=>b.onclick=async()=>{try{await navigator.clipboard.writeText($('#'+b.dataset.copy).value);toast('Kopiert');}catch(e){$('#'+b.dataset.copy).select();toast('Bitte mit Strg+C kopieren');}});
 }
 async function checkPi(){
   const inp=document.querySelector('[data-k="pixinsight"]'), out=$('#piCheck'); if(!inp||!out)return;
