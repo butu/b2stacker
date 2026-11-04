@@ -60,8 +60,8 @@ Motor: PixInsight + WBPP (JSON-Auftrag, Startskript, Event-Script)
 - Nur Standardbibliothek, `ThreadingHTTPServer` auf 127.0.0.1, eine `Core` je Server; beim Start
   `core.refresh_all()`. Die Datenbank-Verbindung eines Anfrage-Threads wird danach geschlossen (`db.release()`).
 - Sicherheit wie in der alten App: nur `Host` 127.0.0.1/localhost/[::1], jeder POST mit `X-Astrostack: 1`,
-  kein GET liefert den MCP-Schlüssel. Fehler: `{"error": "…"}` – 400 Eingabe (`ValueError`), 404 unbekannt,
-  500 intern (mit Protokolleintrag).
+  kein GET liefert den MCP-Schlüssel. Fehler: `{"error": "…"}` – 400 Eingabe (`ValueError`), 404 unbekannte
+  Route, unbekanntes Projekt/Stack/Auftrag/Bild, 500 intern (mit Protokolleintrag).
 - `static/index.html` ist nur ein Platzhalter (Projektnamen); die echte Oberfläche kommt später.
 
 | Methode | Pfad | Core |
@@ -70,7 +70,7 @@ Motor: PixInsight + WBPP (JSON-Auftrag, Startskript, Event-Script)
 | GET/POST | `/api/projects` | `projects()` / `create_project {name, folders[], description}` |
 | GET | `/api/projects/<id>` | `project` (id oder Name) |
 | POST | `/api/projects/<id>/open` · `rename {name}` · `describe {text}` · `folders {folders[]}` · `folders/<fid>/remove` · `refresh` | |
-| GET | `/api/projects/<id>/frames?type=&status=&offset=&limit=` | `frames` |
+| GET | `/api/projects/<id>/frames?type=&status=&offset=&limit=` | `frames`, je Frame zusätzlich `thumb_url` (mit `?v=`) |
 | POST | `/api/projects/<id>/decide {file_ids[], decision, reason}` | `decide` |
 | GET/POST | `/api/projects/<id>/plan` | `plan` / `edit_plan {options, runs, reset}` |
 | POST | `/api/projects/<id>/stack {run_ids?}` | `stack` |

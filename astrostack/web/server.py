@@ -28,7 +28,7 @@ import webbrowser
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from .. import __version__, logbook
+from .. import __version__, library, logbook
 from .. import settings as settings_mod
 from ..core import Core
 from ..settings import Settings
@@ -355,6 +355,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(c.projects())
         if api == ["history"]:
             project = _str(q, "project")
+            project = self._project(project) if project is not None else None
             return self._json(c.history(project, limit=_int(q, "limit", 200)))
         if api == ["tasks"]:
             return self._json(c.tasks.snapshot())
@@ -365,17 +366,34 @@ class Handler(BaseHTTPRequestHandler):
             path, version = media.preview(c.ws, c.db, self._fid(api[1]))
             return self._image(path, version, immutable=False)
         if len(api) >= 2 and api[0] == "projects":
-            pid, rest = api[1], api[2:]
+            pid, rest = self._project(api[1]), api[2:]
             if not rest:
                 return self._json(c.project(pid))
             if rest == ["frames"]:
-                return self._json(c.frames(pid, type_=_str(q, "type", "light"), status=_str(q, "status"),
-                                           offset=_int(q, "offset", 0), limit=_int(q, "limit", 200)))
+                fr = c.frames(pid, type_=_str(q, "type", "light"), status=_str(q, "status"),
+                              offset=_int(q, "offset", 0), limit=_int(q, "limit", 200))
+                for f in fr["frames"]:                    # dauerhaft cachebare Bild-Adresse für die Kacheln
+                    f["thumb_url"] = ("/api/thumb/%d?v=%s" % (f["id"], media.thumb_version(f["thumb"]))
+                                      if f.get("thumb") else None)
+                return self._json(fr)
             if rest == ["plan"]:
                 return self._json(c.plan(pid))
             if rest == ["stacks"]:
                 return self._json(c.stacks(pid))
         raise NotFound("nicht gefunden")
+
+    def _project(self, key: str) -> int:
+        """Projekt per ID oder Name; unbekannt → 404 (statt 400 aus ``Core``)."""
+        try:
+            return library.find_project(self.core.db, key)
+        except library.LibraryError as e:
+            raise NotFound(str(e)) from None
+
+    def _stack(self, pid: int, raw: str) -> int:
+        if not raw.isdigit() or self.core.db.value("SELECT COUNT(*) FROM stacks WHERE id = ? AND project_id = ?",
+                                                  (int(raw), pid)) == 0:
+            raise NotFound("Stack nicht gefunden.")
+        return int(raw)
 
     @staticmethod
     def _fid(raw: str) -> int:
@@ -417,7 +435,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise NotFound("Auftrag nicht gefunden.")
             return self._json(t.as_dict())
         if len(api) >= 3 and api[0] == "projects":
-            pid, rest = api[1], api[2:]
+            pid, rest = self._project(api[1]), api[2:]
             if rest == ["open"]:
                 return self._json(c.open_project(pid))
             if rest == ["rename"]:
@@ -439,14 +457,16 @@ class Handler(BaseHTTPRequestHandler):
             if rest == ["plan"]:
                 return self._json(c.edit_plan(pid, _dict(b, "options"), _dict(b, "runs"), bool(b.get("reset"))))
             if rest == ["stack"]:
-                return self._json(c.stack(pid, _list(b, "run_ids", required=False) or None))
+                run_ids = _list(b, "run_ids", required=False) or None
+                if run_ids and not all(isinstance(x, str) for x in run_ids):
+                    raise ValueError("run_ids: nur Lauf-Kennungen (Text) erlaubt")
+                return self._json(c.stack(pid, run_ids))
             if len(rest) == 3 and rest[0] == "stacks" and rest[2] in ("note", "delete"):
-                if not rest[1].isdigit():
-                    raise ValueError("Stack-ID muss eine Zahl sein")
+                sid = self._stack(pid, rest[1])
                 if rest[2] == "note":
-                    c.note(pid, int(rest[1]), _text(b, "text"))
+                    c.note(pid, sid, _text(b, "text"))
                     return self._json({"ok": True})
-                return self._json({"removed": c.delete_stack(pid, int(rest[1]))})
+                return self._json({"removed": c.delete_stack(pid, sid)})
         raise NotFound("nicht gefunden")
 
     def _mcp_post(self):

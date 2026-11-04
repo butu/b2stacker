@@ -127,6 +127,16 @@ def test_bootstrap_and_settings_never_return_the_token(bare):
     assert st == 200 and json.loads(raw)["running"] == []
 
 
+def test_internal_error_is_500_with_plain_text_and_logged(bare, monkeypatch):
+    from astrostack import logbook
+    logged = []
+    monkeypatch.setattr(logbook, "error", lambda msg, **kw: logged.append(msg))
+    monkeypatch.setattr(bare.core, "projects", lambda: 1 / 0)
+    st, body, _ = call(bare, "GET", "api/projects")
+    assert st == 500 and body["error"].startswith("Interner Fehler (ZeroDivisionError")
+    assert logged == ["HTTP GET /api/projects"]
+
+
 def test_request_threads_release_db_connections(bare):
     for _ in range(15):
         assert call(bare, "GET", "api/projects")[0] == 200
@@ -149,10 +159,14 @@ def test_project_api_end_to_end(full):
     st, p, _ = call(srv, "GET", "api/projects/%d" % pid)
     assert p["plan"]["ready"] and p["description"] == "Iris"
     assert call(srv, "GET", "api/projects/vdB%20131")[1]["id"] == pid      # auch per Name
-    assert call(srv, "GET", "api/projects/999")[0] == 400
+    st, body, _ = call(srv, "GET", "api/projects/999")
+    assert st == 404 and "nicht gefunden" in body["error"]
+    assert call(srv, "POST", "api/projects/gibt-es-nicht/refresh")[0] == 404
+    assert call(srv, "GET", "api/history?project=999")[0] == 404
 
     st, fr, _ = call(srv, "GET", "api/projects/%d/frames?type=light&status=use&limit=2" % pid)
     assert st == 200 and fr["total"] == 6 and len(fr["frames"]) == 2
+    assert all(f["thumb_url"].startswith("/api/thumb/%d?v=" % f["id"]) for f in fr["frames"])
     assert call(srv, "GET", "api/projects/%d/frames?limit=viele" % pid)[0] == 400
     first = fr["frames"][0]
     st, d, _ = call(srv, "POST", "api/projects/%d/decide" % pid,
@@ -171,13 +185,13 @@ def test_project_api_end_to_end(full):
     st, img, h = call(srv, "GET", "api/thumb/%d" % first["id"], raw=True)
     assert st == 200 and img[:2] == b"\xff\xd8" and h["Content-Type"] == "image/jpeg" and h["Cache-Control"] == "no-cache"
     assert call(srv, "GET", "api/thumb/%d" % first["id"], headers={"If-None-Match": h["ETag"]}, raw=True)[0] == 304
-    version = first["thumb"][:-4] + "-r%d-w%d" % (web.media.RENDER_VERSION, web.media.THUMB_WIDTH)
-    assert "immutable" in call(srv, "GET", "api/thumb/%d?v=%s" % (first["id"], version), raw=True)[2]["Cache-Control"]
+    assert "immutable" in call(srv, "GET", first["thumb_url"], raw=True)[2]["Cache-Control"]
     assert call(srv, "GET", "api/thumb/999999", raw=True)[0] == 404
     assert call(srv, "GET", "api/thumb/abc", raw=True)[0] == 404
     st, img, h = call(srv, "GET", "api/frame/%d/preview" % first["id"], raw=True)
     assert st == 200 and img[:2] == b"\xff\xd8" and h["ETag"]
 
+    assert call(srv, "POST", "api/projects/%d/stack" % pid, {"run_ids": [1]})[0] == 400
     st, t, _ = call(srv, "POST", "api/projects/%d/stack" % pid, {})
     assert st == 200 and t["lane"] == "stack"
     assert co.tasks.wait_idle(60)
@@ -187,6 +201,8 @@ def test_project_api_end_to_end(full):
     assert stacks[0]["status"] == "done" and stacks[0]["files"]
     assert call(srv, "POST", "api/projects/%d/stacks/%d/note" % (pid, sid), {"text": "gut"})[1] == {"ok": True}
     assert call(srv, "GET", "api/projects/%d/stacks" % pid)[1][0]["note"] == "gut"
+    assert call(srv, "POST", "api/projects/%d/stacks/%d/note" % (pid, sid + 99), {"text": "x"})[0] == 404
+    assert call(srv, "POST", "api/projects/%d/stacks/abc/delete" % pid)[0] == 404
     st, d, _ = call(srv, "POST", "api/projects/%d/stacks/%d/delete" % (pid, sid))
     assert st == 200 and d["removed"]
     assert call(srv, "GET", "api/projects/%d/stacks" % pid)[1] == []

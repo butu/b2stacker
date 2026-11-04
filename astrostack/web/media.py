@@ -58,6 +58,11 @@ def _render_thumb(npy: str, width: int) -> bytes:
     return previews._jpeg_bytes(im)
 
 
+def thumb_version(name: str) -> str:
+    """Version eines gerenderten Thumbnails (Teil von Dateiname, ETag und ``?v=`` der Bild-Adresse)."""
+    return "%s-r%d-w%d" % (os.path.splitext(name)[0], RENDER_VERSION, THUMB_WIDTH)
+
+
 def thumb(ws, db, fid: int) -> tuple[str, str]:
     """Thumbnail-JPEG eines Frames (gerendert und zwischengespeichert). → (Pfad, Version für ETag)"""
     row = _known_file(db, fid)
@@ -67,7 +72,7 @@ def thumb(ws, db, fid: int) -> tuple[str, str]:
     npy = os.path.join(ws.previews, THUMBS, name)
     if not os.path.isfile(npy):
         raise MediaError("Thumbnail fehlt – wird bei der nächsten Prüfung neu erstellt.")
-    version = "%s-r%d-w%d" % (os.path.splitext(name)[0], RENDER_VERSION, THUMB_WIDTH)
+    version = thumb_version(name)
     out = os.path.join(ws.previews, "thumbs-jpg", version + ".jpg")
     if not os.path.isfile(out):
         previews._atomic_write(out, _render_thumb(npy, THUMB_WIDTH))
