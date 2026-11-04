@@ -25,7 +25,13 @@ def config_candidates() -> list[str]:
         appdata = os.environ.get("APPDATA") or os.path.expanduser(r"~\AppData\Roaming")
         out.append(os.path.join(appdata, "Claude", FILE))
         local = os.environ.get("LOCALAPPDATA") or os.path.expanduser(r"~\AppData\Local")
-        out += sorted(glob.glob(os.path.join(local, "Packages", "Claude_*", "LocalCache", "Roaming", "Claude", FILE)))
+        # Store-/MSIX-Installation (Paketname je nach Version) und ältere Installationsorte
+        for pattern in (("Packages", "Claude_*", "LocalCache", "Roaming", "Claude", FILE),
+                        ("Packages", "*Claude*", "LocalCache", "Roaming", "Claude", FILE),
+                        ("AnthropicClaude", FILE), ("Claude", FILE)):
+            for hit in sorted(glob.glob(os.path.join(local, *pattern))):
+                if hit not in out:
+                    out.append(hit)
     elif sys.platform == "darwin":
         out.append(os.path.expanduser("~/Library/Application Support/Claude/" + FILE))
     else:
@@ -112,7 +118,10 @@ def status() -> dict:
 def install() -> dict:
     targets = _targets()
     if not targets:
-        raise ValueError("Claude-Desktop-App nicht gefunden. Bitte zuerst Claude installieren und einmal starten.")
+        raise ValueError("Claude-Desktop-App nicht gefunden. Gesucht in: %s. Falls Claude installiert ist: in Claude "
+                         "unter Einstellungen → Entwickler → „Konfiguration bearbeiten“ den Ordner öffnen und den Pfad "
+                         "melden – oder dort beim Eintrag „b2stacker“ den Programmpfad von Hand setzen: %s"
+                         % ("; ".join(config_candidates()) or "–", server_entry()["command"]))
     for p in targets:
         d = _read(p)                                         # unlesbar → Abbruch, nichts wird geschrieben
         servers = d.get("mcpServers")

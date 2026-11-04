@@ -12,6 +12,7 @@ datas = [
     (os.path.join(root, "astrostack", "report", "vendor"), "astrostack/report/vendor"),
     (os.path.join(root, "astrostack", "pjsr", "split.js"), "astrostack/pjsr"),
     (os.path.join(root, "astrostack", "pjsr", "cc_builder.js"), "astrostack/pjsr"),
+    (os.path.join(root, "astrostack", "pjsr", "b2launch.js"), "astrostack/pjsr"),
 ]
 datas += collect_data_files("astropy", excludes=["**/tests/**", "**/*.c", "**/*.h"])
 datas += collect_data_files("astropy_iers_data")
