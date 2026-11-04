@@ -26,6 +26,8 @@ Nächte anzusehen, unscharfe Frames auszusortieren und RGB zu stacken.
 - Eine Datei mit mehreren Bildebenen (bereits debayert oder bearbeitet) galt als gutes Light und ließ dann das
   Stacken des ganzen Laufs scheitern. Sie wird jetzt bei der Analyse mit Hinweis aussortiert, auch wenn sie mit einer
   älteren Version bereits vermessen wurde.
+- Startet b2stacker sich selbst neu (nach einem Update oder wenn Claude es öffnet), läuft die neue Instanz jetzt
+  wirklich eigenständig. Bisher teilte sie sich den Temp-Ordner der alten Instanz.
 
 ## 0.9.3 – 04.11.2026
 
