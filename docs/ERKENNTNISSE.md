@@ -25,6 +25,13 @@
   im Automation-Modus wie jeder Parameter übernommen (`importParametersUnguarded`) → b2stacker übergibt
   `autoIntegrationMode=false` (ab 0.10.1).
 - `bestFrameRefernceMethod` (alte Schreibweise) wird in 3.2.0 noch als Alias von `bestFrameReferenceMethod` gelesen.
+- Eigene Skripte brauchen `#engine v8` als erste Zeile (Pflicht, vor allen anderen Direktiven). Ohne die Zeile
+  läuft ein `-r=`-Skript unter 1.9.6 nicht und PixInsight endet trotzdem mit Code 0 – ohne Meldung.
+  Event-Script und Pipeline-Builder-Script dagegen ohne `#engine` (WBPP kompiliert sie selbst).
+- „Allow execution of unsigned scripts“ ist bei Benjamin an; WBPP ist signiert, eigene Skripte nicht.
+- Im Automatik-Modus speichert WBPP keinen Zwischenstand (`persistProgress`) → kein Recovery-Dialog nach Abbruch.
+- Fortschritt offiziell über das Event-Script (`onPipelineStart`, `onOperationStart`, `onOperationDone`,
+  `onPipelineEnd`; Beispiel `BatchPreprocessing/examples/event-script-example.js`).
 - Parameterliste: `automationMode=true,paramList` bzw. Alt+A im WBPP-Dialog; Quelle `BPP-automation.js`.
 
 ## WBPP-Automation (PixInsight, WBPP 2.7.8)

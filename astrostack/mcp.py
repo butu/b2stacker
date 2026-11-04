@@ -328,6 +328,14 @@ class Tools:
         return dict(job=_job(self.c.post("api/selftest", {"folder": folder}), 3), folder=folder,
                     next="job mit wait_s aufrufen (einige Minuten).")
 
+    def run_pixinsight_script(self, a):
+        args = a.get("args") or []
+        if not isinstance(args, list):
+            raise ToolError("args muss eine Liste sein")
+        j = self.c.post("api/pi-script", {"script": a.get("script", ""), "args": args,
+                                           "timeout_min": a.get("timeout_min")})
+        return dict(job=_job(j, 3), next="job mit wait_s aufrufen; Ergebnis enthält exit_code, output_tail, logfile.")
+
     def open_in_pixinsight(self, a):
         name = self._pname(a.get("project"))
         d = self.c.get("api/project/" + self.c.q(name))
@@ -402,6 +410,14 @@ TOOLS = [
      {"id": {"type": "string"}}, ["id"], RW),
     ("selftest", "Selbsttest mit echtem PixInsight: kleine Testdaten anlegen, analysieren, stacken, Bericht. "
      "Ordner Standard: Arbeitsverzeichnis.", {"folder": {"type": "string"}}, [], RW),
+    ("run_pixinsight_script", "Eigenes PixInsight-Skript (.js/.scp) aus dem Arbeitsverzeichnis im Automatik-Modus "
+     "ausführen – für Diagnose und Entwicklung. Läuft als Auftrag in der Warteschlange (nie parallel zum Stacken), "
+     "Ausgabe von PixInsight im Protokoll. .js braucht „#engine v8“ als erste Zeile.",
+     {"script": {"type": "string", "description": "Pfad, absolut oder relativ zum Arbeitsverzeichnis"},
+      "args": {"type": "array", "items": {"type": "string"},
+               "description": "Argumente (landen in Runtime.jsArguments); ohne Komma"},
+      "timeout_min": {"type": "number", "minimum": 1, "maximum": 360, "description": "Standard 30"}},
+     ["script"], RW),
     ("open_in_pixinsight", "Ergebnis eines Stacks in PixInsight öffnen (Standard: neuester Stack).",
      {"project": S_PROJECT, "stack_id": {"type": "string"}}, ["project"], RW),
 ]

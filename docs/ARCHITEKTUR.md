@@ -57,7 +57,8 @@
 | `system.py` | RAM/Disk prüfen, Energiesparmodus verhindern (Windows), hängende PixInsight-Prozesse erkennen. |
 | `cli.py` | Kommandozeile (`--json` für KI). |
 | `appclient.py` | Verbindung zur laufenden App (sucht Ports 8765–8784, startet sie bei Bedarf losgelöst). CLI (`stack`, `reanalyze`, `selftest`) und MCP reihen Aufträge darüber ein – eine Warteschlange, nie zwei PixInsight. Die CLI nutzt die App nur bei gleichem Arbeitsverzeichnis. |
-| `mcp.py` | MCP-Server (JSON-RPC 2.0 über stdin/stdout, ohne Zusatzpakete): 17 Werkzeuge mit kompakten Antworten; jeder Aufruf wird beantwortet (auch bei internen Fehlern) und als `mcp_call` protokolliert. Aufträge per KI tragen „· per Claude“ (Header `X-B2-Client: mcp`). |
+| `piscript.py` | Eigenes PixInsight-Skript aus dem Arbeitsverzeichnis im Automatik-Modus ausführen (Auftrag `pi_script`, MCP `run_pixinsight_script`): Ausgabe zeilenweise ins Protokoll und nach `logs/pixinsight-scripts/`, Abbruch, Zeitlimit. `.js` braucht `#engine v8` als erste Zeile. |
+| `mcp.py` | MCP-Server (JSON-RPC 2.0 über stdin/stdout, ohne Zusatzpakete): 18 Werkzeuge mit kompakten Antworten; jeder Aufruf wird beantwortet (auch bei internen Fehlern) und als `mcp_call` protokolliert. Aufträge per KI tragen „· per Claude“ (Header `X-B2-Client: mcp`). |
 | `claude_link.py` | Eintrag `mcpServers.b2stacker` in `claude_desktop_config.json` (normale und Store-Installation): nur dieser Schlüssel, mit Sicherung, unlesbare Dateien bleiben unangetastet. |
 
 ## Motoren
