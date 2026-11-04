@@ -25,7 +25,7 @@ def cmd_scan(args, s: Settings):
         for g in d["lights"]:
             print("  %-20s %-12s %-18s %4d Frames (%d ausgeschl.)  %6.2f h  %s  %s" % (
                 g["target"][:20], (g["filter"] or "–")[:12], g["filter_kind"], g["frames"], g["excluded"], g["hours"],
-                "OSC" if g["is_osc"] else "Mono", ", ".join("%s:%d" % (k[5:], v) for k, v in g["nights"].items())))
+                "OSC" if g["is_osc"] else "Mono", ", ".join("%s:%d" % (k[5:] if len(k) > 5 else k, v) for k, v in g["nights"].items())))
         print("KALIBRIERUNG")
         for c in d["calib"]:
             print("  %-8s %-10s %4d Frames  %-8s %-22s %s" % (c["type"], (c["filter"] or "")[:10], c["frames"],
@@ -76,6 +76,7 @@ def cmd_stack(args, s: Settings):
     plan = project.apply_edits(pdir)
     plan["workdir"] = pdir
     if args.only:
+        _check_runs(args.only, plan)
         for r in plan["runs"]:
             r["enabled"] = r["name"] in args.only
     log = (lambda *a: None) if args.json else print
@@ -110,19 +111,37 @@ def cmd_status(args, s: Settings):
     _out(args, data, text)
 
 
+def _kv(kv: str, what: str) -> tuple[str, str]:
+    if "=" not in kv:
+        raise SystemExit("Fehler: „%s“ – erwartet %s (mit =)" % (kv, what))
+    k, v = kv.split("=", 1)
+    return k.strip(), v.strip()
+
+
+def _check_runs(names, plan) -> None:
+    known = [r["name"] for r in plan.get("runs", [])]
+    bad = [n for n in names if n not in known]
+    if bad:
+        raise SystemExit("Fehler: unbekannter Lauf %s. Vorhanden: %s" % (", ".join("„%s“" % b for b in bad),
+                                                                        ", ".join(known) or "keine"))
+
+
 def cmd_plan(args, s: Settings):
     pdir = project.pdir_of(s, args.project)
     if args.set or args.enable or args.disable or args.reference:
+        current = project.apply_edits(pdir)
+        _check_runs((args.enable or []) + (args.disable or []) + [_kv(x, "lauf=referenz")[0] for x in args.reference or []],
+                    current)
         ed = {"options": {}, "runs": {}}
         for kv in args.set or []:
-            k, v = kv.split("=", 1)
+            k, v = _kv(kv, "option=wert")
             ed["options"][k] = {"true": True, "false": False, "ja": True, "nein": False}.get(v.lower(), v)
         for n in args.enable or []:
             ed["runs"].setdefault(n, {})["enabled"] = True
         for n in args.disable or []:
             ed["runs"].setdefault(n, {})["enabled"] = False
         for kv in args.reference or []:
-            n, v = kv.split("=", 1)
+            n, v = _kv(kv, "lauf=referenz")
             ed["runs"].setdefault(n, {})["reference"] = v
         plan = project.save_edits(pdir, ed)
     else:
@@ -133,9 +152,12 @@ def cmd_plan(args, s: Settings):
             p["target"], p["total_frames"], p["need_gb"], p["free_gb"], p["need_ram_gb"]))
         for r in p["runs"]:
             print("  [%s] %-8s %-8s %4d Lights  Flats %3d  Bias %3d  Ref %s" % (
-                "x" if r.get("enabled", True) else " ", r["name"], r["mode"], r["lightCount"], len(r["flats"]), len(r["bias"]), r["reference"]))
+                "x" if r.get("enabled", True) else " ", r["name"], r["mode"], r["lightCount"], r["n_flats"], r["n_bias"], r.get("reference")))
         print("  Optionen: " + ", ".join("%s=%s" % kv for kv in p["options"].items()))
-    _out(args, {k: v for k, v in plan.items() if k != "runs"} | {"runs": [{k: v for k, v in r.items() if k not in ("lights", "flats", "bias", "darks", "darkflats")} for r in plan["runs"]]}, text)
+    lists = ("lights", "flats", "bias", "darks", "darkflats")
+    slim = [{k: v for k, v in r.items() if k not in lists} | {"n_" + k: len(r.get(k) or []) for k in lists}
+            for r in plan["runs"]]
+    _out(args, {k: v for k, v in plan.items() if k != "runs"} | {"runs": slim}, text)
 
 
 def cmd_override(args, s: Settings):
@@ -161,13 +183,29 @@ def cmd_logs(args, s: Settings):
 
 def cmd_settings(args, s: Settings):
     if args.set:
+        from dataclasses import fields
+        types = {f.name: f.type for f in fields(Settings)}
         for kv in args.set:
-            k, v = kv.split("=", 1)
-            if not hasattr(s, k):
-                sys.exit("unbekannte Einstellung: " + k)
-            cur = getattr(s, k)
-            setattr(s, k, type(cur)(v) if isinstance(cur, (int, float, bool)) and not isinstance(cur, bool) else
-                    (v.lower() in ("1", "true", "ja")) if isinstance(cur, bool) else v)
+            k, v = _kv(kv, "schluessel=wert")
+            if k not in types:
+                sys.exit("Fehler: unbekannte Einstellung „%s“. Vorhanden: %s" % (k, ", ".join(types)))
+            t = str(types[k])
+            try:
+                if "bool" in t:
+                    if v.lower() not in ("1", "0", "true", "false", "ja", "nein"):
+                        raise ValueError
+                    val = v.lower() in ("1", "true", "ja")
+                elif "float" in t:
+                    val = None if v == "" and "None" in t else float(v.replace(",", "."))
+                elif "int" in t:
+                    val = int(v)
+                elif "list" in t or "dict" in t:
+                    val = json.loads(v)
+                else:
+                    val = v
+            except ValueError:
+                sys.exit("Fehler: „%s“ ist kein gültiger Wert für %s (%s)" % (v, k, t))
+            setattr(s, k, val)
         print("gespeichert: " + s.save())
     from dataclasses import asdict
     _out(args, asdict(s) | {"settings_file": Settings.path()}, lambda d: [print("%-22s %s" % (k, v)) for k, v in d.items()])
@@ -217,9 +255,14 @@ def main(argv=None):
     if not args.cmd:                       # ohne Befehl → Programmfenster
         args = ap.parse_args(["app"])
     s = Settings.load()
+    from . import settings as settings_mod
     if args.cmd not in ("settings",):
         from . import logbook
         logbook.setup(s.workdir)
+        for msg in settings_mod.LOAD_PROBLEMS:
+            logbook.event("settings_problem", msg=msg)
+    for msg in settings_mod.LOAD_PROBLEMS:
+        print("Hinweis: " + msg, file=sys.stderr)
     if args.cmd == "app":
         from .app import window
         return window.run()

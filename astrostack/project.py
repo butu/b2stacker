@@ -16,8 +16,15 @@ from .settings import Settings
 _STATE_LOCK = threading.RLock()   # sources.json/overrides.json read-modify-write between UI threads and analyses
 
 
+_WIN_RESERVED = {"con", "prn", "aux", "nul"} | {"com%d" % i for i in range(1, 10)} | {"lpt%d" % i for i in range(1, 10)}
+MAX_NAME = 100          # Ordnername; lange Pfade sind für PixInsight ohnehin ein Risiko
+
+
 def safe_name(target: str) -> str:
-    return re.sub(r"[^\w\- ]+", "_", target).strip() or "unbenannt"
+    n = re.sub(r"[^\w\- ]+", "_", target or "").strip()[:MAX_NAME].strip() or "unbenannt"
+    if n.lower() in _WIN_RESERVED:          # Windows-Gerätenamen sind als Ordner unmöglich
+        n = "_" + n
+    return n
 
 
 def project_dir(settings: Settings, target: str) -> str:
@@ -268,8 +275,8 @@ def run_report(roots, target: str | None, settings: Settings, log=print, progres
 
         def _p(i, n, err, _t=groups[0].target):
             progress(stage="Fotos vermessen", step="measure", target=_t, done=i, total=n)
-            if i % 10 == 0 or i == n or err:
-                log("  %d/%d%s" % (i, n, ("  FEHLER " + str(err)) if err else ""))
+            if i % 10 == 0 or i == n:          # Fehler meldet die Analyse selbst (mit Dateiname)
+                log("  %d/%d" % (i, n))
         analyze.analyze_group(frames, adir, settings.analysis_workers, progress=_p,
                               catalog_dir=catalog_dir(settings), log=log)
         if cancel is not None and cancel.is_set():
@@ -427,7 +434,7 @@ def list_projects(settings: Settings, include_archived: bool = False) -> list[di
                         updated=max(os.path.getmtime(plan_p), os.path.getmtime(os.path.join(pdir, "stacks.json"))
                                     if os.path.exists(os.path.join(pdir, "stacks.json")) else 0),
                         stacks=len(st), last_stack=last and last.get("date"),
-                        thumb_v="%s|%s" % (m.get("thumb") or "", last and last.get("date")),
+                        thumb_v="%s|%s" % (m.get("thumb") or "", (last and last.get("date")) or ""),
                         has_report=os.path.exists(os.path.join(pdir, "report.html"))))
     out.sort(key=lambda p: -p["updated"])
     return out
@@ -605,6 +612,9 @@ def assert_stack_ready(pdir: str) -> None:
     if sources(pdir).get("plan_stale"):
         raise ValueError("Frame-Auswahl wurde geändert – bitte zuerst neu analysieren.")
     plan = _read(os.path.join(pdir, "plan.json"), {})
+    if plan.get("runs") and plan.get("planned_frames") and not plan.get("total_frames") \
+            and not any(r.get("enabled", True) for r in plan["runs"]):
+        raise ValueError("Alle Läufe sind ausgeschaltet – unter Stacken mindestens einen Lauf einschalten.")
     if not plan.get("runs") or not plan.get("total_frames"):
         if not sources(pdir).get("roots"):
             raise ValueError("Keine Quellordner hinterlegt – Ordner wählen und analysieren.")
@@ -821,13 +831,94 @@ def save_edits(pdir: str, edits: dict) -> dict:
         return _save_edits(pdir, edits)
 
 
+BOOL_OPTIONS = ("fix_fringes", "local_normalization", "drizzle", "autocrop", "large_scale_rejection",
+                "distortion_correction", "hot_pixels", "cleanup")
+CHOICE_OPTIONS = {"weighting": ("psf_signal", "psf_snr", "snr"), "rejection": ("auto",)}
+RUN_KEYS = ("enabled", "reference", "wbpp", "top_percent", "calib", "label")
+
+
+def _as_bool(v, what: str) -> bool:
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str) and v.strip().lower() in ("true", "false", "ja", "nein", "1", "0", "an", "aus"):
+        return v.strip().lower() in ("true", "ja", "1", "an")
+    if isinstance(v, int) and v in (0, 1):
+        return bool(v)
+    raise ValueError("%s: „%s“ ist kein Ja/Nein-Wert" % (what, v))
+
+
+def _clean_option(k: str, v):
+    if k in BOOL_OPTIONS:
+        return _as_bool(v, k)
+    if k in CHOICE_OPTIONS:
+        if v not in CHOICE_OPTIONS[k]:
+            raise ValueError("%s: „%s“ – erlaubt: %s" % (k, v, ", ".join(CHOICE_OPTIONS[k])))
+        return v
+    if k == "top_percent":
+        return _clean_pct(v)
+    raise ValueError("unbekannte Option: %s" % k)
+
+
+def _clean_pct(v):
+    if v in (None, ""):
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        raise ValueError("„Nur die besten X %%“: „%s“ ist keine Zahl" % v) from None
+    if not 1 <= f <= 100:
+        raise ValueError("„Nur die besten X %“ muss zwischen 1 und 100 liegen")
+    return int(round(f))
+
+
+def _clean_wbpp(v) -> dict:
+    """Experten-Überschreibungen landen in PixInsights -r=… – Komma, = und Anführungszeichen würden sie zerlegen."""
+    if not isinstance(v, dict):
+        raise ValueError("wbpp: Zuordnung Parameter → Wert erwartet")
+    out = {}
+    for k, x in v.items():
+        k, x = str(k).strip(), str(x).strip()
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", k):
+            raise ValueError("wbpp: ungültiger Parametername „%s“" % k)
+        if any(c in x for c in ',="\n'):
+            raise ValueError("wbpp: Wert für %s darf kein Komma, = oder Anführungszeichen enthalten" % k)
+        out[k] = x
+    return out
+
+
 def _save_edits(pdir: str, edits: dict) -> dict:
     cur = _read(os.path.join(pdir, "plan_edits.json"), {"options": {}, "runs": {}})
-    cur.setdefault("options", {}).update(edits.get("options") or {})
-    for k, v in (edits.get("runs") or {}).items():
+    options = edits.get("options") or {}
+    runs = edits.get("runs") or {}
+    if not isinstance(options, dict) or not isinstance(runs, dict):
+        raise ValueError("Plan-Änderung: options und runs müssen Objekte sein")
+    known = {r.get("name") for r in _read(os.path.join(pdir, "plan.json"), {}).get("runs", [])}
+    for k in runs:
+        if known and k not in known:
+            raise ValueError("unbekannter Lauf „%s“ (vorhanden: %s)" % (k, ", ".join(sorted(n for n in known if n))))
+        if not isinstance(runs[k], dict):
+            raise ValueError("Lauf „%s“: Änderung muss ein Objekt sein" % k)
+        bad = [kk for kk in runs[k] if kk not in RUN_KEYS]
+        if bad:
+            raise ValueError("Lauf „%s“: unbekannte Angabe %s" % (k, ", ".join(bad)))
+    clean_opts = {k: _clean_option(k, v) for k, v in options.items()}
+    cur.setdefault("options", {}).update(clean_opts)
+    for k, v in runs.items():
         r = cur.setdefault("runs", {}).setdefault(k, {})
         for kk, vv in v.items():
+            if kk == "enabled":
+                vv = _as_bool(vv, "enabled")
+            elif kk == "top_percent":
+                vv = _clean_pct(vv)
+            elif kk == "wbpp":
+                vv = _clean_wbpp(vv)
+            elif kk == "reference" and not (isinstance(vv, str) and (vv == "auto" or vv.startswith(("master:", "file:")))):
+                raise ValueError("reference: „auto“, „master:<Lauf>“ oder „file:<Pfad>“ erwartet")
+            elif kk == "label" and not isinstance(vv, (str, type(None))):
+                raise ValueError("label: Text erwartet")
             if kk == "calib":
+                if not isinstance(vv, dict):
+                    raise ValueError("calib: Zuordnung Art → Wahl erwartet")
                 cal = r.setdefault("calib", {})
                 for kind, choice in vv.items():
                     if kind not in CALIB_KINDS:
@@ -854,7 +945,11 @@ def set_override(pdir: str, path: str, value: str | None) -> dict:
         p = os.path.join(pdir, "overrides.json")
         old = _read(p, {})
         ov = dict(old)
+        if value not in ("in", "out", "auto", None):
+            raise ValueError("Entscheidung „%s“ unbekannt – erlaubt: in, out, auto" % value)
         if value in ("in", "out"):
+            if not isinstance(path, str) or not path.lower().endswith(FRAME_EXT):
+                raise ValueError("Keine Bilddatei (FITS/XISF): %s" % path)
             ov[path] = value
         else:
             ov.pop(path, None)
@@ -1351,7 +1446,14 @@ def sources(pdir: str) -> dict:
     return _read(os.path.join(pdir, "sources.json"), {})
 
 
+FRAME_EXT = (".fits", ".fit", ".fts", ".xisf")
+
+
 def set_sources(pdir: str, roots: list[str]) -> dict:
+    if isinstance(roots, str):
+        roots = [roots]
+    if not isinstance(roots, (list, tuple)) or not all(isinstance(r, str) for r in roots):
+        raise ValueError("Quellordner bitte als Liste von Pfaden angeben")
     roots = _canon_roots([r.strip().strip('"') for r in roots if r and r.strip()])
     with _STATE_LOCK:
         src = sources(pdir)

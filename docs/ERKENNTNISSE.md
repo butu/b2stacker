@@ -172,3 +172,18 @@
 - Plausibilitätsgrenze: Stack-FWHM 2,44 px gegenüber 7,7 px in den Einzelbildern → an Hotpixeln ausgerichtet.
 - WBPP 3.x meldet vor dem Start „Diagnostics: Cannot create files with a path longer than 256 characters“, sobald
   LongPathsEnabled aus ist – unabhängig von den tatsächlichen Pfaden (hier max. 175 Zeichen).
+
+## Nachtrag 2026-11-04: Härtung mit absichtlich kaputten und realistischen Daten (0.9.3)
+- **Ein einziger Frame mit unlesbarem `DATE-OBS`** ließ den ganzen Bericht abstürzen (Nacht = None beim Sortieren).
+  Jetzt: Datum aus NINA-/ASIAIR-Dateinamen oder Datumsordner, sonst Frame ohne Nacht – nie Absturz.
+- **Satellitenspur** wurde als „unscharf (FWHM 10 px statt 2,8 px)“ aussortiert: Die Spur zerfällt in eine Kette stark
+  länglicher Pseudo-Sterne. Unterscheidung zum Nachführfehler: Spur-Detektionen liegen auf einer Geraden,
+  nachführbedingt längliche Sterne sind parallel, aber verstreut. Ältere Messungen, die „unscharf“ wirken, werden
+  einmalig nachgemessen; alles andere bleibt im Cache (26 MP ≈ 0,9 s Messung je Frame).
+- **Identische Dateien in zwei Quellordnern** (Original + Backup) wurden doppelt gestackt. Erkennung über SHA256.
+- **Filter „Ha/OIII 7nm“** wurde als reines OIII erkannt (Teilstring), „OIII-SII“ als reines SII.
+- **Gleicher Filter, anderes Gain/Binning/Format** ergab zwei Läufe mit demselben Namen – die sich dann sogar dieselben
+  Lights teilten (Lauf-Name ist Schlüssel für Bearbeitungen und Frame-Zuordnung).
+- `bool("false")` ist in Python `True`: Plan-Optionen, die als Text ankamen, blieben eingeschaltet. Jetzt werden
+  alle Eingaben über API und CLI geprüft und normalisiert, ungültige nie gespeichert.
+- Testbilder für die Sternmessung nicht zu dicht packen: Nachbarsterne im 15×15-Messfenster blähen die FWHM auf.

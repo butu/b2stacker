@@ -75,9 +75,21 @@ def assess(rows: list[dict], th: FrameThresholds | None = None, overrides: dict 
                         temp=_med([x["temp"] for x in v]))
     fmed = {f: _med([r["fwhm"] for r in rows if r["filter"] == f]) for f in filters}
     noise_best = {f: min([nstat[k]["noise"] for k in nstat if k[1] == f and nstat[k]["noise"]], default=None) for f in filters}
+    dup_of = {}                                       # gleicher Inhalt (SHA256) → nur die erste Datei zählt
+    first = {}
+    for r in sorted(rows, key=lambda x: x["path"]):
+        sha = r.get("sha256") or ""
+        if sha:
+            if sha in first:
+                dup_of[r["path"]] = first[sha]
+            else:
+                first[sha] = r["path"]
     for r in rows:
         ns = nstat[(r["night"], r["filter"])]
         flags = []
+        if r["path"] in dup_of:
+            other = os.path.normpath(dup_of[r["path"]]).split(os.sep)
+            flags.append(("reject", "Duplikat: gleicher Inhalt wie …%s%s" % (os.sep, os.sep.join(other[-3:]))))
         if r["nstars"] is not None and ns["nstars"] and r["nstars"] < th.clouds_star_ratio * ns["nstars"]:
             flags.append(("reject", "Wolken/Dunst (wenige Sterne)"))
         if r["bg"] is not None and ns["bg"] and r["bg"] > th.bg_ratio * ns["bg"]:

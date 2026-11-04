@@ -58,6 +58,7 @@ def state() -> dict:
         app_window=_safe(lambda: __import__("astrostack.app.window", fromlist=["STATE"]).STATE.get("window") is not None, False),
         settings=asdict(s),
         settings_file=Settings.path(),
+        settings_problems=list(__import__("astrostack.settings", fromlist=["LOAD_PROBLEMS"]).LOAD_PROBLEMS),
         first_run=not os.path.exists(Settings.path()),
         pixinsight_ok=os.path.exists(s.pixinsight),
         wbpp_ok=os.path.exists(s.wbpp_script),
@@ -66,8 +67,18 @@ def state() -> dict:
         ram_free_gb=_r(free_ram), ram_total_gb=_r(total_ram),
         job=(active or last).as_dict(120) if (active or last) else None,
         jobs=_jobs_overview(),
-        projects=_safe(lambda: project.list_projects(s), []),
+        projects=_safe(lambda: _with_thumb_flags(s, project.list_projects(s)), []),
     )
+
+
+def _with_thumb_flags(s, projects: list) -> list:
+    """Kachel fragt nur nach einem Bild, wenn es lokal eines gibt (kein 404 je leerem Projekt)."""
+    for p in projects:
+        try:
+            p["has_thumb"] = bool(cached_project_thumb(os.path.join(s.workdir, "projects", p["name"])))
+        except Exception:  # noqa: BLE001
+            p["has_thumb"] = False
+    return projects
 
 
 def sysinfo() -> dict:
@@ -115,6 +126,40 @@ def _site_value(k: str, v):
     return f
 
 
+SETTING_LIMITS = {"analysis_workers": (1, 32, "Gleichzeitige Analysen"), "min_free_ram_gb": (0, 1024, "Freier RAM")}
+
+
+def _setting_value(k: str, cur, v):
+    """Werte aus der Oberfläche prüfen, bevor sie gespeichert werden (sonst scheitert erst die nächste Analyse)."""
+    if isinstance(cur, bool):
+        if isinstance(v, str):
+            if v.strip().lower() not in ("true", "false", "1", "0", "ja", "nein"):
+                raise ValueError("%s: „%s“ ist kein Ja/Nein-Wert" % (k, v))
+            return v.strip().lower() in ("true", "1", "ja")
+        return bool(v)
+    if isinstance(cur, (int, float)):
+        try:
+            num = float(str(v).strip().replace(",", ".")) if isinstance(v, str) else float(v)
+        except (TypeError, ValueError):
+            raise ValueError("%s: „%s“ ist keine Zahl" % (SETTING_LIMITS.get(k, (0, 0, k))[2], v)) from None
+        if num != num:
+            raise ValueError("%s: keine gültige Zahl" % k)
+        if k in SETTING_LIMITS:
+            lo, hi, label = SETTING_LIMITS[k]
+            if not lo <= num <= hi:
+                raise ValueError("%s muss zwischen %g und %g liegen" % (label, lo, hi))
+        return int(num) if isinstance(cur, int) else num
+    if isinstance(cur, str):
+        if not isinstance(v, str):
+            raise ValueError("%s: Text erwartet" % k)
+        return v.strip()
+    if isinstance(cur, list) and not isinstance(v, list):
+        raise ValueError("%s: Liste erwartet" % k)
+    if isinstance(cur, dict) and not isinstance(v, dict):
+        raise ValueError("%s: Zuordnung erwartet" % k)
+    return v
+
+
 def save_settings(data: dict) -> dict:
     with SETTINGS_LOCK:
         s = settings()
@@ -125,12 +170,8 @@ def save_settings(data: dict) -> dict:
             cur = getattr(s, k)
             if k in ("site_lat", "site_lon", "site_elev"):
                 v = _site_value(k, v)
-            elif isinstance(cur, bool):
-                v = bool(v)
-            elif isinstance(cur, int):
-                v = int(v)
-            elif isinstance(cur, float):
-                v = float(v)
+            else:
+                v = _setting_value(k, cur, v)
             setattr(s, k, v)
         if (s.site_lat is None) != (s.site_lon is None):
             raise ValueError("Für den Ersatz-Standort Breiten- und Längengrad angeben (oder beide leer lassen)")
@@ -314,7 +355,11 @@ def pick_folder(initial: str = "") -> str | None:
 
 
 def _check_folders(folders):
-    folders = [f.strip().strip('"') for f in folders if f and f.strip()]
+    if isinstance(folders, str):
+        folders = [folders]
+    if not isinstance(folders, (list, tuple)):
+        raise ValueError("Ordner bitte als Liste angeben.")
+    folders = [f.strip().strip('"') for f in folders if isinstance(f, str) and f.strip()]
     if not folders:
         raise ValueError("Bitte mindestens einen Ordner angeben.")
     for f in folders:
@@ -879,7 +924,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def _body(self) -> dict:
         n = int(self.headers.get("Content-Length") or 0)
-        return json.loads(self.rfile.read(n) or b"{}") if n else {}
+        b = json.loads(self.rfile.read(n) or b"{}") if n else {}
+        if not isinstance(b, dict):
+            raise ValueError("Anfrage muss ein JSON-Objekt sein")
+        return b
 
     # Routen
     def do_GET(self):
@@ -979,7 +1027,14 @@ class Handler(BaseHTTPRequestHandler):
                 t = cached_project_thumb(pdir)
                 if not t:
                     return self._json({"error": "kein Bild"}, 404)
-                return self._file(t, "image/jpeg")
+                try:
+                    with open(t, "rb") as fh:
+                        body = fh.read()
+                except OSError:
+                    return self._json({"error": "kein Bild"}, 404)
+                # Die Kachel-URL trägt eine Version (?v=…); ändert sich das Bild, ändert sich die URL.
+                return self._send(200, body, "image/jpeg",
+                                  cache="private, max-age=86400" if q.get("v", [""])[0].strip("|") else "no-cache")
             if tuple(parts) in STATIC_FILES:
                 rel, ctype = STATIC_FILES[tuple(parts)]
                 return self._file(os.path.join(HERE, rel), ctype)
@@ -1069,6 +1124,8 @@ class Handler(BaseHTTPRequestHandler):
                     assets.link(pdir, b.get("path", ""))
                     return self._json(project_detail(name))
                 if action == "plan":
+                    if not isinstance(b.get("runs") or {}, dict) or not isinstance(b.get("options") or {}, dict):
+                        raise ValueError("Plan-Änderung: runs und options müssen Objekte sein")
                     if any("calib" in (v or {}) for v in (b.get("runs") or {}).values()):
                         logbook.event("calib_choice", project=name, change=b.get("runs"))
                     return self._json(project.with_ranking(pdir, project.save_edits(pdir, b)))

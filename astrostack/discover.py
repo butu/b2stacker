@@ -180,7 +180,7 @@ def scan(roots: list[str], opt: ScanOptions | None = None, progress=None) -> Inv
             m.excluded = excl
             return m, None
         except Exception as e:  # defekte Dateien nicht abbrechen lassen
-            return None, (path, str(e))
+            return None, (path, fm.friendly_error(e))
 
     with ThreadPoolExecutor(max_workers=opt.workers) as ex:
         for i, (m, err) in enumerate(ex.map(work, files)):

@@ -101,6 +101,9 @@ jobs:
           $v = python -c "import astrostack; print(astrostack.__version__)"
           "version=$v" >> $env:GITHUB_OUTPUT
 
+      - name: Release-Text aus CHANGELOG.md
+        run: python packaging/release_notes.py ${{ steps.ver.outputs.version }} release-notes.md ${{ github.sha }}
+
       - name: Release veröffentlichen (main → v<Version>)
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
@@ -110,11 +113,4 @@ jobs:
           name: AstroStack ${{ steps.ver.outputs.version }}
           make_latest: true
           files: dist/b2stacker.exe
-          body: |
-            **b2stacker.exe herunterladen und doppelklicken** – die Oberfläche öffnet sich im Browser.
-            Keine Installation, kein Python nötig. Voraussetzung: PixInsight.
-
-            Windows SmartScreen kann beim ersten Start warnen („Unbekannter Herausgeber“):
-            „Weitere Informationen“ → „Trotzdem ausführen“.
-
-            Gebaut aus ${{ github.sha }} – geprüft: Tests, Selbsttest, Analyse mit Testdaten, Oberfläche.
+          body_path: release-notes.md

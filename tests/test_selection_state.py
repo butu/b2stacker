@@ -144,7 +144,8 @@ def test_parallel_toggles_and_edits_share_one_locked_state(tmp_path, monkeypatch
         if i % 2:
             project.set_override(pdir, lights[i % len(lights)], "out")
         else:
-            project.save_edits(pdir, {"options": {"parallel_%d" % i: True}})
+            opt = project.BOOL_OPTIONS[(i // 2) % len(project.BOOL_OPTIONS)]
+            project.save_edits(pdir, {"options": {opt: bool(i % 4)}})
 
     with ThreadPoolExecutor(max_workers=6) as pool:
         list(pool.map(work, range(12)))

@@ -10,6 +10,7 @@ per Klick oder per KI. Originale werden nie verändert.
 | [Anleitung](docs/ANLEITUNG.md) | Bedienung Schritt für Schritt: Projekte, Frames, Stacken, Einstellungen, Selbsttest, NAS |
 | [Architektur](docs/ARCHITEKTUR.md) | Module, PixInsight-Anbindung, Dateibereitstellung, Ordnerstruktur, Tests |
 | [Erkenntnisse](docs/ERKENNTNISSE.md) | Erfahrungen aus echten Aufnahmen und WBPP-Eigenheiten (datiert) |
+| [Änderungen](CHANGELOG.md) | Was sich in welcher Version geändert hat |
 | [Agent guide](AGENTS.md) | Kurzreferenz für KI-Agenten und Entwickler |
 
 ## Starten (Windows)

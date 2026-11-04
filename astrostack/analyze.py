@@ -17,6 +17,7 @@ import numpy as np
 from scipy import ndimage as ndi
 
 from . import catalog, imageio
+from . import fitsmeta as fm
 
 warnings.filterwarnings("ignore")
 
@@ -25,11 +26,13 @@ COLS = ["path", "night", "excluded", "filter", "filter_kind", "date_obs", "exp",
         "pixscale", "hfr_name", "moon_illum", "moon_alt",
         "bg", "noise", "snr_proxy", "nstars", "fwhm", "ecc", "grad", "r_g", "b_g", "p001", "sat_frac",
         "fwhm_c", "fwhm_corner", "tiles_fwhm", "tiles_ecc", "tiles_ang", "tiles_n", "coherence", "coh_angle", "radial",
-        "file_sig", "sha256", "metrics_ver"]
+        "star_algo", "file_sig", "sha256", "metrics_ver"]
 # Only these pixel-derived columns are cached; context columns are always rebuilt from the current meta.
 METRIC_COLS = ["bg", "noise", "snr_proxy", "nstars", "fwhm", "ecc", "grad", "r_g", "b_g", "p001", "sat_frac",
                "fwhm_c", "fwhm_corner", "tiles_fwhm", "tiles_ecc", "tiles_ang", "tiles_n", "coherence", "coh_angle",
-               "radial", "moon_illum", "moon_alt"]
+               "radial", "moon_illum", "moon_alt", "star_algo"]
+# 2 = Satelliten-/Flugzeugspuren werden aus der Sternmessung herausgerechnet (0.9.3)
+STAR_ALGO = 2
 ERRORS_FILE = "measure_errors.json"
 
 
@@ -89,7 +92,29 @@ def _stars(L, bg, noise, maxn=1500):
         if l2 <= 0.1:
             continue
         out.append((y, x, 2.3548 * np.sqrt((l1 + l2) / 2), np.sqrt(1 - l2 / l1), 0.5 * np.arctan2(2 * sxy, sxx - syy)))
-    return nstars, (np.array(out) if out else np.zeros((0, 5)))
+    S = np.array(out) if out else np.zeros((0, 5))
+    trail = _trail_mask(S)
+    if trail.any():                     # Satelliten-/Flugzeugspur: keine Sterne, verfälscht sonst FWHM und Anzahl
+        S = S[~trail]
+        nstars = max(nstars - int(trail.sum()), len(S))
+    return nstars, S
+
+
+def _trail_mask(S: np.ndarray, min_points: int = 4, ecc_min: float = 0.8) -> np.ndarray:
+    """Detektionen auf einer gemeinsamen Linie (Spur). Nachführfehler machen Sterne zwar ebenfalls parallel
+    länglich, sie liegen aber verstreut im Bild – nicht auf einer Geraden. Spalten: y, x, fwhm, ecc, winkel."""
+    mask = np.zeros(len(S), bool)
+    cand = np.nonzero(S[:, 3] > ecc_min)[0] if len(S) else np.zeros(0, int)
+    if len(cand) < min_points:
+        return mask
+    y, x, th = S[cand, 0], S[cand, 1], S[cand, 4]
+    for i in range(len(cand)):
+        d = np.abs(((th - th[i]) + np.pi / 2) % np.pi - np.pi / 2)        # Winkelabstand (Achse, mod 180°)
+        rho = -x * np.sin(th[i]) + y * np.cos(th[i])                     # Abstand zur Linie durch Punkt i
+        on = (d < 0.12) & (np.abs(rho - rho[i]) < 3.0)
+        if on.sum() >= min_points:
+            mask[cand[on]] = True
+    return mask
 
 
 def context_row(meta) -> dict:
@@ -111,6 +136,16 @@ def _measure_raw(meta, raw) -> tuple[dict, np.ndarray]:
     """Measure from already loaded pixels so preview rendering can share the same read."""
     if raw.ndim == 3:   # bereits debayert
         raw = raw.mean(axis=0)
+    if raw.ndim != 2 or min(raw.shape) < 16:
+        raise fm.FrameUnusable("Bild zu klein oder kein Einzelbild (%s Pixel) – kein Rohbild?" % "×".join(map(str, raw.shape)))
+    sample = raw[::7, ::7]
+    if not np.isfinite(sample).any():
+        raise fm.FrameUnusable("Bild enthält keine gültigen Pixelwerte (nur NaN/unendlich)")
+    if not np.isfinite(sample).all():
+        raw = np.nan_to_num(raw, nan=float(np.nanmedian(sample)), posinf=65535.0, neginf=0.0)
+    lo, hi = float(sample.min()), float(sample.max())
+    if lo == hi and (lo <= 0 or lo >= 65000):     # schwarzer/weißer Frame (USB-Aussetzer, Kamera-Fehler)
+        raise fm.FrameUnusable("Bild ist leer (alle Pixel haben den Wert %g) – Kamera- oder Übertragungsfehler?" % lo)
     p001 = float(np.percentile(raw[::7, ::7], 0.01))
     sat = float((raw[::4, ::4] >= 65000).mean())
     ch = imageio.split_cfa(raw, meta.bayer)
@@ -181,8 +216,10 @@ def _work(item):
     try:
         raw = imageio.load(meta.path)
         row, thumb = _measure_raw(meta, raw)
+        row["star_algo"] = STAR_ALGO
     except Exception as e:
-        return None, (meta.path, str(e))
+        from .fitsmeta import friendly_error
+        return None, (meta.path, friendly_error(e))
     record = None
     if preview:
         sha = preview["sha"]
@@ -194,6 +231,14 @@ def _work(item):
         except Exception as e:  # noqa: BLE001 – preview trouble must never discard the measurement
             record = previews.failure_record(sha, meta.bayer, preview["sig"], e)
     return (row, thumb, record), None
+
+
+def _num(v):
+    try:
+        f = float(v)
+        return f if f == f else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _read_csv_rows(p: str) -> dict:
@@ -219,6 +264,12 @@ def analyze_group(frames, outdir: str, workers: int = 2, progress=None, catalog_
     os.makedirs(os.path.join(outdir, "thumbs"), exist_ok=True)
     p = os.path.join(outdir, "metrics.csv")
     old = _read_csv_rows(p)
+    old_err = {}
+    try:
+        with open(os.path.join(outdir, ERRORS_FILE), encoding="utf-8") as fh:
+            old_err = {e["path"]: e for e in json.load(fh) if isinstance(e, dict) and e.get("sig")}
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
     cat = catalog.open_catalog(catalog_dir) if catalog_dir else None
     preview_root = previews.cache_root(preview_cache_dir)
     ver = str(catalog.LIGHT_VERSION)
@@ -226,7 +277,9 @@ def analyze_group(frames, outdir: str, workers: int = 2, progress=None, catalog_
     errors: list[dict] = []
     todo = []
     reused = []
-    n_csv = n_cat = 0
+    same: list[tuple] = []                            # (frame, sig, sha, pfad mit gleichem Inhalt)
+    first_of_sha: dict[str, str] = {}
+    n_csv = n_cat = n_known_bad = 0
     for f in frames:
         try:
             sha, sig = cat.resolve(f.path) if cat else (None, catalog.file_sig(f.path))
@@ -250,8 +303,30 @@ def analyze_group(frames, outdir: str, workers: int = 2, progress=None, catalog_
             n_cat += 1
             reused.append(f)
             continue
+        e_old = old_err.get(f.path)
+        if e_old and e_old.get("sig") == sig and e_old.get("kind") == "measure":
+            errors.append(e_old)                      # unveränderte kaputte Datei nicht bei jeder Analyse neu lesen
+            n_known_bad += 1
+            continue
+        if sha and sha in first_of_sha:               # gleicher Inhalt in mehreren Ordnern: nur einmal messen
+            same.append((f, sig, sha, first_of_sha[sha]))
+            continue
+        if sha:
+            first_of_sha[sha] = f.path
         todo.append((f, sig, sha, "geändert" if f.path in old else "neu"))
+    # Ältere Messungen, die nach altem Verfahren "unscharf" wirken, einmalig nachmessen: eine Satellitenspur
+    # hat dort die FWHM aufgebläht. Alle übrigen Messwerte bleiben aus dem Cache (keine unnötige Arbeit).
+    fw = sorted(_num(rows[f.path].get("fwhm")) for f in reused if _num(rows[f.path].get("fwhm")))
+    if fw:
+        med = fw[len(fw) // 2]
+        for f in list(reused):
+            r = rows[f.path]
+            if (_num(r.get("star_algo")) or 1) < STAR_ALGO and (_num(r.get("fwhm")) or 0) > 1.25 * med:
+                reused.remove(f)
+                rows.pop(f.path)
+                todo.append((f, r.get("file_sig"), r.get("sha256") or None, "nachmessen"))
     n_new = sum(1 for t in todo if t[3] == "neu")
+    n_redo = sum(1 for t in todo if t[3] == "nachmessen")
     n_changed = len(todo) - n_new
     preview_records: dict[str, dict] = {}
     if todo:
@@ -277,10 +352,27 @@ def analyze_group(frames, outdir: str, workers: int = 2, progress=None, catalog_
                         os.path.basename(f.path), row.get("fwhm"), row.get("nstars"), row.get("noise")))
                 elif err:
                     _emit(log, "Messung fehlgeschlagen: %s (%s)" % (os.path.basename(err[0]), err[1]))
-                    errors.append(_error(f.path, kind, err[1]))
+                    errors.append(dict(_error(f.path, kind, err[1]), sig=sig))
                 if progress:
                     progress(i + 1, len(todo), err)
-    _emit(log, "Katalog: %d aus Projekt-CSV, %d aus Katalog, %d neu, %d geändert" % (n_csv, n_cat, n_new, n_changed))
+    for f, sig, sha, orig in same:
+        src = rows.get(orig)
+        if not src:
+            errors.append(_error(f.path, "measure", "gleicher Inhalt wie %s – dort nicht messbar" % os.path.basename(orig)))
+            continue
+        try:
+            import shutil
+            shutil.copyfile(os.path.join(outdir, "thumbs", thumb_name(orig)), os.path.join(outdir, "thumbs", thumb_name(f.path)))
+        except OSError:
+            pass
+        rows[f.path] = dict(context_row(f), **{k: src.get(k) for k in METRIC_COLS}, file_sig=sig, sha256=sha,
+                            metrics_ver=ver)
+        reused.append(f)
+    if same:
+        _emit(log, "%d Dateien mit identischem Inhalt (Kopien in mehreren Ordnern) – nur einmal vermessen" % len(same))
+    _emit(log, "Katalog: %d aus Projekt-CSV, %d aus Katalog, %d neu, %d geändert%s" % (
+        n_csv, n_cat, n_new, n_changed - n_redo, (", %d nachgemessen (Spur-Erkennung)" % n_redo) if n_redo else "")
+        + (", %d unveränderte defekte Dateien übersprungen" % n_known_bad if n_known_bad else ""))
     tmp = p + ".tmp"
     with open(tmp, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=COLS, extrasaction="ignore")

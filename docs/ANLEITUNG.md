@@ -71,6 +71,21 @@ Großansicht: Pfeiltasten blättern, **V** = verwenden, **N** = nicht verwenden 
 Darunter steht eine Zeile wie „137 Sterne · FWHM 7,7 px · 112 würden verworfen · 4 600 Hotpixel“. Die Erkennung
 läuft beim ersten Einblenden (ein paar Sekunden) und wird danach gemerkt. Deine Entscheidungen überleben jede Neu-Analyse.
 
+**Automatisch aussortiert oder markiert** werden unter anderem:
+
+- **Duplikate** – dieselbe Datei liegt in zwei Quellordnern (z. B. Original und Backup-Kopie). Sie wird nur einmal
+  vermessen und nur einmal gestackt; die Kachel nennt den Ordner der anderen Kopie.
+- **Defekte Dateien** – leer, abgeschnitten (abgebrochene Kopie), kein FITS, nur schwarze/weiße Pixel oder viel zu
+  klein. Sie erscheinen mit Grund in Klartext; unveränderte defekte Dateien werden bei der nächsten Analyse nicht
+  erneut gelesen.
+
+**Satelliten- und Flugzeugspuren** zählen nicht als Unschärfe: Die Spur wird aus der Sternmessung herausgerechnet
+und später beim Stacken von der Rejection entfernt – der Frame bleibt drin. Ein echter Nachführfehler (alle Sterne
+länglich) wird weiterhin erkannt.
+
+Fehlt die Aufnahmezeit im Header oder ist sie unlesbar, nimmt b2stacker die Nacht aus dem Dateinamen
+(NINA-/ASIAIR-Zeitstempel) oder dem Datumsordner und vermerkt das am Frame.
+
 ## 5. Stacken: Läufe, Kalibrierung, Optionen
 
 Der Reiter **Stacken** zeigt den Plan. b2stacker stackt jeden Filter in einem eigenen **Lauf**.
@@ -128,7 +143,11 @@ Scheitert ein Stacking, zeigt b2stacker einen roten Kasten mit:
 - Knöpfen **Kalibrierdaten ändern**, **WBPP-Protokoll öffnen** und **Erneut versuchen**.
 
 Offensichtliche Probleme fängt b2stacker schon **vor** dem Start von PixInsight ab, etwa zu wenige
-Roh-Kalibrierbilder ohne Master.
+Roh-Kalibrierbilder ohne Master oder ein Lauf ganz ohne Lights. Läufe mit weniger als 3 Lights sind erlaubt, der
+Plan weist aber darauf hin, dass dann keine Rejection gegen Spuren und Hotpixel möglich ist.
+
+Gibt es denselben Filter mit unterschiedlichen Kamera-Einstellungen (z. B. Gain 0 und Gain 100, anderes Binning),
+entstehen getrennte Läufe mit Zusatz im Namen, etwa „RGB (Gain 0)“ – sie werden nie vermischt.
 
 Alles wird mitgeschrieben in `<Arbeitsverzeichnis>/logs/` (`events-JJJJ-MM.jsonl`, `b2stacker.log`) und je
 Lauf in `projects/<Projekt>/runs/<Zeit>/` (exakter PixInsight-Aufruf, WBPP-Protokolle). Für Fehlermeldungen
@@ -149,6 +168,10 @@ Menü (☰) → **Einstellungen**:
 | PC wach halten | Kein Energiesparmodus während eines Stackings. |
 | Zwischendateien löschen | Spart viel Platz; Masters, Stacks und Protokolle bleiben. |
 | Ergebnisse öffnen | Fertige Stacks am Ende in PixInsight öffnen. |
+
+Ungültige Eingaben (z. B. 0 gleichzeitige Vermessungen) werden mit Hinweis abgelehnt statt gespeichert. Ist die
+Einstellungsdatei beschädigt (etwa nach einem Absturz beim Speichern), startet b2stacker trotzdem: Die Datei wird
+als `settings.json.kaputt-<Zeit>` gesichert, es gelten die Standardwerte, und ein Hinweis erscheint beim Start.
 
 ## 9. Selbsttest
 

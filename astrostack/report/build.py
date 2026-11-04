@@ -54,6 +54,9 @@ def _render(data: dict, target: str) -> str:
 
 
 def stretch(t: np.ndarray) -> np.ndarray:
+    if t.size == 0:
+        return np.zeros((1, 1))
+    t = np.nan_to_num(t.astype(float))
     med = np.median(t)
     mad = 1.4826 * np.median(np.abs(t - med)) + 1e-3
     lo = med - 2.8 * mad

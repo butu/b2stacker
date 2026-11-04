@@ -28,7 +28,7 @@ def _shift(a, b):
 
 def rig_diagnostics(rows, scale, analysis_dir):
     """Looks for problems with the rig. Returns checks (good/warning/critical/info) plus chart data."""
-    rr = [r for r in rows if r.get('tiles_fwhm')]
+    rr = [r for r in rows if r.get('tiles_fwhm') and r.get('night')]   # ohne Nacht keine Zeitverläufe
     if not rr: return None
     rr.sort(key=lambda r: r['t'])
     use = [r for r in rr if r['status'] not in ('rejected', 'suggest')]

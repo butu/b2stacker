@@ -61,10 +61,15 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
             first_debayer = g.filter or "L"
         elif first_debayer:
             ref = "master:" + first_debayer
-        name = (g.filter or "L").replace("/", "_")
+        name = _run_name(g, groups)
+        enabled = True
+        if len(frames) < MIN_LIGHTS:
+            why = ("Nur %d brauchbare%s Frame%s – unter %d Frames entfernt die Rejection keine Satelliten- und "
+                   "Hotpixel-Spuren. Mehr Frames aufnehmen oder den Lauf ausschalten. "
+                   % (len(frames), "r" if len(frames) == 1 else "", "" if len(frames) == 1 else "s", MIN_LIGHTS)) + why
         runs.append(_merge_flat_groups(dict(
             name=name, filter=g.filter, filter_kind=g.filter_kind, mode=proc.mode, outputs=list(proc.outputs),
-            channel_map=proc.channel_map, engine="pixinsight-wbpp", enabled=True,
+            channel_map=proc.channel_map, engine="pixinsight-wbpp", enabled=enabled,
             reference=ref, lightCount=len(frames), nights=sorted({f.night for f in frames if f.night}),
             hours=round(sum(f.exposure or 0 for f in frames) / 3600, 2), is_osc=g.is_osc,
             light_dirs=sorted({os.path.dirname(f.path) for f in frames}),
@@ -127,6 +132,44 @@ def build_plan(target: str, groups, rows, ntab, matches, workdir: str, engine: s
     return plan
 
 
+MIN_LIGHTS = 3          # darunter keine Rejection (Satelliten, Hotpixel) – Hinweis im Plan
+
+
+def _settings_label(g, others) -> str:
+    """Unterschied einer Light-Gruppe zu gleichnamigen anderen, für eindeutige Lauf-Namen."""
+    cam, gain, off, readout, binning, w, h = list(g.settings) + [None] * (7 - len(g.settings))
+    parts = []
+    def differs(i):
+        return any((list(o.settings) + [None] * 7)[i] != (list(g.settings) + [None] * 7)[i] for o in others)
+    if differs(0) and cam:
+        parts.append(str(cam))
+    if differs(1) and gain is not None:
+        parts.append("Gain %g" % gain)
+    if differs(2) and off is not None:
+        parts.append("Offset %g" % off)
+    if differs(3) and readout:
+        parts.append(str(readout).upper() if len(str(readout)) <= 4 else str(readout))
+    if differs(4) and binning:
+        parts.append("Bin %d" % binning)
+    if (differs(5) or differs(6)) and w and h:
+        parts.append("%d×%d" % (w, h))
+    return ", ".join(parts)
+
+
+def _run_name(g, groups) -> str:
+    """Lauf-Name = Filter. Gibt es denselben Filter mit anderen Kamera-Einstellungen (Gain, Binning, Format …),
+    bekommt die kleinere Gruppe einen Zusatz – Lauf-Namen sind Schlüssel für Bearbeitungen und Frame-Zuordnung."""
+    base = (g.filter or "L").replace("/", "_")
+    same = [o for o in groups if (o.filter or "L").replace("/", "_") == base]
+    if len(same) < 2:
+        return base
+    biggest = max(same, key=lambda o: (len(o.frames), tuple(str(x) for x in o.settings)))
+    if g is biggest:
+        return base
+    label = _settings_label(g, [biggest]) or "Gruppe %d" % (same.index(g) + 1)
+    return "%s (%s)" % (base, label.replace("/", "_"))
+
+
 def _uses_frame(f, status: dict, unmeasured: set | None, rows: list) -> bool:
     if f.path in status:
         return status[f.path] not in ("rejected", "suggest")
@@ -154,7 +197,7 @@ def _flat_group_fields(flat_groups, g, frames, flat) -> dict:
     fg = (flat_groups or {}).get((g.filter, tuple(g.settings)))
     if not fg:
         return {}
-    used_nights = {f.night for f in frames}
+    used_nights = {f.night for f in frames if f.night}
     groups = [x for x in fg["groups"] if set(x["nights"]) & used_nights]
     rot = dict(per_night={n: dict(rotator=fg["info"]["header"].get(n),
                                   sky=(fg["info"]["measured"].get(n) or {}).get("angle"),

@@ -25,5 +25,6 @@
 - `.github/workflows/build-exe.yml` is the executable build/release reference. Windows packaging is not validated by Linux pytest.
 - CI runs tests, **uninstalls `pytest` and `pytest-timeout`** to avoid the astropy PyInstaller hook failure, then runs `pyinstaller packaging/astrostack.spec --noconfirm` to produce `dist/b2stacker.exe`.
 - New bundled HTML/JS resources must be covered by both `pyproject.toml` package-data and the explicit `datas` list in `packaging/astrostack.spec`.
+- Every version needs a `## <version>` section in `CHANGELOG.md` (German, user-facing); `packaging/release_notes.py` turns it into the GitHub release text shown in the in-app update dialog, and `tests/test_hardening.py` fails without it.
 - Keep versions in `astrostack/__init__.py` and `pyproject.toml` synchronized. Release tags are derived from `astrostack.__version__`, including tag-triggered builds.
 - A push to `main` or a `v*` tag builds and publishes a GitHub release; reusing a version replaces its exe asset. Do not treat pushing `main` as a deploy-free operation.

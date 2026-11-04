@@ -51,19 +51,70 @@ class Settings:
 
     @classmethod
     def load(cls) -> "Settings":
+        """Einstellungen laden. Eine kaputte Datei (Absturz beim Speichern, Handbearbeitung) darf den Start
+        nie verhindern: sie wird als ``settings.json.kaputt-<zeit>`` gesichert, es gelten die Standardwerte."""
         p = cls.path()
         s = cls()
+        problems = []
         if os.path.exists(p):
-            data = json.load(open(p, encoding="utf-8"))
+            try:
+                with open(p, encoding="utf-8") as fh:
+                    data = json.load(fh)
+                if not isinstance(data, dict):
+                    raise ValueError("kein JSON-Objekt")
+            except (OSError, ValueError) as e:
+                data = {}
+                problems.append("Einstellungsdatei unlesbar (%s)" % e)
+                _quarantine(p)
+            defaults = cls()
             for k, v in data.items():
-                if hasattr(s, k):
-                    setattr(s, k, v)
+                if not hasattr(s, k):
+                    continue
+                want = getattr(defaults, k)
+                if v is None and k in _OPTIONAL:
+                    setattr(s, k, None)
+                elif _type_ok(want, v, k):
+                    setattr(s, k, float(v) if isinstance(want, float) or k in _OPTIONAL else v)
+                else:
+                    problems.append("%s=%r ungültig, Standard %r verwendet" % (k, v, want))
         if not s.workdir:
             s.workdir = os.path.join(os.path.expanduser("~"), "AstroStack")
+        for msg in problems:
+            if msg not in LOAD_PROBLEMS:
+                LOAD_PROBLEMS.append(msg)
         return s
 
     def save(self) -> str:
         p = self.path()
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        json.dump(asdict(self), open(p, "w", encoding="utf-8"), indent=2, ensure_ascii=False)
+        os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+        tmp = p + ".tmp"
+        data = asdict(self)
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2, ensure_ascii=False)
+        os.replace(tmp, p)                      # atomar: nie eine halb geschriebene Datei
         return p
+
+
+# Probleme beim Laden (für Oberfläche und Protokoll); gilt für den ganzen Prozess.
+LOAD_PROBLEMS: list[str] = []
+_OPTIONAL = ("site_lat", "site_lon", "site_elev")
+
+
+def _type_ok(default, v, key) -> bool:
+    if key in _OPTIONAL:
+        return isinstance(v, (int, float)) and not isinstance(v, bool)
+    if isinstance(default, bool):
+        return isinstance(v, bool)
+    if isinstance(default, int):
+        return isinstance(v, int) and not isinstance(v, bool)
+    if isinstance(default, float):
+        return isinstance(v, (int, float)) and not isinstance(v, bool)
+    return isinstance(v, type(default))
+
+
+def _quarantine(p: str) -> None:
+    import time
+    try:
+        os.replace(p, p + ".kaputt-" + time.strftime("%Y%m%d-%H%M%S"))
+    except OSError:
+        pass

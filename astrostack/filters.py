@@ -64,10 +64,38 @@ def classify(filter_name: str | None, custom: dict[str, str] | None = None) -> s
                 return kind
     if key in _ALIASES:
         return _ALIASES[key]
-    # Teilstrings für typische Herstellernamen ("Optolong L-eXtreme 2"", "Antlia 3nm Ha Pro")
+    # Teilstrings für typische Herstellernamen ("Optolong L-eXtreme 2"")
     for token, kind in (("lextreme", DUAL_HA_OIII), ("lenhance", DUAL_HA_OIII), ("lultimate", DUAL_HA_OIII),
-                        ("siioiii", DUAL_SII_OIII), ("sii", NARROW_SII), ("oiii", NARROW_OIII),
-                        ("halpha", NARROW_HA), ("uvir", BROADBAND), ("lpro", BROADBAND)):
+                        ("lsynergy", DUAL_SII_OIII)):
+        if token in key:
+            return kind
+    # Linien einzeln erkennen und kombinieren ("Ha/OIII 7nm", "OIII-SII", "Antlia 3nm Ha Pro"):
+    # erst die Wort-Bausteine, damit "Ha" in "Halpha" oder "OIII" in "Ha-OIII" nicht doppelt zählt.
+    words = re.split(r"[^a-z0-9α]+", (filter_name or "").lower())
+    lines = set()
+    for w in words:
+        k = _ALIASES.get(_norm(w))
+        if k in (DUAL_HA_OIII, DUAL_SII_OIII):
+            return k
+        if k in (NARROW_HA, NARROW_SII, NARROW_OIII):
+            lines.add(k)
+    if len(lines) == 3:
+        return UNKNOWN          # Triband: Zuordnung der Kanäle fragt die Oberfläche einmal nach
+    joined = key
+    for token, kind in (("siioiii", DUAL_SII_OIII), ("oiiisii", DUAL_SII_OIII), ("haoiii", DUAL_HA_OIII),
+                        ("oiiiha", DUAL_HA_OIII), ("hao3", DUAL_HA_OIII)):
+        if token in joined:
+            return kind
+    for token, kind in (("sii", NARROW_SII), ("oiii", NARROW_OIII), ("halpha", NARROW_HA)):
+        if token in joined:
+            lines.add(kind)
+    if lines == {NARROW_HA, NARROW_OIII}:
+        return DUAL_HA_OIII
+    if lines == {NARROW_SII, NARROW_OIII}:
+        return DUAL_SII_OIII
+    if len(lines) == 1:
+        return lines.pop()
+    for token, kind in (("uvir", BROADBAND), ("lpro", BROADBAND)):
         if token in key:
             return kind
     if key == "":

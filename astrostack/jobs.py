@@ -50,7 +50,8 @@ class Job:
             self._last_save = 0
         t0 = getattr(self, "_step_t0", now)
         kw["step_elapsed_s"] = round(now - t0)
-        if "eta_s" not in kw and kw.get("total") and kw.get("done", 0) >= 2 and now - t0 > 5:
+        done, total = kw.get("done") or 0, kw.get("total") or 0
+        if "eta_s" not in kw and total and done >= max(3, total * 0.05) and now - t0 > 2:
             kw["eta_s"] = round((kw["total"] - kw["done"]) * (now - t0) / kw["done"])
         kw.setdefault("started", self.created)
         self.progress = kw

@@ -937,6 +937,9 @@ CALIB_NAMES = {"bias": "Bias", "darks": "Darks", "darkflats": "Dark-Flats", "fla
 def _preflight_calibration(run: dict, calib: dict, log) -> None:
     """Vor PixInsight prüfen: Roh-Kalibrierbilder unter 3 Stück kann WBPP nicht integrieren (Bericht 0.8 §8)."""
     from .. import fitsmeta
+    if not run.get("lights"):
+        raise StackError("Lauf „%s“ hat keine Lights – unter Frames welche aufnehmen oder den Lauf ausschalten."
+                         % run.get("name"))
     sets = [(k, v) for k, v in calib.items() if v]
     for g in run.get("flat_groups") or []:
         if g.get("lights") and g.get("flats"):

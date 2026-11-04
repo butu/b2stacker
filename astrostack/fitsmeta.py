@@ -215,7 +215,37 @@ def _iso(s: str | None) -> str | None:
             return datetime.strptime(s[:26], fmt).isoformat()
         except ValueError:
             continue
-    return s
+    try:                                            # z. B. Zeitzone "+00:00" oder "Z" am Ende
+        return datetime.fromisoformat(s.rstrip("Z")).replace(tzinfo=None).isoformat()
+    except ValueError:
+        return None                                 # unlesbar ("gestern abend") → wie fehlend behandeln
+
+
+_PATH_DATE = (re.compile(r"(?<!\d)(20\d\d)-(\d\d)-(\d\d)[_T ](\d\d)[-:](\d\d)[-:](\d\d)"),   # NINA 2026-10-20_21-05-00
+              re.compile(r"(?<!\d)(20\d\d)(\d\d)(\d\d)-(\d\d)(\d\d)(\d\d)(?!\d)"))              # ASIAIR 20261020-213000
+_PATH_DAY = re.compile(r"(?<!\d)(20\d\d)-(\d\d)-(\d\d)(?!\d)")
+
+
+def night_from_path(path: str) -> str | None:
+    """Ersatz, wenn die Aufnahmezeit im Header fehlt: Zeitstempel im Dateinamen, sonst Datumsordner."""
+    from datetime import timedelta
+    base = os.path.basename(path)
+    for rx in _PATH_DATE:
+        mm = rx.search(base)
+        if mm:
+            try:
+                t = datetime(*map(int, mm.groups()))
+            except ValueError:
+                continue
+            return (t - timedelta(hours=12)).date().isoformat()
+    for part in reversed(os.path.dirname(path).replace("\\", "/").split("/")):
+        mm = _PATH_DAY.search(part)
+        if mm:
+            try:
+                return datetime(*map(int, mm.groups())).date().isoformat()   # NINA-Ordner = Abenddatum
+            except ValueError:
+                continue
+    return None
 
 
 def night_of(date_loc: str | None, date_obs: str | None, lon: float | None) -> str | None:
@@ -310,6 +340,9 @@ def from_header(h, path: str) -> FrameMeta:
         pass
     if t != UNKNOWN:
         m.type, m.type_reason = t, "header"
+    if m.exposure is not None and m.exposure < 0:
+        m.warnings.append("Belichtungszeit im Header ungültig (%g s) – wird ignoriert" % m.exposure)
+        m.exposure = None
     if m.exposure is not None and m.exposure <= 0.001 and not m.is_master and m.type in (LIGHT, UNKNOWN, DARK):
         if m.type == LIGHT:
             m.warnings.append("IMAGETYP=%s, aber Belichtung %.4f s → als Bias behandelt" % (raw_type, m.exposure))
@@ -368,7 +401,14 @@ def from_header(h, path: str) -> FrameMeta:
     m.dew_point = _f(h, "DEWPOINT", "AOCDEW")
     m.humidity = _f(h, "HUMIDITY", "AOCHUM")
     m.wind = _f(h, "WINDSPD", "AOCWIND")
+    raw_date = _s(h, "DATE-OBS", "DATE_OBS")
+    if raw_date and m.date_obs is None:
+        m.warnings.append("Aufnahmezeit im Header unlesbar (DATE-OBS = %r)" % raw_date[:40])
     m.night = night_of(m.date_loc, m.date_obs, m.site_lon)
+    if m.night is None and m.type in (LIGHT, FLAT):
+        m.night = night_from_path(path)
+        if m.night:
+            m.warnings.append("Nacht aus Datei-/Ordnername übernommen (%s), weil die Aufnahmezeit fehlt" % m.night)
     mm = re.match(r"^(\d+\.\d+)_", os.path.basename(path))
     if mm and m.source == "nina":
         m.hfr_from_name = float(mm.group(1))
@@ -393,6 +433,33 @@ def read_header(path: str):
         from .xisf import read_header as xh
         return xh(path)
     raise ValueError("unbekanntes Format: " + path)
+
+
+class FrameUnusable(ValueError):
+    """Datei gelesen, aber als Einzelbild unbrauchbar. Die Meldung ist bereits für Menschen formuliert."""
+
+
+def friendly_error(e: BaseException) -> str:
+    """Technische Lese-Fehler in einen verständlichen Satz übersetzen (Original bleibt im Protokoll)."""
+    msg = str(e)
+    low = msg.lower()
+    if isinstance(e, FrameUnusable):
+        return msg
+    if isinstance(e, FileNotFoundError):
+        return "Datei nicht mehr vorhanden (verschoben oder gelöscht?)"
+    if isinstance(e, PermissionError):
+        return "kein Lesezugriff auf die Datei (gesperrt oder fehlende Rechte)"
+    if isinstance(e, MemoryError):
+        return "zu wenig Arbeitsspeicher zum Laden dieses Bildes"
+    if "empty or corrupt fits" in low or "empty file" in low:
+        return "Datei ist leer oder beschädigt"
+    if "no simple card" in low or "does not appear to be a valid fits" in low:
+        return "keine gültige FITS-Datei (Inhalt passt nicht zur Dateiendung)"
+    if "cannot reshape array" in low or "truncated" in low or "buffer is too small" in low:
+        return "Datei unvollständig (Kopie oder Download abgebrochen?)"
+    if "unbekanntes format" in low or "xisf" in low:
+        return msg
+    return "Datei nicht lesbar: " + msg
 
 
 def read_meta(path: str, custom_filters: dict[str, str] | None = None) -> FrameMeta:
