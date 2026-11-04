@@ -2,6 +2,12 @@
 
 Neueste Version oben. Der Abschnitt der aktuellen Version erscheint auch im Update-Dialog von b2stacker.
 
+## 0.10.1 – 04.11.2026
+
+**Mehr Bildqualität bei vielen Frames.** WBPP hat Gruppen ab 200 Lights (ältere Versionen ab 150) bisher still auf
+„Fast Integration“ umgeschaltet – mit schwächerer Ausrichtung und Pixel-Rejection. b2stacker schaltet diese
+Automatik jetzt ab, jeder Lauf wird in voller Qualität gestackt.
+
 ## 0.10.0 – 04.11.2026
 
 **Claude kann b2stacker jetzt bedienen.** b2stacker hat einen MCP-Server: Du kannst Claude z. B. bitten, die neuen

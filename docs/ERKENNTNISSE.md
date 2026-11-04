@@ -18,6 +18,15 @@
 - Problematische Sätze: FLAT_2025-07-13 (49k, ~3 %), HaO3-Skyflats 2025-03-18 (49,6k),
   FLAT_2026-10-31_Serie1_verworfen (49,6k, ~6 %), FLAT_2026-04-14 (6 LCG-Frames), FLAT_2025-02-05 (LCG).
 
+## WBPP 3.2.0 (PixInsight 1.9.6, geprüft 04.11.2026 am Quellcode)
+- Installierte Version laut `BPP-global.js`: WBPP 3.2.0 (12.10.2026); die Datei-Köpfe sagen noch 3.1.2.
+- Fast Integration: `autoIntegrationMode` ist standardmäßig `true` und schaltet Light-Gruppen ab
+  200 Frames (vor 3.2.0: 150) still auf Fast Integration um. Steht nicht in der `paramList`-Hilfe, wird aber
+  im Automation-Modus wie jeder Parameter übernommen (`importParametersUnguarded`) → b2stacker übergibt
+  `autoIntegrationMode=false` (ab 0.10.1).
+- `bestFrameRefernceMethod` (alte Schreibweise) wird in 3.2.0 noch als Alias von `bestFrameReferenceMethod` gelesen.
+- Parameterliste: `automationMode=true,paramList` bzw. Alt+A im WBPP-Dialog; Quelle `BPP-automation.js`.
+
 ## WBPP-Automation (PixInsight, WBPP 2.7.8)
 - Kanaltrennung (debayerOutputMethod=separated) ist im Automation-Modus DEFEKT: WBPP zerlegt zwar,
   registriert/stackt dann aber die unzerlegten CFA-Frames -> einkanaliger, unbrauchbarer Master.
