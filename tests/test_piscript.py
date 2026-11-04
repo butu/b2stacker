@@ -33,7 +33,7 @@ sys.exit(3 if "fail" in args else 0)
 @pytest.fixture
 def fake(tmp_path, monkeypatch):
     fake_py = tmp_path / "fakepi.py"
-    fake_py.write_text(FAKE)
+    fake_py.write_text(FAKE, encoding="utf-8")
     exe = tmp_path / "PixInsight.exe"
     exe.write_text("")
 
