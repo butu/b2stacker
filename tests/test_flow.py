@@ -32,7 +32,8 @@ def env(tmp_path):
         make_fits(str(data / "vdB 131" / "2026-10-12" / "HaO3" / ("L_%04d.fits" % i)),
                   dict(NINA_LIGHT, **{"DATE-OBS": "2026-10-12T20:%02d:00" % (10 * i)}), data=_stars(i))
     make_fits(str(data / "vdB 131" / "_rejected" / "L_9999.fits"), NINA_LIGHT, data=_stars(9))
-    hf = dict(NINA_LIGHT, IMAGETYP="FLAT", EXPOSURE=1.0, EXPTIME=1.0)
+    hf = dict(NINA_LIGHT, IMAGETYP="FLAT", EXPOSURE=1.0, EXPTIME=1.0,
+              **{"DATE-OBS": "2026-10-31T17:00:00", "DATE-LOC": "2026-10-31T18:00:00"})
     hf.pop("OBJECT")
     for i in range(2):
         make_fits(str(data / "FLAT" / "2026-10-31" / ("F_%04d.fits" % i)), hf, shape=(128, 192), value=30000)
@@ -219,3 +220,61 @@ def test_duplicate_content_is_skipped(env):
     flow.run_project(db, ws, pid, workers=1)
     reasons = [r[0] for r in db.query("SELECT reason FROM file_status WHERE status = 'skip'")]
     assert any("Duplikat" in r for r in reasons)
+
+
+def _calib_tree(data):
+    hf = dict(NINA_LIGHT, IMAGETYP="FLAT", EXPOSURE=1.0, EXPTIME=1.0,
+              **{"DATE-OBS": "2026-10-31T17:00:00", "DATE-LOC": "2026-10-31T18:00:00"})
+    hf.pop("OBJECT")
+    for i in range(2, 5):                                          # jetzt 5 Flats am 31.10.
+        make_fits(os.path.join(data, "FLAT", "2026-10-31", "F_%04d.fits" % i), hf, shape=(128, 192), value=30000)
+    for i in range(3):                                             # Flats derselben Nacht, aber anderer Gain
+        make_fits(os.path.join(data, "FLAT", "2026-10-12", "F_%04d.fits" % i),
+                  dict(hf, GAIN=0, **{"DATE-OBS": "2026-10-12T17:00:00", "DATE-LOC": "2026-10-12T18:00:00"}),
+                  shape=(128, 192), value=30000)
+    hb = dict(NINA_LIGHT, IMAGETYP="BIAS", EXPOSURE=0.0001, EXPTIME=0.0001)
+    for i in range(1, 4):
+        make_fits(os.path.join(data, "Bias", "B_%04d.fits" % i), hb, shape=(128, 192), value=500)
+    rgb = dict(NINA_LIGHT, FILTER="RGB", **{"DATE-OBS": "2026-07-20T21:00:00", "DATE-LOC": "2026-07-20T23:00:00"})
+    for i in range(3):
+        make_fits(os.path.join(data, "vdB 131", "2026-07-20", "RGB", "R_%04d.fits" % i), rgb, data=_stars(20 + i))
+
+
+def test_calibration_matching_by_header(env):
+    from astrostack.flow import calib
+    ws, db, data = env
+    _calib_tree(data)
+    pid = library.create_project(db, ws, "vdB 131", folders=[data])
+    flow.run_project(db, ws, pid, workers=1)
+    runs = {r["filter"]: r for r in calib.match_project(db, pid)}
+    assert set(runs) == {"HaO3", "RGB"}
+    ha = runs["HaO3"]
+    assert ha["lights"] == 3 and ha["exposure_s"] == 1800
+    fl = ha["nights"][0]["flats"]
+    assert len(fl["file_ids"]) == 5 and "2026-10-31" in fl["reason"] and "19 Tage" in fl["reason"]
+    assert fl["quality"]["verdict"] in ("good", "warning", "critical")
+    assert len(ha["bias"]["file_ids"]) == 4 and "Bias" in ha["bias"]["reason"]
+    assert ha["darks"]["file_ids"] == [] and "ohne Darks" in ha["darks"]["reason"]
+    assert ha["problems"] == []
+    rgb = runs["RGB"]                                               # RGB-Lights nie mit HaO3-Flats
+    assert rgb["nights"][0]["flats"]["file_ids"] == []
+    assert "keine Flats mit Filter RGB" in rgb["nights"][0]["flats"]["reason"]
+    assert rgb["problems"] and "2026-07-20" in rgb["problems"][0]
+
+
+def test_calibration_too_few_and_old(env):
+    from astrostack.flow import calib
+    ws, db, data = env
+    pid = library.create_project(db, ws, "vdB 131", folders=[data])
+    flow.run_project(db, ws, pid, workers=1)
+    run = calib.match_project(db, pid)[0]
+    assert run["nights"][0]["flats"]["file_ids"] == [] and "zu wenige" in run["nights"][0]["flats"]["reason"]
+    assert run["bias"]["file_ids"] == [] and "nur 1 Bias" in run["bias"]["reason"]
+    assert len(run["problems"]) == 2
+    old = calib.FLAT_MAX_DAYS
+    try:
+        calib.FLAT_MAX_DAYS = 5
+        run = calib.match_project(db, pid)[0]
+        assert "zu alt" in run["nights"][0]["flats"]["reason"]
+    finally:
+        calib.FLAT_MAX_DAYS = old
