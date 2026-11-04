@@ -37,9 +37,15 @@ def test_install_refused_from_source(monkeypatch):
 
 
 def test_install_swaps_via_script(tmp_path, monkeypatch):
-    exe = tmp_path / "b2stacker.exe"
+    exe = tmp_path / "b2stacker (13).exe"
     exe.write_bytes(b"MZold")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
     monkeypatch.setattr(updater, "exe_path", lambda: str(exe))
+    import sys
+    from astrostack import install
+    # Windows: immer an den festen Ort; sonst neben die laufende Datei
+    target = install.install_exe() if sys.platform == "win32" else str(exe)
+    new = os.path.splitext(target)[0] + ".new.exe"
     monkeypatch.setattr(updater.tempfile, "gettempdir", lambda: str(tmp_path))
     launched, quit_called = [], []
     monkeypatch.setattr(updater.subprocess, "Popen", lambda args, **kw: launched.append(args))
@@ -59,8 +65,9 @@ def test_install_swaps_via_script(tmp_path, monkeypatch):
     assert quit_called and launched
     cmd = launched[0][-1]
     text = open(cmd, encoding="utf-8").read()
-    assert str(exe) in text and "b2stacker.new.exe" in text and "B2_UPDATED_FROM" in text
-    assert (tmp_path / "b2stacker.new.exe").read_bytes() == b"MZnew"
+    assert target in text and new in text and "B2_UPDATED_FROM" in text
+    assert str(exe) in text                                            # Rückfall: alte Datei wieder starten
+    assert open(new, "rb").read() == b"MZnew"
     assert updater.status()["download"]["state"] == "restart"
 
 
