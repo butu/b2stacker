@@ -45,8 +45,6 @@ Motor: PixInsight + WBPP (JSON-Auftrag, Startskript, Event-Script)
   system/                          b2stacker.db, backup/, previews/, logs/
 ```
 
-## Reihenfolge
-
 ## Aufträge (`astrostack/tasks.py`) – fertig
 
 - Spuren `stack`, `analysis`, `misc` laufen parallel, je Spur ein Auftrag; nie zwei PixInsight.
