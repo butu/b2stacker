@@ -1,15 +1,18 @@
 """Siril: open results (Flatpak needs folder grants) and a clear message without GUI."""
+import os
+
 import pytest
 
 from astrostack.engines import siril
 
 
 def test_flatpak_gui_gets_grant_per_result_folder():
+    a, b = (os.path.abspath(os.path.join(os.sep, "data", x)) for x in ("a", "b"))   # native separators per OS
     inst = siril.Install(cli=("flatpak", "run"), gui=("flatpak", "run", siril.FLATPAK_ID), label="x", flatpak=True)
-    cmd = inst.gui_command(["/data/a", "/data/a", "/data/b"], ["/data/a/m1.fit", "/data/b/m2.fit"])
+    cmd = inst.gui_command([a, a, b], [os.path.join(a, "m1.fit"), os.path.join(b, "m2.fit")])
     assert cmd[:2] == ["flatpak", "run"]
-    assert "--filesystem=/data/a" in cmd and "--filesystem=/data/b" in cmd
-    assert cmd[-3:] == [siril.FLATPAK_ID, "/data/a/m1.fit", "/data/b/m2.fit"]
+    assert "--filesystem=" + a in cmd and "--filesystem=" + b in cmd
+    assert cmd[-3:] == [siril.FLATPAK_ID, os.path.join(a, "m1.fit"), os.path.join(b, "m2.fit")]
 
 
 def test_binary_gui_without_gui_binary_is_none(tmp_path, monkeypatch):

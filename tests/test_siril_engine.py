@@ -14,20 +14,14 @@ from astrostack.engines import siril
 from astrostack.engines.pixinsight import StackError
 from astrostack.settings import Settings
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-posix_only = pytest.mark.skipif(sys.platform == "win32", reason="Testhilfen sind Shell-Skripte")
+from .fake_siril import write_cli, write_wrapper
+
 linux_only = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Flatpak ist Linux-spezifisch")
 
 
 def make_cli(path, version_line=None):
-    """Shell wrapper that starts fake_siril.py with a real command line (or prints a fixed version)."""
-    if version_line:
-        body = 'echo "%s"\n' % version_line
-    else:
-        body = 'exec "%s" "%s" "$@"\n' % (sys.executable, os.path.join(HERE, "fake_siril.py"))
-    path.write_text("#!/bin/sh\n" + body)
-    path.chmod(0o755)
-    return str(path)
+    """Wrapper that starts fake_siril.py with a real command line (or prints a fixed version)."""
+    return write_cli(path, version_line)
 
 
 @pytest.fixture
@@ -44,14 +38,12 @@ def no_siril(monkeypatch):
     monkeypatch.setattr(siril, "_VERSION_CACHE", {})
 
 
-@posix_only
 def test_explicit_path_reports_version(tmp_path, fresh_cache):
     cli = make_cli(tmp_path / "siril-cli")
     c = siril.check(cli)
     assert c["ok"] and c["found"] and c["version"] == "1.4.4", c
 
 
-@posix_only
 def test_path_lookup_finds_siril_cli_in_path(tmp_path, fresh_cache, monkeypatch):
     make_cli(tmp_path / "siril-cli")
     monkeypatch.setenv("PATH", str(tmp_path))
@@ -59,22 +51,18 @@ def test_path_lookup_finds_siril_cli_in_path(tmp_path, fresh_cache, monkeypatch)
     assert c["ok"] and c["version"] == "1.4.4", c
 
 
-@posix_only
 def test_too_old_siril_is_rejected(tmp_path, fresh_cache):
     cli = make_cli(tmp_path / "siril-cli", version_line="siril 1.0.6")
     c = siril.check(cli)
     assert not c["ok"] and c["found"] and "zu alt" in c["message"], c
 
 
-@posix_only
 def test_gui_binary_selects_sibling_cli(tmp_path, fresh_cache):
-    make_cli(tmp_path / "siril-cli")
-    gui = tmp_path / "siril"
-    gui.write_text("#!/bin/sh\n")
-    gui.chmod(0o755)
-    inst = siril.locate(str(gui))
-    assert inst.cli == (str(tmp_path / "siril-cli"),) and inst.gui == (str(gui),)
-    assert siril.check(str(gui))["ok"]
+    cli = make_cli(tmp_path / "siril-cli")
+    gui = write_wrapper(tmp_path / "siril", "exit 0", "rem gui stand-in")
+    inst = siril.locate(gui)
+    assert inst.cli == (cli,) and inst.gui == (gui,)
+    assert siril.check(gui)["ok"]
 
 
 @linux_only
@@ -104,7 +92,6 @@ def test_not_found_is_clear_and_never_falls_back_to_pixinsight(no_siril, tmp_pat
     assert "Siril nicht gefunden" in str(exc.value) and "PixInsight" not in str(exc.value)
 
 
-@posix_only
 def test_dispatch_routes_to_siril_and_rejects_unknown_engine(tmp_path, fresh_cache):
     from astrostack import engines
     s = Settings(engine="siril", siril=make_cli(tmp_path / "siril-cli"), workdir=str(tmp_path))

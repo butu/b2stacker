@@ -1,15 +1,11 @@
 """WBPP options → Siril commands (siril.map_wbpp) and their effect in script / run."""
 import os
-import sys
-
-import pytest
 
 from astrostack import engines
 from astrostack.engines import siril
 
 from .test_siril_run import cli, make_plan, settings  # noqa: F401 – Fixture
 
-posix_only = pytest.mark.skipif(sys.platform == "win32", reason="Wrapper ist ein Shell-Skript")
 PLAN = dict(options=dict(local_normalization=True, distortion_correction=True, large_scale_rejection=True,
                          weighting="psf_signal"))
 
@@ -79,7 +75,6 @@ def test_script_contains_mapped_options():
     assert "setfindstar" not in plain and "-rejmaps" not in plain and "-weight=wfwhm" in plain
 
 
-@posix_only
 def test_run_writes_rejection_maps_next_to_master_and_logs_gaps(tmp_path, cli):
     plan, run, _ = make_plan(tmp_path)
     plan["options"] = dict(plan["options"], local_normalization=True)

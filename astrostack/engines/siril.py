@@ -81,7 +81,7 @@ def _from_binary(path: str) -> Install | None:
     base = os.path.basename(path).lower()
     d = os.path.dirname(path)
     if base.startswith("siril") and not base.startswith("siril-cli"):
-        cli = os.path.join(d, "siril-cli" + (".exe" if base.endswith(".exe") else ""))
+        cli = os.path.join(d, "siril-cli" + os.path.splitext(base)[1])     # keep .exe / .cmd of the given file
         if not os.path.isfile(cli):
             return None
         return Install(cli=(cli,), gui=(path,), label=cli)

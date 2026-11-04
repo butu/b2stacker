@@ -1,17 +1,13 @@
 """Finished masters as calibration: use directly instead of restacking (Siril run against fake_siril)."""
 import os
-import sys
 
 import numpy as np
-import pytest
 from astropy.io import fits
 
 from astrostack import engines
 from astrostack.engines import siril
 
 from .test_siril_run import cli, digest, frames, make_plan, settings  # noqa: F401 – Fixture
-
-posix_only = pytest.mark.skipif(sys.platform == "win32", reason="Wrapper ist ein Shell-Skript")
 
 
 def _master(path, kind_header=None):
@@ -35,7 +31,6 @@ def test_raw_frames_are_not_taken_for_masters(tmp_path):
     assert siril._calib_spec([raw], "bias", str(tmp_path), lambda *a: None)["raw"] == str(tmp_path)
 
 
-@posix_only
 def test_master_dark_and_bias_are_used_without_restacking(tmp_path, cli):
     plan, run, lights = make_plan(tmp_path, bias=0, darks=0, flats=3)
     master_bias = _master(tmp_path / "MB-2026-E_0s.fit")
@@ -52,7 +47,6 @@ def test_master_dark_and_bias_are_used_without_restacking(tmp_path, cli):
     assert fits.getheader(st.runs["L"]["master"])["STACKCNT"] == 4
 
 
-@posix_only
 def test_master_inputs_are_not_modified(tmp_path, cli):
     plan, run, lights = make_plan(tmp_path, bias=0, darks=0, flats=3)
     master_dark = _master(tmp_path / "masterDark.fit", "Master Dark")

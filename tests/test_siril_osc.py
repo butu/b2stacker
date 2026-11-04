@@ -1,9 +1,7 @@
 """Siril OSC/Bayer: force pattern if header is missing or conflicting; XISF lights; dualband on color camera."""
 import os
-import sys
 
 import numpy as np
-import pytest
 from astropy.io import fits
 
 from astrostack import engines, xisf
@@ -11,7 +9,6 @@ from astrostack.engines import siril
 
 from .test_siril_run import cli, frames, make_plan, settings  # noqa: F401 – Fixture
 
-posix_only = pytest.mark.skipif(sys.platform == "win32", reason="Wrapper ist ein Shell-Skript")
 BASE = dict(outdir="/o", lights="/o/raw/light", bias=None, dark=None, flat=None, cosmetic=False, osc=True)
 
 
@@ -69,7 +66,6 @@ def _xisf_lights(folder, osc, n=4):
     return out
 
 
-@posix_only
 def test_xisf_lights_are_converted_and_stacked(tmp_path, cli):
     plan, run, _ = make_plan(tmp_path, osc=False)
     run["lights"] = _xisf_lights(tmp_path / "xl", osc=False)
@@ -79,7 +75,6 @@ def test_xisf_lights_are_converted_and_stacked(tmp_path, cli):
     assert fits.getheader(st.runs["L"]["master"])["STACKCNT"] == 4
 
 
-@posix_only
 def test_dualband_on_color_camera_splits_into_channel_finals(tmp_path, cli):
     plan, run, _ = make_plan(tmp_path, osc=True)
     run.update(mode="extract", outputs=["Ha", "OIII"], channel_map={"Ha": "R", "OIII": "GB"}, name="Ha+OIII")

@@ -11,7 +11,7 @@ from astrostack.engines.pixinsight import StackError
 
 from .test_siril_run import cli, make_plan, settings  # noqa: F401 – Fixture
 
-posix_only = pytest.mark.skipif(sys.platform == "win32", reason="Prozesse/Shell nur POSIX")
+posix_only = pytest.mark.skipif(sys.platform == "win32", reason="fake process is started via bash exec -a")
 
 SCRIPT = """requires 1.4.0
 setext fit
@@ -74,7 +74,6 @@ def test_running_siril_process_is_seen_and_blocks_start(tmp_path, cli):
         dummy.wait()
 
 
-@posix_only
 def test_own_process_is_not_reported(tmp_path):
     assert all(p["pid"] != os.getpid() for p in siril.siril_processes())
 
@@ -90,7 +89,6 @@ def test_windows_long_path_estimate_and_block(tmp_path, cli, monkeypatch):
     assert st.state == "failed" and "256" in st.error and "lange Pfade" in st.error
 
 
-@posix_only
 def test_chatty_output_is_throttled_but_complete_in_siril_log(tmp_path, cli, monkeypatch):
     monkeypatch.setenv("FAKESIRIL_CHATTY", "60")
     plan, _, _ = make_plan(tmp_path)

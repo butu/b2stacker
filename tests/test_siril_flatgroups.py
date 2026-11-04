@@ -6,7 +6,7 @@ from astropy.io import fits
 from astrostack import engines
 from astrostack.engines import siril
 
-from .test_siril_run import frames, make_cli, posix_only, settings
+from .test_siril_run import frames, make_cli, settings
 
 
 def make_group_plan(tmp_path):
@@ -37,7 +37,6 @@ def test_script_has_one_flat_master_per_group_and_merge():
     assert "register lights_ -2pass" in txt and "stack r_lights_ " in txt
 
 
-@posix_only
 def test_two_flat_groups_stack_together_and_map_back_to_originals(tmp_path, monkeypatch):
     monkeypatch.setattr(siril, "_VERSION_CACHE", {})
     cli = make_cli(tmp_path / "siril-cli")
@@ -52,7 +51,6 @@ def test_two_flat_groups_stack_together_and_map_back_to_originals(tmp_path, monk
     assert ssf.count("-flat=") == 2 and "merge " in ssf
 
 
-@posix_only
 def test_bad_frame_in_second_group_is_mapped_to_original_light(tmp_path, monkeypatch):
     monkeypatch.setattr(siril, "_VERSION_CACHE", {})
     cli = make_cli(tmp_path / "siril-cli")

@@ -1,7 +1,6 @@
 """Siril run against tests/fake_siril.py: script, mono/OSC, errors, preflight, originals untouched."""
 import hashlib
 import os
-import sys
 
 import numpy as np
 import pytest
@@ -12,15 +11,13 @@ from astrostack.engines import siril
 from astrostack.engines.pixinsight import StackError
 from astrostack.settings import Settings
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-posix_only = pytest.mark.skipif(sys.platform == "win32", reason="Wrapper ist ein Shell-Skript")
+from .fake_siril import write_cli
+
 H, W = 60, 80
 
 
 def make_cli(path):
-    path.write_text('#!/bin/sh\nexec "%s" "%s" "$@"\n' % (sys.executable, os.path.join(HERE, "fake_siril.py")))
-    path.chmod(0o755)
-    return str(path)
+    return write_cli(path)
 
 
 def frames(folder, n, kind, osc=False, seed=0):
@@ -71,11 +68,12 @@ def settings(tmp_path, cli, **kw):
 
 
 def test_script_for_mono_and_osc():
-    base = dict(outdir="/o", lights="/o/raw/light", bias=dict(raw="/o/raw/bias", prefix="bias"),
-                dark=dict(master="/m/dark.fit"), flat=dict(raw="/o/raw/flat", prefix="flat"), cosmetic=True)
+    o = os.path.join(os.path.abspath(os.sep), "o")     # Siril gets forward slashes, drive letter on Windows
+    base = dict(outdir=o, lights=os.path.join(o, "raw", "light"), bias=dict(raw=os.path.join(o, "raw", "bias"), prefix="bias"),
+                dark=dict(master="/m/dark.fit"), flat=dict(raw=os.path.join(o, "raw", "flat"), prefix="flat"), cosmetic=True)
     mono = siril.build_script(dict(base, osc=False, sigma=0.7))
     assert mono.startswith("requires 1.4.0\nsetext fit\n")
-    assert "convert light \"-out=/o/seq_light\"" in mono
+    assert 'convert light "-out=%s"' % siril._p(os.path.join(o, "seq_light")) in mono
     assert "calibrate light_ " in mono and '"-cc=dark 3 3"' not in mono and "-cc=dark 3.0 3.0" in mono
     assert "-cfa" not in mono and "-debayer" not in mono
     assert "setfindstar -sigma=0.70" in mono and "stack r_pp_light_" in mono and "-32b -out=result" in mono
@@ -88,7 +86,6 @@ def test_quote_in_path_is_rejected():
         siril.build_script(dict(outdir='/x"y', lights="/l", osc=False))
 
 
-@posix_only
 def test_mono_run_produces_final_and_keeps_originals(tmp_path, cli):
     plan, run, lights = make_plan(tmp_path)
     originals = digest(lights + run["bias"] + run["darks"] + run["flats"])
@@ -100,7 +97,6 @@ def test_mono_run_produces_final_and_keeps_originals(tmp_path, cli):
     assert digest(lights + run["bias"] + run["darks"] + run["flats"]) == originals
 
 
-@posix_only
 def test_cleanup_removes_cosmetic_intermediates(tmp_path, cli):
     plan, _, _ = make_plan(tmp_path, darks=0)                 # without darks → own hot-pixel pre-step runs
     st = engines.run_plan(plan, settings(tmp_path, cli), log=lambda *a: None, open_results=False)
@@ -109,7 +105,6 @@ def test_cleanup_removes_cosmetic_intermediates(tmp_path, cli):
     assert leftovers == []
 
 
-@posix_only
 def test_osc_run_produces_rgb_final(tmp_path, cli):
     plan, run, _ = make_plan(tmp_path, osc=True)
     st = engines.run_plan(plan, settings(tmp_path, cli), log=lambda *a: None, open_results=False)
@@ -117,7 +112,6 @@ def test_osc_run_produces_rgb_final(tmp_path, cli):
     assert xisf.read_image(st.finals[0]).shape[0] == 3
 
 
-@posix_only
 def test_registration_failure_is_diagnosed(tmp_path, cli, monkeypatch):
     monkeypatch.setenv("FAKESIRIL_FAIL_REGISTER", "1")
     plan, _, _ = make_plan(tmp_path)
@@ -126,7 +120,6 @@ def test_registration_failure_is_diagnosed(tmp_path, cli, monkeypatch):
     assert "Sternpaare" in st.error and st.causes
 
 
-@posix_only
 def test_missing_output_is_failure_not_success(tmp_path, cli, monkeypatch):
     monkeypatch.setenv("FAKESIRIL_NO_OUTPUT", "1")
     plan, _, _ = make_plan(tmp_path)
@@ -134,14 +127,12 @@ def test_missing_output_is_failure_not_success(tmp_path, cli, monkeypatch):
     assert st.state == "failed" and "keinen Stack" in st.error
 
 
-@posix_only
 def test_two_raw_biases_stop_before_siril(tmp_path, cli):
     plan, _, _ = make_plan(tmp_path, bias=2)
     st = engines.run_plan(plan, settings(tmp_path, cli), log=lambda *a: None, open_results=False)
     assert st.state == "failed" and "Nur 2 Bias-Bild" in st.error
 
 
-@posix_only
 def test_missing_light_is_reported(tmp_path, cli):
     plan, run, lights = make_plan(tmp_path)
     os.remove(lights[0])

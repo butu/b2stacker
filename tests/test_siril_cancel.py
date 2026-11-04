@@ -6,8 +6,10 @@ import time
 import pytest
 
 from astrostack.engines import siril
+from .fake_siril import write_wrapper
 
-posix_only = pytest.mark.skipif(sys.platform == "win32", reason="Prozessgruppen nur unter POSIX")
+# Child-process kill is checked via sleep and /proc; Windows uses taskkill /T (not covered here).
+posix_only = pytest.mark.skipif(sys.platform == "win32", reason="sleep child and /proc check are POSIX-only")
 
 
 def _alive(pid: int) -> bool:
@@ -42,12 +44,9 @@ def test_kill_ends_child_processes_too(tmp_path):
     assert runner.poll() is not None
 
 
-@posix_only
 def test_kill_after_exit_is_harmless(tmp_path):
-    wrapper = tmp_path / "siril-cli"
-    wrapper.write_text("#!/bin/sh\nexit 0\n")
-    wrapper.chmod(0o755)
-    runner = siril.SirilRunner(siril.Install(cli=(str(wrapper),), gui=None, label="t"), "s.ssf", str(tmp_path),
+    wrapper = write_wrapper(tmp_path / "siril-cli", "exit 0", "exit /b 0")
+    runner = siril.SirilRunner(siril.Install(cli=(wrapper,), gui=None, label="t"), "s.ssf", str(tmp_path),
                                [str(tmp_path)])
     runner.start()
     runner.proc.wait(timeout=10)

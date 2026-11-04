@@ -1,9 +1,6 @@
 """Siril run on a real report plan: result is found by Requality, latest_output and the report."""
 import json
 import os
-import sys
-
-import pytest
 
 from astrostack import engines, project, stackqa
 from astrostack.engines import siril
@@ -13,10 +10,7 @@ from .conftest import NINA_LIGHT, make_fits
 from .test_e2e import star_field
 from .test_siril_run import make_cli
 
-posix_only = pytest.mark.skipif(sys.platform == "win32", reason="Wrapper ist ein Shell-Skript")
 
-
-@posix_only
 def test_siril_stack_is_found_by_requality_and_report(tmp_path, monkeypatch):
     monkeypatch.setenv("ASTROSTACK_SETTINGS", str(tmp_path / "settings.json"))
     monkeypatch.setattr(siril, "_VERSION_CACHE", {})

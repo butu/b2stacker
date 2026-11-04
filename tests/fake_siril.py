@@ -18,11 +18,37 @@ from __future__ import annotations
 import glob
 import os
 import shlex
+import shutil
 import sys
 
 import numpy as np
 
 VERSION = "siril 1.4.4"
+
+
+def write_wrapper(path, sh_body: str, bat_body: str) -> str:
+    """Executable stand-in: POSIX shell script, or a .cmd file on Windows (only .cmd/.exe start there).
+
+    Returns the real path (".cmd" appended on Windows). Bodies are raw lines; ``%*`` is Windows-only.
+    """
+    path = str(path)
+    if sys.platform == "win32":
+        path += ".cmd"
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("@echo off\r\n" + bat_body + "\r\nexit /b %ERRORLEVEL%\r\n")
+    else:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("#!/bin/sh\n" + sh_body + "\n")
+        os.chmod(path, 0o755)
+    return path
+
+
+def write_cli(path, version_line: str | None = None) -> str:
+    """siril-cli stand-in that runs this fake (or only prints a fixed version line)."""
+    if version_line:
+        return write_wrapper(path, 'echo "%s"' % version_line, "@echo %s" % version_line)
+    py, fake = sys.executable, os.path.abspath(__file__)
+    return write_wrapper(path, 'exec "%s" "%s" "$@"' % (py, fake), '"%s" "%s" %%*' % (py, fake))
 
 
 def _seq_files(seq: str) -> list[str]:
@@ -132,7 +158,10 @@ def run_script(workdir: str, script: str) -> int:
                 if f.endswith(".xisf"):                        # Siril reads XISF and writes FITS (setext fit)
                     _write(os.path.join(out, os.path.basename(f)[:-5] + ".fit"), _xisf(f), {})
                 else:
-                    os.symlink(os.path.abspath(f), os.path.join(out, os.path.basename(f)))
+                    try:
+                        os.symlink(os.path.abspath(f), os.path.join(out, os.path.basename(f)))
+                    except OSError:                              # Windows without symlink privilege
+                        shutil.copy2(f, os.path.join(out, os.path.basename(f)))
         elif cmd == "calibrate":
             seq = args[0]
             debayer = "-debayer" in args

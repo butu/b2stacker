@@ -7,7 +7,7 @@ from astrostack import engines, wbpplog
 from astrostack.engines import siril
 from astrostack.engines import pixinsight as pi
 
-from .test_siril_run import cli, make_cli, make_plan, posix_only, settings
+from .test_siril_run import cli, make_cli, make_plan, settings
 
 FIX = os.path.join(os.path.dirname(__file__), "fixtures", "siril")
 LIGHTS4 = ["/d/a.fit", "/d/b.fit", "/d/c.fit", "/d/d.fit"]
@@ -63,7 +63,6 @@ def test_verdict_drop_suspect_and_ok():
     assert pi.registration_verdict([], [], dict(lights=lights)) == "ok"
 
 
-@posix_only
 def test_bad_frame_is_dropped_and_stack_rerun(tmp_path, monkeypatch):
     monkeypatch.setattr(siril, "_VERSION_CACHE", {})
     cli = make_cli(tmp_path / "siril-cli")
@@ -77,7 +76,6 @@ def test_bad_frame_is_dropped_and_stack_rerun(tmp_path, monkeypatch):
     assert res["lights"] == 3
 
 
-@posix_only
 def test_suspect_frames_are_reported_not_dropped(tmp_path, monkeypatch):
     monkeypatch.setattr(siril, "_VERSION_CACHE", {})
     cli = make_cli(tmp_path / "siril-cli")
@@ -88,7 +86,6 @@ def test_suspect_frames_are_reported_not_dropped(tmp_path, monkeypatch):
     assert st.runs["L"]["excluded"] == [] and any("möglicherweise" in n for n in st.runs["L"]["notes"])
 
 
-@posix_only
 def test_lock_twice_stops_with_plain_message(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKESIRIL_ZERO_SHIFT", "1")          # all frames "0,0 px" = aligned to the sensor
     monkeypatch.setattr(siril, "_VERSION_CACHE", {})
@@ -102,7 +99,6 @@ def test_lock_twice_stops_with_plain_message(tmp_path, monkeypatch):
     assert any("Neuer Versuch" in m for m in logs) and any("Sternerkennung strenger" in m for m in logs)
 
 
-@posix_only
 def test_fwhm_implausible_retries_once_with_stricter_detection(tmp_path, monkeypatch):
     monkeypatch.setattr(siril, "_VERSION_CACHE", {})
     cli = make_cli(tmp_path / "siril-cli")
@@ -122,7 +118,6 @@ def test_fwhm_implausible_retries_once_with_stricter_detection(tmp_path, monkeyp
     assert any("Erster Versuch unplausibel" in n for n in st.runs["L"]["notes"])
 
 
-@posix_only
 def test_hot_pixels_without_darks_clean_before_stack(tmp_path, monkeypatch):
     monkeypatch.setattr(siril, "_VERSION_CACHE", {})
     cli = make_cli(tmp_path / "siril-cli")
@@ -135,7 +130,6 @@ def test_hot_pixels_without_darks_clean_before_stack(tmp_path, monkeypatch):
     assert "-cc=dark" not in script
 
 
-@posix_only
 def test_darks_use_cosmetic_correction_with_configured_sigmas(tmp_path, monkeypatch):
     monkeypatch.setattr(siril, "_VERSION_CACHE", {})
     cli = make_cli(tmp_path / "siril-cli")
@@ -172,7 +166,6 @@ def test_external_reference_without_sensor_check_is_not_called_plausible(tmp_pat
     assert not any("plausibel" in m for m in logs)
 
 
-@posix_only
 def test_hot_pixels_off_skips_dark_cosmetic_like_pixinsight(tmp_path, cli):
     plan, _, _ = make_plan(tmp_path, darks=3)
     plan["options"]["hot_pixels"] = False

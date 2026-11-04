@@ -9,7 +9,7 @@ from astrostack import engines
 from astrostack.engines import siril
 from astrostack.engines.pixinsight import StackError
 
-from .test_siril_run import H, W, cli, make_plan, posix_only, settings  # noqa: F401 – Fixture cli
+from .test_siril_run import H, W, cli, make_plan, settings  # noqa: F401 – Fixture cli
 
 
 def _write(path, data):
@@ -38,7 +38,6 @@ def test_reference_size_mismatch_is_clear(tmp_path):
         siril._reference_files(mono, osc=False, shape=(H, W), folder=str(tmp_path / "ref"))
 
 
-@posix_only
 def test_file_reference_is_appended_and_excluded_from_stack(tmp_path, cli, monkeypatch):
     plan, run, _ = make_plan(tmp_path)
     run["reference"] = "file:" + _write(tmp_path / "ref.fit", np.full((H, W), 0.1))
@@ -52,7 +51,6 @@ def test_file_reference_is_appended_and_excluded_from_stack(tmp_path, cli, monke
     assert "Sensor-Prüfung nicht prüfbar (externe Referenz)" in "\n".join(logs)
 
 
-@posix_only
 def test_size_mismatch_stops_the_run(tmp_path, cli):
     plan, run, _ = make_plan(tmp_path)
     run["reference"] = "file:" + _write(tmp_path / "ref.fit", np.zeros((10, 10)))
@@ -60,7 +58,6 @@ def test_size_mismatch_stops_the_run(tmp_path, cli):
     assert st.state == "failed" and "andere Bildgröße" in st.error
 
 
-@posix_only
 def test_master_reference_uses_previous_run_output(tmp_path, cli):
     plan, run, _ = make_plan(tmp_path)
     second = dict(run, name="R", reference="master:L")
