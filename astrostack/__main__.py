@@ -104,7 +104,8 @@ def selftest() -> int:
             ok = False
             print("FEHLER %-27s %s: %s" % (name, type(e).__name__, e))
     base = os.path.dirname(__file__)
-    for rel in ("app/index.html", "report/template.html", "report/vendor/chart.umd.js", "pjsr/split.js"):
+    for rel in ("app/index.html", "web/static/index.html", "report/template.html", "report/vendor/chart.umd.js",
+                "pjsr/split.js"):
         check(rel, lambda rel=rel: os.path.getsize(os.path.join(base, rel)))
     check("numpy/scipy", lambda: __import__("scipy.ndimage").__version__)
     check("astropy.io.fits", lambda: __import__("astropy.io.fits").__version__)

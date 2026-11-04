@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>b2stacker</title>
+<style>
+  :root { color-scheme: light dark; --bg: #fff; --fg: #1d1f24; --muted: #6b7078; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0e0f12; --fg: #e6e7ea; --muted: #9096a0; } }
+  body { margin: 0; padding: 24px 16px; background: var(--bg); color: var(--fg);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p { color: var(--muted); margin: 0 0 16px; }
+  li { padding: 2px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>b2stacker – neue Oberfläche</h1>
+  <p id="info">Lade …</p>
+  <ul id="projects"></ul>
+</main>
+<script>
+// Platzhalter: zeigt nur die Projektnamen. Die eigentliche Oberfläche entsteht später.
+function load() {
+  fetch("/api/bootstrap").then(function (r) { return r.json(); }).then(function (d) {
+    document.getElementById("info").textContent = "Version " + d.version + " · " + d.projects.length + " Projekte";
+    var ul = document.getElementById("projects");
+    ul.textContent = "";
+    d.projects.forEach(function (p) {
+      var li = document.createElement("li");
+      li.textContent = p.name + (p.busy ? " (wird geprüft …)" : "");
+      ul.appendChild(li);
+    });
+  }).catch(function (e) { document.getElementById("info").textContent = "Fehler: " + e; });
+}
+load();
+var es = new EventSource("/api/events");
+["projects", "project", "reset"].forEach(function (k) { es.addEventListener(k, load); });
+</script>
+</body>
+</html>

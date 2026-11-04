@@ -65,9 +65,21 @@ def cmd_report(args, s: Settings):
     _out(args, res, lambda d: None)
 
 
+def new_ui() -> bool:
+    """``B2_NEW_UI=1``: der normale Start (``gui``) nimmt den neuen Server statt der alten App."""
+    return os.environ.get("B2_NEW_UI", "").strip() == "1"
+
+
 def cmd_gui(args, s: Settings):
+    if new_ui():
+        return cmd_web(args, s)
     from .app import server
-    server.main(args.port, not args.no_browser)
+    server.main(args.port or 8765, not args.no_browser)
+
+
+def cmd_web(args, s: Settings):
+    from .web import server
+    server.main(args.port or server.PORT, not args.no_browser)
 
 
 def _follow(args, c, job: dict) -> dict:
@@ -340,7 +352,10 @@ def main(argv=None):
     p.add_argument("--target", help="nur dieses Ziel (sonst alle)")
     p = sub.add_parser("app", help="Programmfenster öffnen (Standard bei Doppelklick)")
     p = sub.add_parser("gui", help="Oberfläche im Browser öffnen (--no-browser: nur Server, z. B. für Tests)")
-    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--port", type=int, default=None, help="Standard 8765 (mit B2_NEW_UI=1: 8775)")
+    p.add_argument("--no-browser", action="store_true")
+    p = sub.add_parser("web", help="neue Oberfläche (Neubau) im Browser öffnen, Port ab 8775")
+    p.add_argument("--port", type=int, default=None)
     p.add_argument("--no-browser", action="store_true")
     p = sub.add_parser("plan", help="Stacking-Plan eines Projekts anzeigen/ändern")
     p.add_argument("project")
@@ -399,7 +414,7 @@ def main(argv=None):
     from .appclient import AppError
     try:
         {"scan": cmd_scan, "check-calib": cmd_check_calib, "report": cmd_report, "settings": cmd_settings,
-         "gui": cmd_gui, "plan": cmd_plan, "override": cmd_override, "stack": cmd_stack, "status": cmd_status,
+         "gui": cmd_gui, "web": cmd_web, "plan": cmd_plan, "override": cmd_override, "stack": cmd_stack, "status": cmd_status,
          "logs": cmd_logs, "reanalyze": cmd_reanalyze, "frames": cmd_frames, "selftest": cmd_selftest,
          "mcp": cmd_mcp}[args.cmd](args, s)
     except (AppError, FileNotFoundError, ValueError) as e:      # bekannte Fehler: Klartext statt Traceback

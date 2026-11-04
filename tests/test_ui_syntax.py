@@ -10,7 +10,7 @@ ROOT = os.path.join(os.path.dirname(__file__), "..", "astrostack")
 
 
 @pytest.mark.skipif(not shutil.which("node"), reason="node nicht installiert")
-@pytest.mark.parametrize("rel", ["app/index.html", "report/template.html"])
+@pytest.mark.parametrize("rel", ["app/index.html", "report/template.html", "web/static/index.html"])
 def test_js_parses(rel, tmp_path):
     html = open(os.path.join(ROOT, rel), encoding="utf-8").read()
     scripts = [m for m in re.findall(r"<script>(.*?)</script>", html, re.S)]

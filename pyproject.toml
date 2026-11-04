@@ -30,7 +30,8 @@ b2stacker = "astrostack.__main__:run"
 include = ["astrostack*"]
 
 [tool.setuptools.package-data]
-astrostack = ["report/*.html", "report/vendor/*", "pjsr/*.js", "app/*.html", "app/vendor/photoswipe/*"]
+astrostack = ["report/*.html", "report/vendor/*", "pjsr/*.js", "app/*.html", "app/vendor/photoswipe/*",
+              "web/static/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
