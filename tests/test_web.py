@@ -11,6 +11,7 @@ import pytest
 from astrostack import cli, core
 from astrostack.settings import Settings
 from astrostack.web import server as web
+from astrostack.workspace import Workspace
 
 from .test_core import c  # noqa: F401
 from .test_flow import _calib_tree, env  # noqa: F401
@@ -438,3 +439,20 @@ def test_double_click_opens_new_window_only_with_switch(monkeypatch):
     monkeypatch.setenv("B2_NEW_UI", "1")
     entry.run()
     assert calls == ["alt", "neu"]
+
+
+def test_new_workdir_applies_at_once_while_empty(bare, tmp_path):
+    old = bare.core
+    sse = SSE(bare, "?last=%d" % old.tasks.hub.last_id)
+    new = str(tmp_path / "anderswo")
+    st, r, _ = call(bare, "POST", "api/settings", {"workdir": new})
+    assert st == 200 and r["restart_needed"] is False and r["workdir"] == bare.core.ws.root
+    assert bare.core is not old and bare.core.ws.root == Workspace(new).root
+    assert call(bare, "GET", "api/bootstrap")[1]["workdir"] == bare.core.ws.root
+    assert sse.next(5) is None                                         # Live-Verbindung endet → Client verbindet neu
+    sse.close()
+    call(bare, "POST", "api/projects", {"name": "M 31"})               # jetzt nicht mehr leer → Neustart nötig
+    assert bare.core.tasks.wait_idle(30)
+    st, r, _ = call(bare, "POST", "api/settings", {"workdir": str(tmp_path / "dritter")})
+    assert st == 200 and r["restart_needed"] is True and bare.core.ws.root == Workspace(new).root
+    bare.core.close()

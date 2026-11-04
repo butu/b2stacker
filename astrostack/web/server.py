@@ -127,7 +127,6 @@ def save_settings(srv: WebServer, data: dict) -> dict:
     from ..app.server import _setting_value, _site_value
     with SETTINGS_LOCK:
         s = Settings.load()
-        old_workdir = s.workdir
         for k, v in data.items():
             if k == "mcp_token":
                 raise ValueError("Der MCP-Schlüssel wird nicht über die Einstellungen gesetzt.")
@@ -143,8 +142,22 @@ def save_settings(srv: WebServer, data: dict) -> dict:
     srv.core.pixinsight = s.pixinsight
     srv.core.workers = s.analysis_workers
     logbook.event("settings", changed={k: v for k, v in data.items()}, workdir=s.workdir)
-    moved = os.path.normcase(os.path.abspath(old_workdir or "")) != os.path.normcase(os.path.abspath(s.workdir))
-    return dict(settings=public_settings(s), restart_needed=moved)
+    moved = os.path.normcase(os.path.abspath(srv.core.ws.root)) != os.path.normcase(os.path.abspath(s.workdir))
+    switched = moved and _switch_workdir(srv, s)
+    return dict(settings=public_settings(s), restart_needed=moved and not switched, workdir=srv.core.ws.root)
+
+
+def _switch_workdir(srv: WebServer, s: Settings) -> bool:
+    """Neues Arbeitsverzeichnis sofort übernehmen – nur solange das alte leer ist (Ersteinrichtung) und nichts
+    läuft; sonst gilt es erst nach einem Neustart. Offene Live-Verbindungen enden und bekommen ``reset``."""
+    old = srv.core
+    if old.tasks.active() or old.db.value("SELECT COUNT(*) FROM projects"):
+        return False
+    srv.core = Core(s.workdir, pixinsight=s.pixinsight, workers=s.analysis_workers, stack_runner=old.stack_runner)
+    logbook.setup(s.workdir)
+    logbook.event("workdir_switched", old=old.ws.root, new=s.workdir)
+    old.close()
+    return True
 
 
 def bootstrap(srv: WebServer) -> dict:
@@ -563,7 +576,7 @@ class Handler(BaseHTTPRequestHandler):
             if reset:
                 self.wfile.write(sse_format(last, "reset", json.dumps({"last_event": last})))
             next_beat = time.monotonic() + srv.heartbeat_s
-            while not srv.stopping.is_set():
+            while not srv.stopping.is_set() and self.core.tasks.hub is hub:   # neues Arbeitsverzeichnis → neu verbinden
                 items, complete = hub.wait(last, srv.poll_s)
                 if not complete:
                     last = hub.last_id
