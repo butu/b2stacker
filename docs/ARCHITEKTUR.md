@@ -155,9 +155,12 @@ Einstellungen: `%APPDATA%\AstroStack\settings.json` (bzw. `~/.config/astrostack/
 - Echtes WBPP prüft nur der **Selbsttest** in der App; sein Bericht liegt in `<workdir>/selbsttest/`.
 
 ## Motor Siril (engines/siril.py)
-- Ablauf je Lauf: Lights per `convert` in `<job>/<lauf>/seq_light` (Symlinks/Kopie über `staging.Stager`), Master-Kalibrierung aus Rohbildern (`stack … rej w 3 3`) oder fertige Master direkt, `calibrate light_` (mit `-bias/-dark/-flat`, `-cc=dark 3 3` nur bei Darks; OSC `-cfa -equalize_cfa -debayer`), `register pp_light_ -2pass`, `seqapplyreg`, `stack r_pp_light_ … -32b [-rgb_equal]`.
-- Das Skript wird als `siril.ssf` im Lauf-Ordner abgelegt; der Aufruf ist `siril-cli -d <lauf> -s <skript>` mit `LC_ALL=C`.
-- Erfolg = Exit 0 **und** `result.fit`. Schritte kommen aus den `Running command:`-Zeilen, Fortschritt aus `progress: … NN%`.
-- Gemeinsamer Rahmen mit PixInsight: `engines.pixinsight.run_frame` (Jobdir, status.json, Protokoll, Energiesparsperre, Schleife über Läufe).
-- Mapping WBPP → Siril: `sensitivity` → `setfindstar -sigma` (Näherung `2.0 − 1.5·s`). Andere Sternerkennungs-Parameter werden im Protokoll als „nicht übernommen“ genannt.
-- Grenzen (Stand Phase 2a): keine Flat-Gruppen, keine externe Referenz (Warnung im Protokoll), keine Hotpixel-Entfernung ohne Darks, keine Registrierungs-/FWHM-Wiederholung, kein Lauf-Abbruch durch laufende Siril-Instanzen.
+- Ablauf je Lauf: `build_script` erzeugt `siril.ssf`. Lights per `convert` nach `seq_light` (Symlinks/Kopien über `staging`), Master-Kalibrierung aus Rohbildern (`stack … rej w 3 3`) oder fertige Master direkt. `calibrate light_` mit `-bias/-dark/-flat`, `-cc=dark` nur mit Darks, OSC mit `-cfa -equalize_cfa -debayer`.
+- Flat-Gruppen: je Gruppe ein Master-Flat, danach `merge` zu einer Sequenz. Registrierung über `register` (Mono R0, OSC R1), `seqapplyreg` (mit `-framing=min` bei Autocrop), dann `stack r_pp_light_ -norm=addscale -weight=… -output_norm -32b [-rgb_equal]`.
+- Registrierungsprüfung liest die Homographie aus `<seq>.seq` (nicht aus `r_<seq>.seq`). Details und Dateiformat: `docs/ERKENNTNISSE.md`, Eintrag 2026-11-04.
+- Aufruf: `siril-cli -d <lauf> -s <skript>` mit `LC_ALL=C`, Skriptpfad absolut. Erfolg = Exit 0 **und** `result.fit`. Schritte kommen aus `Running command:`, Fortschritt aus `progress: … NN%`.
+- Gemeinsamer Rahmen mit PixInsight: `engines.pixinsight.run_frame` (Jobdir, status.json, Protokoll, Energiesparsperre, Schleife über Läufe). Retry-Entscheidung (`lock`/`drop`/`suspect`) ebenfalls gemeinsam.
+- Mapping WBPP → Siril: `sensitivity` → `setfindstar -sigma` (Näherung `2.0 − 1.5·s`). Gewichtung `psf_signal`/`psf_snr` → `-weight=wfwhm|noise` (Näherung). Autocrop → `-framing=min`. Rejection fest `rej w 3 3`.
+- Nicht übernommen (im Lauf-Log genannt): Local Normalization, Verzerrungskorrektur (Siril registriert nur per Homografie), Large-Scale-Rejection, Drizzle, `structureLayers`, `peakResponse`, `noiseReductionFilterRadius` der Sternerkennung.
+- Ohne Darks entfernt b2stacker Hotpixel vor dem Stacken selbst (eigene Vorstufe). Darks → `-cc=dark`.
+- „In Siril öffnen“ startet die Siril-GUI mit `--filesystem` je Ergebnisordner (Flatpak). Ohne GUI kommt eine klare Meldung.

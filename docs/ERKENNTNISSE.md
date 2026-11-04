@@ -184,3 +184,12 @@
 - Stderr: `Error in g_unlink()`, `Removed GPid`, `Reading sequence failed` kommen bei Erfolg vor und sind harmlos.
 - Flatpak: `--filesystem=<dir>` für jeden Arbeits-/Quellordner nötig; `--env=LC_ALL=C` übergeben, damit Meldungen englisch sind.
 - Ausgabe `result.fit`: BITPIX -32, `STACKCNT` gesetzt, Mono 2D, RGB (`-rgb_equal`) mit NAXIS3=3.
+
+## 2026-11-04 – Siril 1.4.4: Sequenzformat, Autocrop, Öffnen in der Flatpak-GUI
+- `register <seq>` schreibt die Homographie in `<seq>.seq`. `seqapplyreg` erzeugt `r_<seq>.seq` mit reiner Identität. Die Registrierungsprüfung muss deshalb `<seq>.seq` lesen.
+- Mono: Registrierungszeilen `R0`, OSC: `R1` (Grün). Im S-Feld steht an Position 6 der Referenz-Index **0-basiert** (Frame 4 → `3`).
+- Verworfene Frames: `I <n> 0` plus Zeile `0 0 0` in den Registrierungsdaten. Frames mit `I <n> 1` bleiben.
+- Autocrop entspricht `seqapplyreg … -framing=min` (nur gemeinsame Fläche). Ohne Angabe bleibt `-framing=max`.
+- Einzelbild ergibt keine Sequenz, Siril braucht mindestens zwei Frames. b2stacker legt daher ein zweites identisches Referenzbild an und schließt es aus.
+- Flatpak-GUI: `flatpak run --filesystem=<ordner> org.siril.Siril <dateien>`. Jeder Arbeitsordner braucht eine eigene Freigabe, sonst sieht Siril die Ergebnisse nicht.
+- KPI-Ausreißer („Verlauf 91919 %“, „Rauschen 0.00 ADU“) entstehen nur, wenn der Hintergrund-Median fast 0 ist (rauschfreie Testdaten mit Hintergrund 0). Der Verlauf teilt durch den Median. Echte Siril-Stacks liegen bei Median ~0.09 bis 0.48 im 0..1-Bereich (geprüft 2026-11-04) und zeigen plausible Werte (Rauschen ~830–1030 ADU, Verlauf 23–41 %).

@@ -188,11 +188,12 @@ Hotpixeln), wird der Lauf wie bei PixInsight einmal mit stärkerer Hotpixel-Korr
   SII/OIII auf (eine Datei je Kanal).
 - **Protokoll:** Jeder Lauf schreibt sein Siril-Skript (`siril.ssf`) in `runs/<Zeit>/<Lauf>/`. Es gibt kein
   WBPP-Protokoll und keine PixInsight-Fensterprüfung.
-- **Öffnen:** „In Siril öffnen“ startet Siril mit den fertigen Stacks.
+- **Öffnen:** „In Siril öffnen“ startet die Siril-Oberfläche mit den fertigen Stacks. Bei Flatpak gibt
+  b2stacker den Ergebnisordner dafür frei. Ohne Siril-Oberfläche (nur `siril-cli`) kommt eine klare Meldung.
 - **Plan und Optionen:** Der Plan zeigt die Einstellungen, die Siril tatsächlich verwendet (z. B. Gewichtung
-  `-weight=wfwhm`, Rejection `rej w 3 3`, `setfindstar`). Optionen ohne Entsprechung in Siril – Local
-  Normalization, Verzerrungskorrektur, Satellitenspuren-Filter, Ränder beschneiden – sind ausgegraut und
-  als „in Siril nicht verfügbar“ markiert. Der Bericht nennt Motor und Version des letzten Stacks.
+  `-weight=wfwhm`, Rejection `rej w 3 3`, `setfindstar`, Autocrop als `-framing=min`). Optionen ohne
+  Entsprechung in Siril – Local Normalization, Verzerrungskorrektur, Satellitenspuren-Filter, Drizzle –
+  sind ausgegraut und als „in Siril nicht verfügbar“ markiert. Der Bericht nennt Motor und Version des letzten Stacks.
 
 ## 9. Selbsttest
 
