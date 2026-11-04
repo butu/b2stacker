@@ -107,8 +107,7 @@ def test_changed_missing_back_and_moved_files(env):
     flow.run_project(db, ws, pid, workers=1)
     light = os.path.join(data, "vdB 131", "2026-10-12", "HaO3", "L_0000.fits")
     fid = db.value("SELECT id FROM files WHERE path = ?", (os.path.realpath(light),))
-    with db.transaction():
-        db.execute("INSERT INTO file_status VALUES (?, ?, 'skip', 'manual', 'Wolken', '2026-11-04T20:00:00Z')", (pid, fid))
+    assert flow.decide(db, pid, [fid], "skip", "Wolken") == 1
     # geändert → Messung neu
     make_fits(light, dict(NINA_LIGHT, GAIN=101), data=_stars(5))
     r = flow.run_project(db, ws, pid, workers=1)
@@ -184,3 +183,39 @@ def test_parallel_measure(env):
     pid = library.create_project(db, ws, "vdB 131", folders=[data])
     r = flow.run_project(db, ws, pid, workers=2)
     assert r["measure"]["measured"] == 7
+
+
+def test_assess_marks_rejected_folder_and_keeps_manual(env):
+    ws, db, data = env
+    blurred = np.clip(_stars(3).astype(float) * 0 + 1200 + np.random.default_rng(3).normal(0, 15, (128, 192)),
+                      0, 65535).astype(np.uint16)                       # keine Sterne → Wolken
+    make_fits(os.path.join(data, "vdB 131", "2026-10-12", "HaO3", "L_0003.fits"),
+              dict(NINA_LIGHT, **{"DATE-OBS": "2026-10-12T20:40:00"}), data=blurred)
+    pid = library.create_project(db, ws, "vdB 131", folders=[data])
+    res = flow.run_project(db, ws, pid, workers=1)["assess"]
+    st = {os.path.basename(r["path"]): (r["status"], r["origin"], r["reason"]) for r in db.query(
+        "SELECT f.path, s.status, s.origin, s.reason FROM file_status s JOIN files f ON f.id = s.file_id")}
+    assert st["L_9999.fits"][0] == "skip" and "Ordner" in st["L_9999.fits"][2]
+    assert st["L_0003.fits"][0] == "skip" and "Wolken" in st["L_0003.fits"][2]
+    assert st["L_0000.fits"][:2] == ("use", "auto")
+    assert res["skip"] == 2 and res["use"] == 3 and res["nights"] and res["filters"] == ["HaO3"]
+    fid = db.value("SELECT id FROM files WHERE path LIKE '%L_0003.fits'")
+    assert flow.decide(db, pid, [fid], "use") == 1
+    flow.run_project(db, ws, pid, workers=1)
+    assert db.one("SELECT status, origin FROM file_status WHERE file_id = ?", (fid,))[:] == ("use", "manual")
+    assert flow.decide(db, pid, [fid], "auto") == 1
+    flow.assess_project(db, pid)
+    assert db.one("SELECT status, origin FROM file_status WHERE file_id = ?", (fid,))[:] == ("skip", "auto")
+    with pytest.raises(ValueError):
+        flow.decide(db, pid, [fid], "löschen")
+    assert flow.decide(db, pid, [999999], "skip") == 0
+
+
+def test_duplicate_content_is_skipped(env):
+    ws, db, data = env
+    src = os.path.join(data, "vdB 131", "2026-10-12", "HaO3", "L_0001.fits")
+    shutil.copy(src, os.path.join(data, "vdB 131", "2026-10-12", "HaO3", "Kopie von L_0001.fits"))
+    pid = library.create_project(db, ws, "vdB 131", folders=[data])
+    flow.run_project(db, ws, pid, workers=1)
+    reasons = [r[0] for r in db.query("SELECT reason FROM file_status WHERE status = 'skip'")]
+    assert any("Duplikat" in r for r in reasons)
