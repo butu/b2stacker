@@ -36,8 +36,15 @@ st = job["status"]
 for i in range(3):
     json.dump(dict(total=3, done=i, name=["Kalibrieren", "Registrieren", "Integrieren"][i]), open(st, "w"))
     time.sleep(float(os.environ.get("FAKE_STEP_S", "0.05")))
-os.makedirs(os.path.join(job["outputDirectory"], "master"), exist_ok=True)
-open(os.path.join(job["outputDirectory"], "master", "masterLight_HaO3.xisf"), "w").write("x")
+mdir = os.path.join(job["outputDirectory"], "master")
+os.makedirs(mdir, exist_ok=True)
+open(os.path.join(mdir, "masterLight_HaO3.xisf"), "w").write("x")
+raw = [f for f in job["files"] if "masters" not in f["path"].replace("\\", "/").split("/")]
+if any(f["type"] == "bias" for f in raw):
+    open(os.path.join(mdir, "masterBias_BIN-1_128x192.xisf"), "w").write("b")
+for s in sorted({f.get("session") for f in raw if f["type"] == "flat"}):
+    open(os.path.join(mdir, "masterFlat_BIN-1_FILTER-HaO3_CFA_B2SESSION-%s.xisf" % s), "w").write("f")
+out["files"] = job["files"]
 json.dump(dict(total=3, done=3, name="fertig"), open(st, "w"))
 out.update(ok=True, phase="done")
 json.dump(out, open(job["result"], "w"))
@@ -113,7 +120,7 @@ def test_run_reports_progress_and_masters(stacked, tmp_path, monkeypatch):
     res = handover.run("PixInsight.exe", launcher, job_path, progress=lambda **kw: seen.append(kw), popen=popen,
                        poll_s=0.05)
     assert res["ok"] and res["exit_code"] == 0 and res["phase"] == "done"
-    assert res["masters"] and res["masters"][0].endswith("masterLight_HaO3.xisf")
+    assert any(m.endswith("masterLight_HaO3.xisf") for m in res["masters"])
     assert res["sessions"]["light"] == ["S1"] and res["include"].endswith('BPP-main.js"')
     assert any(s["message"] == "Registrieren" for s in seen) and seen[0]["step"] == "Stacken mit PixInsight"
 
@@ -169,7 +176,8 @@ def test_stack_project_end_to_end(stacked, monkeypatch):
     assert db.value("SELECT stacked_at FROM projects") is not None
     # zweiter Stack bekommt einen eigenen Ordner, der erste bleibt
     res2 = stacking.stack_project(db, ws, pid, exe, runner=runner)
-    assert res2[0]["folder"] != res[0]["folder"] and len(os.listdir(ws.project_dir("vdB 131"))) == 2
+    assert res2[0]["folder"] != res[0]["folder"]
+    assert sorted(os.listdir(ws.project_dir("vdB 131"))) == sorted([res[0]["folder"], res2[0]["folder"], "masters"])
     # Löschen entfernt nur eigene Dateien
     open(os.path.join(sdir, "final_final.tif"), "w").close()
     stacking.set_note(db, pid, st["id"], "erster Versuch")
@@ -197,3 +205,37 @@ def test_stack_name():
     import datetime
     from astrostack import stacking
     assert stacking.stack_name({"name": "Ha", "hours": 12.5}, datetime.date(2026, 11, 4)) == "2026-11-04 Ha 12h30"
+
+
+def test_masters_are_kept_and_reused(stacked):
+    from astrostack import stacking
+    from .conftest import NINA_LIGHT, make_fits
+    ws, db, plan, popen, tmp = stacked
+    pid = db.value("SELECT id FROM projects")
+    exe = str(tmp / "pi" / "bin" / "PixInsight.exe")
+    runner = lambda *a, **kw: handover.run(*a, popen=popen, poll_s=0.05, **kw)          # noqa: E731
+    r1 = stacking.stack_project(db, ws, pid, exe, runner=runner)[0]
+    kinds = sorted((m["kind"], m["reused"]) for m in r1["masters"])
+    assert kinds == [("bias", False), ("flat", False)]
+    mdir = os.path.join(ws.project_dir("vdB 131"), "masters")
+    assert sorted(os.listdir(mdir))[0].startswith("bias_") and len(os.listdir(mdir)) == 2
+    assert db.value("SELECT COUNT(*) FROM masters") == 2
+    # zweiter Stack: Master statt Rohframes
+    r2 = stacking.stack_project(db, ws, pid, exe, runner=runner)[0]
+    assert sorted((m["kind"], m["reused"]) for m in r2["masters"]) == [("bias", True), ("flat", True)]
+    job = handover.build_job(db, _ha(fp.load_plan(db, pid)), os.path.join(ws.temp, "x"), project_id=pid)
+    assert [f["type"] for f in job["files"]].count("bias") == 1 and [f["type"] for f in job["files"]].count("flat") == 1
+    assert set(job["reusedMasters"]) == {"bias", "S1"}
+    sid2 = r2["stack_id"]
+    assert db.value("SELECT COUNT(*) FROM stack_masters WHERE stack_id = ?", (sid2,)) == 2
+    assert db.value("SELECT COUNT(*) FROM masters") == 2
+    # neuer Bias-Frame → anderer Schlüssel für Bias und Flat (Flat wird mit dem Bias kalibriert)
+    data = db.value("SELECT path FROM source_folders")
+    hb = dict(NINA_LIGHT, IMAGETYP="BIAS", EXPOSURE=0.0001, EXPTIME=0.0001)
+    make_fits(os.path.join(data, "Bias", "B_0009.fits"), hb, shape=(128, 192), value=501)
+    flow.run_project(db, ws, pid, workers=1)
+    fp.update_plan(db, pid, ws.root)
+    job = handover.build_job(db, _ha(fp.load_plan(db, pid)), os.path.join(ws.temp, "x"), project_id=pid)
+    assert job["reusedMasters"] == {} and [f["type"] for f in job["files"]].count("bias") == 5
+    # Prüfsumme fehlt → kein Schlüssel, Rohframes
+    assert handover.master_key(db, "bias", []) is None

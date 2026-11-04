@@ -58,8 +58,10 @@ Weitere Befunde:
   2 Linear Fit, 3 ESD, 4 RCR, 5 Auto.
 - `autocrop=false` wird beachtet (keine `_autocrop`-Variante).
 - WBPP legt bei LN ein `LN_Reference_…xisf` im Master-Ordner ab; das Light-Master beginnt mit `masterLight`.
-- Master-Bias/-Flat entstehen im Master-Ordner mit dem Schlüssel im Namen (`…_B2SESSION-S1.xisf`) → Grundlage für
-  „Master wiederverwenden“.
+- Master-Bias/-Flat entstehen im Master-Ordner mit dem Schlüssel im Namen (`…_B2SESSION-S1.xisf`). Wiederverwenden
+  geprüft: umbenannt (`bias_<schlüssel>.xisf`) und als Bias/Flat übergeben erkennt WBPP sie am Header
+  (`IMAGETYP = 'Master Bias'`/`'Master Flat'`), ordnet Flats über den Gruppen-Schlüssel zu und integriert nur noch
+  die Lights.
 - Ausgabe von PixInsight auf stdout enthält nur Chromium-GPU-Meldungen (harmlos) und `:LOGFILE:<pfad>:LOGFILE:`.
 - Ein in der Claude-App eingetragener Werkzeug-Server ist eine eigene exe-Kopie: nach einem Update bleibt er alt,
   bis der Eintrag auf die neue Datei zeigt (heute: `b2stacker (12).exe` statt `(13).exe`).

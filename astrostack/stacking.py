@@ -55,6 +55,40 @@ def _light_master(masters: list[str]) -> list[str]:
     return plain or lights
 
 
+def _keep_masters(db: dbm.Database, pid: int, pdir: str, sid: int, job: dict, masters: list[str]) -> list[dict]:
+    """Neue Master-Bias/-Flats aus temp/ ins Projekt übernehmen (``masters/``) und mit dem Stack verknüpfen;
+    wiederverwendete Master nur verknüpfen. → [{kind, key, path, reused}]"""
+    keys, reused = job.get("masterKeys") or {}, job.get("reusedMasters") or {}
+    out = []
+    mdir = os.path.join(pdir, "masters")
+    for m in masters:
+        name = os.path.basename(m).lower()
+        if name.startswith("masterbias"):
+            k = "bias"
+        elif name.startswith("masterflat") and "b2session-" in name:
+            k = name.split("b2session-")[1].split("_")[0].split(".")[0].upper()
+        else:
+            continue
+        key = keys.get(k)
+        if not key or k in reused:
+            continue
+        os.makedirs(mdir, exist_ok=True)
+        kind = "bias" if k == "bias" else "flat"
+        dst = os.path.join(mdir, "%s_%s.xisf" % (kind, key))
+        shutil.move(m, dst)
+        db.execute("INSERT INTO masters (project_id, type, path, key, key_json, created_at) VALUES (?, ?, ?, ?, ?, ?) "
+                   "ON CONFLICT (project_id, key) DO UPDATE SET path = excluded.path",
+                   (pid, kind, dst, key, json.dumps(dict(kind=kind, set=k, stack=sid)), dbm.now()))
+        out.append(dict(kind=kind, key=key, path=dst, reused=False))
+    for k, path in reused.items():
+        out.append(dict(kind="bias" if k == "bias" else "flat", key=keys.get(k), path=path, reused=True))
+    for o in out:
+        mid = db.value("SELECT id FROM masters WHERE project_id = ? AND key = ?", (pid, o["key"]))
+        if mid:
+            db.execute("INSERT OR IGNORE INTO stack_masters (stack_id, master_id) VALUES (?, ?)", (sid, mid))
+    return out
+
+
 def stack_project(db: dbm.Database, ws: Workspace, pid: int, pixinsight: str, run_ids: list[str] | None = None,
                   progress=None, cancel=None, runner=handover.run, origin: str = "ui") -> list[dict]:
     """Alle aktiven (oder die gewählten) Läufe des gespeicherten Plans stacken. → Ergebnis je Lauf"""
@@ -89,8 +123,9 @@ def stack_project(db: dbm.Database, ws: Workspace, pid: int, pixinsight: str, ru
             sid = int(cur.lastrowid)
             db.executemany("INSERT INTO stack_files (stack_id, file_id) VALUES (?, ?)",
                            [(sid, fid) for fid in run["light_ids"]])
+        job = {}
         try:
-            job = handover.build_job(db, run, out, ref_path)
+            job = handover.build_job(db, run, out, ref_path, project_id=pid)
             launcher, job_path = handover.write_scripts(job, ws.temp, pixinsight)
             res = runner(pixinsight, launcher, job_path, progress=progress, cancel=cancel)
         except Exception as e:  # noqa: BLE001 – Lauf scheitert sichtbar, die anderen laufen weiter
@@ -116,7 +151,10 @@ def stack_project(db: dbm.Database, ws: Workspace, pid: int, pixinsight: str, ru
                 shutil.copytree(logs, os.path.join(sdir, "protokoll"))
             if align_master is None:
                 align_master = files[0]
+        kept = []
         with db.transaction():
+            if status == "done":
+                kept = _keep_masters(db, pid, pdir, sid, job, res.get("masters") or [])
             db.execute("UPDATE stacks SET status = ?, error = ?, folder = ?, finished_at = ?, pixinsight_version = ?, "
                        "wbpp_version = ?, size_bytes = ? WHERE id = ?",
                        (status, error, folder, dbm.now(), res.get("pixinsight"), res.get("wbpp"), _size(files), sid))
@@ -128,7 +166,8 @@ def stack_project(db: dbm.Database, ws: Workspace, pid: int, pixinsight: str, ru
             db.event("stack_" + status, pid, json.dumps(dict(stack=sid, run=run["name"], lights=run["lights"],
                                                              hours=run["hours"], error=error)))
         ws.clear_temp()
-        results.append(dict(stack_id=sid, run=run["name"], status=status, error=error, folder=folder, files=files))
+        results.append(dict(stack_id=sid, run=run["name"], status=status, error=error, folder=folder, files=files,
+                            masters=kept))
     return results
 
 
