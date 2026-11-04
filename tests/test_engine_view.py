@@ -1,4 +1,4 @@
-"""Engine-abhängige Plan-Ansicht, Motor im Stack-Record und Motor im Bericht."""
+"""Engine-dependent plan view, engine in the stack record and in the report."""
 import copy
 import json
 import os
@@ -81,7 +81,7 @@ def test_report_engine_text_from_last_stack(tmp_path):
     pdir = str(tmp_path)
     assert report_build.engine_meta(pdir, "pixinsight")["engine_text"] == "PixInsight WBPP"
     assert report_build.engine_meta(pdir, "siril")["engine_text"] == "Siril"
-    recs = [dict(id="a", date="2026-01-01T10:00:00"),                       # alter Eintrag ohne Feld
+    recs = [dict(id="a", date="2026-01-01T10:00:00"),                       # old record without the field
             dict(id="b", date="2026-02-01T10:00:00", engine="siril", engine_version="1.4.2")]
     json.dump(recs, open(os.path.join(pdir, "stacks.json"), "w", encoding="utf-8"))
     assert report_build.engine_meta(pdir, "pixinsight")["engine_text"] == "Siril 1.4.2"

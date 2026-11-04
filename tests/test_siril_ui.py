@@ -1,4 +1,4 @@
-"""Engine-abhängige Schrittliste: Siril-Texte nennen kein PixInsight/WBPP, PixInsight-Texte bleiben unverändert."""
+"""Engine-dependent step list: Siril texts name no PixInsight/WBPP; PixInsight texts unchanged."""
 from astrostack import steps
 
 

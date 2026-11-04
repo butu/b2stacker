@@ -96,13 +96,13 @@ def test_mono_run_produces_final_and_keeps_originals(tmp_path, cli):
     assert st.state == "done", st.error
     assert len(st.finals) == 1 and os.path.exists(st.finals[0])
     assert xisf.read_image(st.finals[0]).shape[0] == 1
-    assert fits.getheader(st.runs["L"]["master"])["STACKCNT"] == 4          # alle gewählten Lights gestapelt
+    assert fits.getheader(st.runs["L"]["master"])["STACKCNT"] == 4          # all selected lights stacked
     assert digest(lights + run["bias"] + run["darks"] + run["flats"]) == originals
 
 
 @posix_only
 def test_cleanup_removes_cosmetic_intermediates(tmp_path, cli):
-    plan, _, _ = make_plan(tmp_path, darks=0)                 # ohne Darks → eigene Hotpixel-Vorstufe läuft
+    plan, _, _ = make_plan(tmp_path, darks=0)                 # without darks → own hot-pixel pre-step runs
     st = engines.run_plan(plan, settings(tmp_path, cli), log=lambda *a: None, open_results=False)
     assert st.state == "done", st.error
     leftovers = [root for root, dirs, _ in os.walk(str(tmp_path / "work")) if os.path.basename(root) == "_cosmetic"]

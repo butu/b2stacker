@@ -1,4 +1,4 @@
-"""Siril: Ergebnisse öffnen (Flatpak braucht Ordner-Freigaben) und klare Meldung ohne Oberfläche."""
+"""Siril: open results (Flatpak needs folder grants) and a clear message without GUI."""
 import pytest
 
 from astrostack.engines import siril

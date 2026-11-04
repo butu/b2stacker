@@ -1,9 +1,8 @@
-"""Selbsttest auf dem echten Rechner: kleiner synthetischer Datensatz → Analyse → Stacking mit der gewählten Engine.
+"""Real-machine selftest: small synthetic dataset → analysis → stacking with the selected engine.
 
-Prüft genau die Dinge, die Linux-Tests nicht sehen: Netzlaufwerk, Komma im Ordnernamen, Flat-Gruppen, Symlink-Recht
-(Entwicklermodus), lange Pfade, WBPP-Version und die Hotpixel-Korrektur in PixInsight bzw. die Siril-Version. Der Testordner wird nur neu
-angelegt (``b2stacker-selbsttest, mit Komma``) – vorhandene Daten werden nicht angefasst. Das Testprojekt liegt in einem
-eigenen Arbeitsordner (``<arbeitsverzeichnis>/selbsttest``) und erscheint nicht in der Projektliste.
+Covers what Linux tests cannot see: network drives, commas in folder names, flat groups, symlink rights,
+long paths, and the engine version. Only a new test folder is created; existing data is never touched.
+The test project lives in its own work folder and is hidden from the project list.
 """
 from __future__ import annotations
 
@@ -107,7 +106,7 @@ def environment(settings, folder: str) -> dict:
 
 def run(settings, folder: str, log=print, progress=None, cancel=None, with_pixinsight: bool = True,
         runner_factory=None) -> dict:
-    """Selbsttest mit der in den Einstellungen gewählten Engine (PixInsight/WBPP oder Siril)."""
+    """Selftest with the engine selected in the settings (PixInsight/WBPP or Siril)."""
     from dataclasses import replace
 
     from . import engines, project

@@ -1,4 +1,4 @@
-"""Abbruch: siril-cli und ihre Kindprozesse (z. B. Flatpak-Sandbox) müssen wirklich enden."""
+"""Cancel: siril-cli and its child processes (e.g. Flatpak sandbox) must really end."""
 import os
 import sys
 import time
@@ -13,7 +13,7 @@ posix_only = pytest.mark.skipif(sys.platform == "win32", reason="Prozessgruppen 
 def _alive(pid: int) -> bool:
     try:
         with open("/proc/%d/stat" % pid) as fh:
-            return fh.read().split(") ")[-1].split()[0] != "Z"       # Zombie gilt als beendet
+            return fh.read().split(") ")[-1].split()[0] != "Z"       # zombie counts as ended
     except OSError:
         return False
 
@@ -22,7 +22,7 @@ def _alive(pid: int) -> bool:
 def test_kill_ends_child_processes_too(tmp_path):
     pidfile = tmp_path / "child.pid"
     wrapper = tmp_path / "siril-cli"
-    # Hauptprozess startet ein Kind (wie flatpak/bwrap) und wartet darauf
+    # main process starts a child (like flatpak/bwrap) and waits for it
     wrapper.write_text('#!/bin/sh\nsleep 300 &\necho $! > "%s"\nwait\n' % pidfile)
     wrapper.chmod(0o755)
     inst = siril.Install(cli=(str(wrapper),), gui=None, label="test")
@@ -51,5 +51,5 @@ def test_kill_after_exit_is_harmless(tmp_path):
                                [str(tmp_path)])
     runner.start()
     runner.proc.wait(timeout=10)
-    runner.kill()                                  # darf nicht werfen
+    runner.kill()                                  # must not raise
     assert runner.poll() == 0

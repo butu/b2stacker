@@ -48,7 +48,7 @@ def _safe(fn, default):
         return default
 
 
-_SIRIL_CHECK: dict = {}          # Pfad → (Zeitpunkt, Ergebnis): Statusabfragen starten keinen Siril-Prozess je Aufruf
+_SIRIL_CHECK: dict = {}          # path -> (timestamp, result): status polls do not start a Siril process each time
 _SIRIL_CHECK_TTL = 30
 
 
@@ -202,7 +202,7 @@ def _pick_file_dialog(initial: str = "", kind: str = ""):
 
 
 def pick_file(initial: str = "", kind: str = "") -> str | None:
-    """Datei wählen (PixInsight.exe, siril-cli oder mit kind="image" ein Bild): im Programmfenster direkt, sonst über einen Hilfsprozess."""
+    """Pick a file (PixInsight.exe, siril-cli, or an image with kind="image"): directly in the program window, otherwise via a helper process."""
     from . import window
     kind = kind if kind in ("image", "siril") else ""
     try:
@@ -251,7 +251,7 @@ def check_pixinsight(path: str) -> dict:
 
 
 def check_siril(path: str) -> dict:
-    """Siril/siril-cli prüfen (leer = automatische Erkennung)."""
+    """Check Siril/siril-cli (empty = automatic detection)."""
     return siril.check(path)
 
 
@@ -790,7 +790,7 @@ def start_requality(name: str, stack_id: str) -> dict:
 
 
 def start_selftest(folder: str) -> dict:
-    """Selbsttest mit der gewählten Engine: legt nur einen neuen Testordner an, stackt ihn und schreibt einen Bericht."""
+    """Selftest with the selected engine: creates only a new test folder, stacks it and writes a report."""
     folder = (folder or "").strip().strip('"')
     if not folder or not os.path.isdir(folder):
         raise ValueError("Ordner für den Selbsttest nicht gefunden: %s" % (folder or "–"))
@@ -846,9 +846,9 @@ def open_path(path: str):
 
 
 def open_in_engine(paths: list[str]):
-    """Ergebnisse in der gewählten Engine öffnen (PixInsight oder Siril)."""
+    """Open results in the selected engine (PixInsight or Siril)."""
     s = settings()
-    if s.engine == "siril":           # Siril-Modus: Ergebnisse nie in PixInsight öffnen
+    if s.engine == "siril":           # Siril mode: never open results in PixInsight
         subprocess.Popen(siril.open_command(s.siril, paths))
         return
     if not os.path.exists(s.pixinsight):

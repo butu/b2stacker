@@ -1,4 +1,4 @@
-"""Siril: Referenzbild (file: / master:) – als Frame anhängen, ausschließen, Geometrie angleichen."""
+"""Siril: reference image (file: / master:) – append as frame, exclude, match geometry."""
 import os
 
 import numpy as np
@@ -45,7 +45,7 @@ def test_file_reference_is_appended_and_excluded_from_stack(tmp_path, cli, monke
     logs = []
     st = engines.run_plan(plan, settings(tmp_path, cli), log=logs.append, open_results=False)
     assert st.state == "done", st.error
-    assert fits.getheader(st.runs["L"]["master"])["STACKCNT"] == 4          # nur die 4 Lights
+    assert fits.getheader(st.runs["L"]["master"])["STACKCNT"] == 4          # only the 4 lights
     ssf = open(os.path.join(os.path.dirname(st.runs["L"]["master"]), "siril.ssf"), encoding="utf-8").read()
     assert "setref lights_ 5" in ssf and "unselect r_lights_ 5 6" in ssf and "-filter-included" in ssf
     assert "-2pass" not in ssf

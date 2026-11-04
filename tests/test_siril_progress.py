@@ -1,4 +1,4 @@
-"""Fortschritt (Unterschritte aus dem Skript, gedrosseltes Log) und Vorab-Prüfungen (Prozesse, Windows-Pfade)."""
+"""Progress (substeps from the script, throttled log) and preflight checks (processes, Windows paths)."""
 import os
 import subprocess
 import sys
@@ -44,9 +44,9 @@ def test_phases_follow_script_order_with_totals():
 
 def test_substep_states_follow_command_index():
     subs = siril.phases_from_script(SCRIPT, n=5, n_flats=3)
-    early = siril.substep_view(subs, cmd_idx=5, pct=None)          # Master-Flat wird gestackt (Zeile 5)
+    early = siril.substep_view(subs, cmd_idx=5, pct=None)          # master flat is stacked (line 5)
     assert early[0]["state"] == "now" and early[0]["key"] == "master_flat"
-    mid = siril.substep_view(subs, cmd_idx=9, pct=40.0)           # Lights kalibrieren, 40 %
+    mid = siril.substep_view(subs, cmd_idx=9, pct=40.0)           # lights calibrated, 40 %
     assert [s["state"] for s in mid] == ["done", "now"] and mid[1]["done"] == 2
     late = siril.substep_view(subs, cmd_idx=12, pct=None)
     assert [s["state"] for s in late] == ["done", "done", "done", "now"]
@@ -101,7 +101,7 @@ def test_chatty_output_is_throttled_but_complete_in_siril_log(tmp_path, cli, mon
     log_file = os.path.join(os.path.dirname(st.runs["L"]["master"]), "logs", "siril.log")
     text = open(log_file, encoding="utf-8").read().splitlines()
     commands = sum(ln.startswith("log: Running command") for ln in text)
-    assert 0 < len(shown) <= siril.LOG_LINES_PER_COMMAND * commands    # je Befehl höchstens 20 Zeilen
-    assert len(shown) < 60 * commands                                   # gedrosselt, nicht alles
+    assert 0 < len(shown) <= siril.LOG_LINES_PER_COMMAND * commands    # at most 20 lines per command
+    assert len(shown) < 60 * commands                                   # throttled, not everything
     assert any("unterdrückt" in m for m in lines)
-    assert sum("chatty output" in ln for ln in text) >= 60 * commands - 60   # siril.log vollständig
+    assert sum("chatty output" in ln for ln in text) >= 60 * commands - 60   # siril.log complete

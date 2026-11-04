@@ -1,4 +1,4 @@
-"""Siril-Lauf auf einem echten Report-Plan: Ergebnis wird von Requality, latest_output und Report gefunden."""
+"""Siril run on a real report plan: result is found by Requality, latest_output and the report."""
 import json
 import os
 import sys
@@ -41,7 +41,7 @@ def test_siril_stack_is_found_by_requality_and_report(tmp_path, monkeypatch):
     final = st.finals[0]
     assert project.latest_output(pdir, "HaO3") == final
 
-    # Requality (server.start_requality) rechnet dieselben Kennzahlen aus den gespeicherten Outputs
+    # Requality (server.start_requality) computes the same metrics from the stored outputs
     img = stackqa.load_master(final)
     k = stackqa.kpis(img, plan.get("pixscale"), {})
     assert k["stars"] >= 0 and k["noise"] >= 0

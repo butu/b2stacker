@@ -1,17 +1,17 @@
-"""Nachgebaute siril-cli für Tests – als **eigener Prozess** mit echter Kommandozeile.
+"""Fake siril-cli for tests – as **its own process** with a real command line.
 
-Interpretiert die Befehle, die engines/siril.py erzeugt (Verhalten grob nach Siril 1.4.4):
+Interprets the commands engines/siril.py generates (behaviour roughly like Siril 1.4.4):
 * ``siril-cli --version`` → ``siril 1.4.4``
 * ``siril-cli -d <dir> -s <skript.ssf>`` (Skriptpfad absolut, wie in der Engine)
 * ``requires``, ``setext``, ``cd``, ``setfindstar`` (no-op), ``convert <name> -out=<dir>``, ``merge <seq>… <out>``, ``setref``, ``unselect``,
   ``calibrate <seq>_ [-bias= -dark= -flat= -cc= -cfa -equalize_cfa -debayer] -prefix=P``,
   ``register <seq>_``, ``seqapplyreg <seq>_ -prefix=P``, ``stack <seq>_ … -out=N``.
-* Ausgabe wie Siril: ``log: Running command: <cmd>``, ``progress: …, NN.NN%``; bei Fehler
+* Output like Siril: ``log: Running command: <cmd>``, ``progress: …, NN.NN%``; on error
   ``log: Error in line N ('cmd'): …`` + ``log: Script execution failed.`` und Exit 1.
-  stderr-Rauschen (``Error in g_unlink()``) kommt auch bei Erfolg.
+  stderr noise (``Error in g_unlink()``) also appears on success.
 
-Umgebungsvariablen für Quirks: ``FAKESIRIL_FAIL_REGISTER=1`` → zu wenige Sternpaare,
-``FAKESIRIL_NO_OUTPUT=1`` → Exit 0 ohne Ergebnisdatei.
+Environment switches for quirks: ``FAKESIRIL_FAIL_REGISTER=1`` → too few star pairs,
+``FAKESIRIL_NO_OUTPUT=1`` → exit 0 without a result file.
 """
 from __future__ import annotations
 
@@ -26,20 +26,20 @@ VERSION = "siril 1.4.4"
 
 
 def _seq_files(seq: str) -> list[str]:
-    """Sequenz „name_“ = Dateien name_00001.fit … im CWD, sortiert."""
+    """Sequence "name_" = files name_00001.fit … in CWD, sorted."""
     base = seq.rstrip("_")
     return sorted(f for f in glob.glob(base + "_*.fit") if f[len(base) + 1:len(base) + 6].isdigit())
 
 
 def _bad_frames() -> set[int]:
-    """FAKESIRIL_BAD_FRAMES="2,5": 1-basierte Frames, die Siril nicht registriert (Sequenz-Zeilen wie echt)."""
+    """FAKESIRIL_BAD_FRAMES="2,5": 1-based frames that Siril does not register (sequence lines as in real output)."""
     return {int(x) for x in os.environ.get("FAKESIRIL_BAD_FRAMES", "").split(",") if x.strip()}
 
 
 def _write_seq(seq: str, n: int, ref: int = 0, identity: bool = False) -> None:
-    """Sequenzdatei „<seq>.seq“ nach dem Muster der echten Siril-1.4.4-Ausgabe (Mono: R0-Zeilen, S-Feld 6 =
-    0-basierter Referenz-Index). register schreibt die Homographie in <seq>.seq; seqapplyreg (identity=True)
-    schreibt nur die ausgewählten Frames mit Identität in r_<seq>.seq."""
+    """Sequence file "<seq>.seq" modeled on real Siril 1.4.4 output (mono: R0 lines, S field 6 =
+    0-based reference index). register writes the homography into <seq>.seq; seqapplyreg (identity=True)
+    writes only the selected frames with identity into r_<seq>.seq."""
     bad = _bad_frames()
     kept = [i for i in range(1, n + 1) if not identity or i not in bad]
     L = ["#Siril sequence file (fake)", "S '%s' 1 %d %d 5 %d 6 0 0 0" % (seq, n, len(kept), ref), "L 1"]
@@ -48,26 +48,26 @@ def _write_seq(seq: str, n: int, ref: int = 0, identity: bool = False) -> None:
         if i in bad:
             L.append("R0 0 0 0 0 0 0 H 0 0 0 0 0 0 0 0 0")
         else:
-            # Drift wie bei echten Nächten: Referenz 0 px, weitere Frames 1–4 px (nie „0,0 px“ = Sensormuster)
-            zero = os.environ.get("FAKESIRIL_ZERO_SHIFT") == "1"     # Sensormuster: alle „0,0 px“ auf der Referenz
+            # drift as in real nights: reference 0 px, other frames 1–4 px (never "0,0 px" = sensor pattern)
+            zero = os.environ.get("FAKESIRIL_ZERO_SHIFT") == "1"     # sensor pattern: all "0,0 px" on the reference
             tx, ty = (0.0, 0.0) if identity or zero or i - 1 == ref else (1.0 + 0.9 * i, -0.6 * i)
             L.append("R0 4.6 4.6 0.77 0 0.02 38 H 1 0 %g 0 1 %g 0 0 1" % (tx, ty))
     open(seq + ".seq", "w", encoding="utf-8").write("\n".join(L) + "\n")
 
 
 def _selected(seq: str) -> set[int]:
-    """1-basierte Positionen der ausgewählten Frames (I-Zeilen); ohne Sequenzdatei alle."""
+    """1-based positions of the selected frames (I lines); without sequence file, all."""
     p = seq + ".seq"
     if not os.path.exists(p):
         return set()
     return {int(ln.split()[1]) for ln in open(p, encoding="utf-8") if ln.startswith("I ") and ln.split()[2] == "1"}
 
 
-_REF: dict[str, int] = {}       # setref-Position (1-basiert) je Sequenz – nur für diesen Lauf
+_REF: dict[str, int] = {}       # setref position (1-based) per sequence – for this run only
 
 
 def _set_selection(seq: str, a: int, b: int, value: int) -> None:
-    """unselect/select: I-Zeilen a..b (1-basiert) auf value setzen."""
+    """unselect/select: set I lines a..b (1-based) to value."""
     p = seq + ".seq"
     lines = open(p, encoding="utf-8").read().splitlines()
     out = []
@@ -113,7 +113,7 @@ def _write(path: str, data, header=None) -> None:
 def run_script(workdir: str, script: str) -> int:
     os.chdir(workdir)
     lines = [ln.strip() for ln in open(script, encoding="utf-8") if ln.strip()]
-    print("Error in g_unlink()", file=sys.stderr, flush=True)     # harmloses Rauschen wie bei Siril
+    print("Error in g_unlink()", file=sys.stderr, flush=True)     # harmless noise like real Siril
     total = len(lines)
     for i, line in enumerate(lines, 1):
         cmd, *args = shlex.split(line)
@@ -129,7 +129,7 @@ def run_script(workdir: str, script: str) -> int:
             out = _opt(args, "-out")
             os.makedirs(out, exist_ok=True)
             for f in files:
-                if f.endswith(".xisf"):                        # Siril liest XISF und schreibt FITS (setext fit)
+                if f.endswith(".xisf"):                        # Siril reads XISF and writes FITS (setext fit)
                     _write(os.path.join(out, os.path.basename(f)[:-5] + ".fit"), _xisf(f), {})
                 else:
                     os.symlink(os.path.abspath(f), os.path.join(out, os.path.basename(f)))
@@ -158,7 +158,7 @@ def run_script(workdir: str, script: str) -> int:
             _REF[args[0]] = int(args[1])
         elif cmd == "unselect":
             _set_selection(args[0], int(args[1]), int(args[2]), 0)
-        elif cmd == "merge":                                   # Sequenzen hintereinander → eine neue Sequenz
+        elif cmd == "merge":                                   # sequences one after another → one new sequence
             out, frames = args[-1], []
             for src in args[:-1]:
                 frames += _seq_files(src)
@@ -168,7 +168,7 @@ def run_script(workdir: str, script: str) -> int:
             _write_seq(out + "_", len(frames))
         elif cmd == "stack":
             weights = [a.split("=", 1)[1] for a in args if a.startswith("-weight=")]
-            if any(w not in ("wfwhm", "nbstars", "noise") for w in weights):   # Siril 1.4.4 kennt nur diese
+            if any(w not in ("wfwhm", "nbstars", "noise") for w in weights):   # Siril 1.4.4 knows only these
                 return _fail(i, cmd, "Unknown argument to -weight=%s, aborting." % weights[0])
             sel = _selected(args[0])
             files = [f for i, f in enumerate(_seq_files(args[0]), 1) if not sel or i in sel]
@@ -185,7 +185,7 @@ def run_script(workdir: str, script: str) -> int:
                         _write("%s_%s_rejmap.fit" % (_opt(args, "-out", "result"), stem), np.zeros_like(mean), {})
         else:
             return _fail(i, cmd, "unknown command name")
-        for k in range(int(os.environ.get("FAKESIRIL_CHATTY", "0"))):   # viele Ausgabezeilen wie bei großen Stapeln
+        for k in range(int(os.environ.get("FAKESIRIL_CHATTY", "0"))):   # many output lines like large batches
             print("log: chatty output %d for %s" % (k, cmd), flush=True)
         print("progress: %s, %.2f%%" % (cmd, 100.0 * i / total), flush=True)
     return 0

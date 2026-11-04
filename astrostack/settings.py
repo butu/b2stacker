@@ -34,7 +34,7 @@ class Settings:
     analysis_workers: int = 2
     keep_awake: bool = True
     cleanup_intermediate: bool = True
-    open_results: bool = True                  # Ergebnisse am Ende in der gewählten Engine öffnen
+    open_results: bool = True                  # open results in the selected engine at the end
     min_free_ram_gb: float = 8.0
     language: str = "de"
     # Ersatz-Standort, wenn die FITS-Daten keinen enthalten (Mondstand, Objekthöhe, Nachtgrenze)

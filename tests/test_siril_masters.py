@@ -1,4 +1,4 @@
-"""Fertige Master als Kalibrierung: direkt verwenden statt neu zu stacken (Siril-Lauf gegen fake_siril)."""
+"""Finished masters as calibration: use directly instead of restacking (Siril run against fake_siril)."""
 import os
 import sys
 
@@ -23,7 +23,7 @@ def _master(path, kind_header=None):
 
 
 def test_app_master_names_are_recognised(tmp_path):
-    # APP-Masters heißen MB-…/MD-… und haben oft keinen IMAGETYP → trotzdem Master
+    # APP masters are named MB-…/MD-… and often lack IMAGETYP → still masters
     mb = _master(tmp_path / "MB-2026-E_0s.fit")
     md = _master(tmp_path / "MD-2026-E_300s.fit")
     assert siril._is_master(mb) and siril._is_master(md)
@@ -44,7 +44,7 @@ def test_master_dark_and_bias_are_used_without_restacking(tmp_path, cli):
     st = engines.run_plan(plan, settings(tmp_path, cli), log=lambda *a: None, open_results=False)
     assert st.state == "done", st.error
     log = open(os.path.join(os.path.dirname(st.runs["L"]["master"]), "siril.ssf"), encoding="utf-8").read()
-    # APP-Bias ohne IMAGETYP wird als korrigierte Kopie im Cache bereitgestellt → nur Präfix/Name prüfen
+    # APP bias without IMAGETYP is provided as a corrected cache copy → check prefix/name only
     assert '"-bias=' in log and "MB-2026-E_0s.fit" in log
     assert '"-dark=%s"' % master_dark.replace("\\", "/") in log
     assert "convert bias" not in log and "convert dark" not in log

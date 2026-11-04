@@ -63,7 +63,7 @@ _SIRIL = {
 
 
 def stack_for(engine: str) -> list[dict]:
-    """Schrittliste für die Oberfläche je Engine. PixInsight-Texte bleiben unverändert."""
+    """Step list for the GUI per engine. PixInsight texts stay unchanged."""
     if engine != "siril":
         return STACK
     return [dict(s, **_SIRIL.get(s["key"], {})) for s in STACK]

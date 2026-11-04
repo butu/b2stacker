@@ -1,4 +1,4 @@
-"""Fehlerdiagnose aus der Siril-Ausgabe (siril._causes): jede Regel mit der echten Meldungsform."""
+"""Error diagnosis from Siril output (siril._causes): each rule with the real message form."""
 import pytest
 
 from astrostack.engines import siril

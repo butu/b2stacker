@@ -1,4 +1,4 @@
-"""Siril: Registrierungs-Check (R0/I-Zeilen), Wiederholungen, Hotpixel-Vorstufe und FWHM-Retry."""
+"""Siril: registration check (R0/I lines), retries, hot-pixel pre-step and FWHM retry."""
 import os
 
 import pytest
@@ -18,7 +18,7 @@ def _fixture(name: str) -> str:
 
 
 def test_parse_real_mono_sequence_reads_homography_from_register_output():
-    # Siril 1.4.4: Homographie steht in <seq>.seq nach „register“; Referenz = Index 3 (Frame 4, Identität)
+    # Siril 1.4.4: homography is in <seq>.seq after "register"; reference = index 3 (frame 4, identity)
     regs = siril.parse_registration(_fixture("mono_fault_pp_light.seq"), LIGHTS4)
     assert {"reference": "/d/d.fit"} in regs
     by = {r["file"]: r for r in regs if "file" in r}
@@ -26,19 +26,19 @@ def test_parse_real_mono_sequence_reads_homography_from_register_output():
     assert by["/d/b.fit"]["tx"] == pytest.approx(-8) and by["/d/b.fit"]["ty"] == pytest.approx(2)
     assert by["/d/a.fit"]["scale"] == pytest.approx(1, abs=1e-6)
     assert by["/d/a.fit"]["nstars"] == 76
-    assert by["/d/c.fit"]["failed"] is True            # von Siril verworfen (I-Zeile 0, Zeile 0 0 0)
+    assert by["/d/c.fit"]["failed"] is True            # rejected by Siril (I line 0, line 0 0 0)
 
 
 def test_parse_real_osc_sequence_uses_green_channel():
     regs = siril.parse_registration(_fixture("osc_fault_pp_light.seq"), LIGHTS4)
     by = {r["file"]: r for r in regs if "file" in r}
-    assert {"reference": "/d/a.fit"} in regs              # OSC: Referenz = Index 0
+    assert {"reference": "/d/a.fit"} in regs              # OSC: reference = index 0
     assert by["/d/b.fit"]["tx"] == pytest.approx(-5, abs=1e-3) and by["/d/b.fit"]["ty"] == pytest.approx(3, abs=1e-3)
     assert by["/d/c.fit"]["failed"] is True
 
 
 def test_seqapplyreg_identity_sequence_is_not_used_for_checks():
-    # r_-Sequenz hat nach seqapplyreg nur Identität → taugt nicht zur Prüfung
+    # r_ sequence has only identity after seqapplyreg → not usable for the check
     regs = siril.parse_registration(_fixture("mono_fault_r_pp_light.seq"), ["/d/a.fit", "/d/b.fit", "/d/d.fit"])
     assert all(r.get("tx", 0) == 0 for r in regs)
 
@@ -81,7 +81,7 @@ def test_bad_frame_is_dropped_and_stack_rerun(tmp_path, monkeypatch):
 def test_suspect_frames_are_reported_not_dropped(tmp_path, monkeypatch):
     monkeypatch.setattr(siril, "_VERSION_CACHE", {})
     cli = make_cli(tmp_path / "siril-cli")
-    monkeypatch.setenv("FAKESIRIL_BAD_FRAMES", "2,3")          # nur 2 Frames blieben → nichts ausschließen
+    monkeypatch.setenv("FAKESIRIL_BAD_FRAMES", "2,3")          # only 2 frames left → exclude nothing
     plan, _, _ = make_plan(tmp_path)
     st = engines.run_plan(plan, settings(tmp_path, cli), log=lambda *a: None, open_results=False)
     assert st.state == "done", st.error
@@ -90,7 +90,7 @@ def test_suspect_frames_are_reported_not_dropped(tmp_path, monkeypatch):
 
 @posix_only
 def test_lock_twice_stops_with_plain_message(tmp_path, monkeypatch):
-    monkeypatch.setenv("FAKESIRIL_ZERO_SHIFT", "1")          # alle Frames „0,0 px“ = am Sensor ausgerichtet
+    monkeypatch.setenv("FAKESIRIL_ZERO_SHIFT", "1")          # all frames "0,0 px" = aligned to the sensor
     monkeypatch.setattr(siril, "_VERSION_CACHE", {})
     cli = make_cli(tmp_path / "siril-cli")
     plan, _, lights = make_plan(tmp_path)
@@ -117,7 +117,7 @@ def test_fwhm_implausible_retries_once_with_stricter_detection(tmp_path, monkeyp
     st = engines.run_plan(plan, settings(tmp_path, cli), log=logs.append, open_results=False)
     assert st.state == "done", st.error
     assert any("Hotpixel werden vor dem Stacken" in m for m in logs)
-    base = max(0.3, min(3.0, round(2.0 - 1.5 * 0.9, 2)))              # sensitivity 0.9 aus make_plan
+    base = max(0.3, min(3.0, round(2.0 - 1.5 * 0.9, 2)))              # sensitivity 0.9 from make_plan
     assert any("setfindstar -sigma=%.2f" % (base + 1.0) in m for m in logs)
     assert any("Erster Versuch unplausibel" in n for n in st.runs["L"]["notes"])
 

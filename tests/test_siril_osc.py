@@ -1,4 +1,4 @@
-"""Siril OSC/Bayer: Muster erzwingen, wenn Header fehlt oder widerspricht; XISF-Lights; Dualband an Farbkamera."""
+"""Siril OSC/Bayer: force pattern if header is missing or conflicting; XISF lights; dualband on color camera."""
 import os
 import sys
 
@@ -26,7 +26,7 @@ def test_script_sets_pattern_only_when_given():
     plain = siril.build_script(dict(BASE, bayer=None))
     assert "set debayer" not in plain
     mono = siril.build_script(dict(BASE, osc=False, bayer="GRBG"))
-    assert "set debayer" not in mono                       # Mono hat kein Muster
+    assert "set debayer" not in mono                       # mono has no pattern
 
 
 def test_bayer_index_matches_siril_numbering():
@@ -41,7 +41,7 @@ def test_header_consistent_means_no_override(tmp_path):
 
 
 def test_missing_header_forces_default_with_warning(tmp_path):
-    paths = frames(tmp_path / "l", 2, "light", osc=False)     # ohne BAYERPAT
+    paths = frames(tmp_path / "l", 2, "light", osc=False)     # without BAYERPAT
     msgs = []
     assert siril.bayer_override(paths, _log(msgs)) == "RGGB"
     assert any("Bayer-Muster fehlt" in m for m in msgs)

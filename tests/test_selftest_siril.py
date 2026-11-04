@@ -1,4 +1,4 @@
-"""Selbsttest mit Siril-Engine: Siril-Schritt, Stacking über engines.run_plan, Bericht mit engine + Siril-Version."""
+"""Selftest with Siril engine: Siril step, stacking via engines.run_plan, report with engine + Siril version."""
 import os
 import sys
 
@@ -35,7 +35,7 @@ def test_selftest_siril_dispatches_to_siril_and_reports_version(tmp_path, monkey
     assert "PixInsight gefunden" not in names and "Stacking mit PixInsight" not in names
     assert res["engine"] == "siril" and res["environment"]["siril_version"] == "1.4.4"
     assert any(st["name"] == "Analyse" and "2 Flat-Gruppen" in st["detail"] for st in res["steps"]), res["steps"]
-    assert "Stacking mit Siril" in names                       # lief über engines.run_plan → Siril
+    assert "Stacking mit Siril" in names                       # ran through engines.run_plan → Siril
     assert res["stack"]["state"] in ("done", "failed")
     assert "PixInsight" not in (res["stack"]["error"] or "")
     assert os.path.exists(res["report"]) and "," in os.listdir(folder)[0]

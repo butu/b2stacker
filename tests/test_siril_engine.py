@@ -20,7 +20,7 @@ linux_only = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Fl
 
 
 def make_cli(path, version_line=None):
-    """Shell-Wrapper, der fake_siril.py mit echter Kommandozeile startet (oder eine feste Version ausgibt)."""
+    """Shell wrapper that starts fake_siril.py with a real command line (or prints a fixed version)."""
     if version_line:
         body = 'echo "%s"\n' % version_line
     else:
@@ -37,7 +37,7 @@ def fresh_cache(monkeypatch):
 
 @pytest.fixture
 def no_siril(monkeypatch):
-    """Keine Siril-Installation: kein PATH-Treffer, keine Standardpfade, kein Flatpak."""
+    """No Siril installation: no PATH hit, no default paths, no Flatpak."""
     monkeypatch.setattr(siril, "SEARCH_PATHS", [])
     monkeypatch.setattr(siril, "FLATPAK_DIRS", ())
     monkeypatch.setattr(siril.shutil, "which", lambda name: None)
@@ -109,7 +109,7 @@ def test_dispatch_routes_to_siril_and_rejects_unknown_engine(tmp_path, fresh_cac
     from astrostack import engines
     s = Settings(engine="siril", siril=make_cli(tmp_path / "siril-cli"), workdir=str(tmp_path))
     plan = dict(target="T", workdir=str(tmp_path / "w"), runs=[], options={})
-    st = engines.run_plan(plan, s, log=lambda *a: None)              # Siril-Pfad erreicht, Plan ohne Läufe
+    st = engines.run_plan(plan, s, log=lambda *a: None)              # Siril path reached, plan without runs
     assert st.state == "failed" and "Kein Lauf aktiviert" in st.error
     with pytest.raises(StackError, match="Unbekannte Stacking-Engine"):
         engines.run_plan({}, Settings(engine="foo", workdir=str(tmp_path)))
@@ -132,11 +132,11 @@ def test_save_settings_validates_engine_and_state_reports_siril(tmp_path, monkey
     st = server.save_settings({"engine": "siril", "siril": ""})
     assert st["settings"]["engine"] == "siril"
     assert st["siril_ok"] is False and "Siril nicht gefunden" in st["siril_message"]
-    assert st["pixinsight_ok"] in (True, False)       # unverändert vorhanden, nur nicht maßgeblich
+    assert st["pixinsight_ok"] in (True, False)       # still present, just not authoritative
 
 
 def test_siril_fits_master_is_processed(tmp_path):
-    """Siril-Ergebnis: float32-FITS, RGB als NAXIS3=3 → Farbsaum-/Kennzahlen-Pfad, Keywords übernommen."""
+    """Siril result: float32 FITS, RGB as NAXIS3=3 → color-fringe/metrics path, keywords kept."""
     master = str(tmp_path / "result.fit")
     rng = np.random.default_rng(0)
     data = np.clip(0.05 + 0.01 * rng.standard_normal((3, 120, 160)), 0, 1).astype(np.float32)

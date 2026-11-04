@@ -1,4 +1,4 @@
-"""Siril als Stacking-Engine: Erkennung der siril-cli (Linux, Windows, macOS, Flatpak).
+"""Siril as stacking engine: siril-cli detection (Linux, Windows, macOS, Flatpak).
 
 Detection, version check and the Siril run (.ssf script).
 """
@@ -25,12 +25,12 @@ from ..system import _decode
 from . import pixinsight as pi
 from .pixinsight import Cancelled, Status, StackError
 
-MIN_VERSION = (1, 4, 0)        # die Skripte nutzen „requires 1.4.0“ und -weight=wfwhm
+MIN_VERSION = (1, 4, 0)        # scripts use "requires 1.4.0" and -weight=wfwhm
 FLATPAK_ID = "org.siril.Siril"
 FLATPAK_LABEL = "flatpak:" + FLATPAK_ID
 FLATPAK_DIRS = ("/var/lib/flatpak", os.path.expanduser("~/.local/share/flatpak"))
 _NO_WINDOW = 0x08000000
-_VERSION_CACHE: dict[tuple, str] = {}       # nur erfolgreiche Abfragen; Fehlschläge werden erneut geprüft
+_VERSION_CACHE: dict[tuple, str] = {}       # successful lookups only; failures are retried
 
 if sys.platform == "win32":
     SEARCH_PATHS = [r"C:\Program Files\Siril\bin\siril-cli.exe"]
@@ -42,20 +42,20 @@ else:
 
 @dataclass(frozen=True)
 class Install:
-    cli: tuple            # Aufruf-Präfix für die Kommandozeile (Flatpak = mehrere Wörter)
-    gui: tuple | None     # Aufruf zum Öffnen von Ergebnissen in der Siril-Oberfläche
-    label: str            # Anzeige und Wert für die Einstellung
+    cli: tuple            # command prefix for the command line (Flatpak = several words)
+    gui: tuple | None     # command to open results in the Siril GUI
+    label: str            # display label and settings value
     flatpak: bool = False
 
     def command(self, dirs, args: list[str]) -> list[str]:
-        """Vollständiger Aufruf. Flatpak sieht nur freigegebene Ordner → jeder Arbeitsordner einzeln."""
+        """Full invocation. Flatpak only sees granted folders, so each work folder is granted separately."""
         if not self.flatpak:
             return list(self.cli) + list(args)
         return ["flatpak", "run", "--env=LC_ALL=C", "--env=LANGUAGE=en"] + _grants(dirs) + \
             ["--command=siril-cli", FLATPAK_ID] + list(args)
 
     def gui_command(self, dirs, files: list[str]) -> list[str] | None:
-        """Aufruf der Siril-Oberfläche mit Dateien. None = keine Oberfläche gefunden (nur siril-cli)."""
+        """GUI invocation with files. None = no GUI found (siril-cli only)."""
         if self.gui is None:
             return None
         if not self.flatpak:
@@ -77,7 +77,7 @@ def _flatpak_install() -> Install | None:
 
 
 def _from_binary(path: str) -> Install | None:
-    """Pfad zu siril-cli – oder zum Siril-Programm, dann liegt die CLI daneben."""
+    """Path to siril-cli, or to the Siril program, where the CLI sits next to it."""
     base = os.path.basename(path).lower()
     d = os.path.dirname(path)
     if base.startswith("siril") and not base.startswith("siril-cli"):
@@ -92,7 +92,7 @@ def _from_binary(path: str) -> Install | None:
 
 
 def locate(setting: str = "") -> Install | None:
-    """Einstellung auswerten; leer = automatische Erkennung. None = nicht gefunden."""
+    """Evaluate the setting; empty = automatic detection. None = not found."""
     v = (setting or "").strip().strip('"')
     if v == FLATPAK_LABEL:
         return _flatpak_install()
@@ -119,7 +119,7 @@ def _parse(version: str) -> tuple:
 
 
 def version_of(inst: Install) -> str | None:
-    """`siril-cli --version` → „1.4.4“. Timeout, damit eine hängende Installation die Oberfläche nicht blockiert."""
+    """`siril-cli --version` → "1.4.4". Timeout so a hanging install does not block the GUI."""
     key = inst.cli
     if key in _VERSION_CACHE:
         return _VERSION_CACHE[key]
@@ -136,7 +136,7 @@ def version_of(inst: Install) -> str | None:
 
 
 def open_command(setting: str, files: list[str]) -> list[str]:
-    """Befehl, um Ergebnisse in der Siril-Oberfläche zu öffnen. Fehlt sie, ist das eine klare Meldung."""
+    """Command to open results in the Siril GUI. If missing, a clear message is shown."""
     inst = locate(setting)
     if inst is None:
         raise FileNotFoundError("Siril nicht gefunden – Pfad in den Einstellungen prüfen.")
@@ -148,7 +148,7 @@ def open_command(setting: str, files: list[str]) -> list[str]:
 
 
 def check(setting: str = "") -> dict:
-    """Ist eine passende Siril-Installation da? → Felder für Oberfläche und Blocker-Meldung."""
+    """Is a matching Siril installation present? → fields for GUI and blocker message."""
     v = (setting or "").strip()
     inst = locate(v)
     if inst is None:
@@ -163,19 +163,15 @@ def check(setting: str = "") -> dict:
         return dict(path=v, ok=False, found=True, version=ver, cmd=inst.label,
                     message="Siril %s ist zu alt – mindestens %s nötig." % (ver, ".".join(map(str, MIN_VERSION))))
     return dict(path=v, ok=True, found=True, version=ver, cmd=inst.label, message="Siril %s gefunden." % ver)
-
-
-# ------------------------------------------------------------------ Skript
-
 _RUNNING = re.compile(r"Running command: (\w+)")
-# Siril-Meldungen, die bei erfolgreichen Läufen auftreten (Ursache: Aufräumen von Temp-Dateien/Sequenz-Scan)
+# Siril messages that appear in successful runs (temp file cleanup / sequence scan)
 NOISE = ("g_unlink", "removed gpid", "reading sequence failed", "could not load first image", "cgroups",
          "memory controller", "venv", "found python executable", "color management", "jpeg icc")
 _PCT = re.compile(r"(\d+(?:[.,]\d+)?)\s*%")
 
 
 def _p(path: str) -> str:
-    """Pfad für das Skript: absolut, Vorwärtsschrägstriche (auch unter Windows von Siril akzeptiert)."""
+    """Script path: absolute, forward slashes (Siril accepts them on Windows too)."""
     return os.path.abspath(path).replace("\\", "/")
 
 
@@ -186,7 +182,7 @@ def _quote(path: str) -> str:
 
 
 def _kv(key: str, path: str) -> str:
-    """Option mit Pfad als ein quotiertes Token („-out=…“). Quotes INNERHALB des Werts übernimmt Siril nicht."""
+    """Option with path as one quoted token ("-out=…"). Siril does not take quotes INSIDE the value."""
     token = "%s=%s" % (key, _p(path))
     if '"' in token:
         raise StackError("Pfad enthält Anführungszeichen – Siril kann ihn nicht übergeben: " + token)
@@ -194,23 +190,23 @@ def _kv(key: str, path: str) -> str:
 
 
 def _stack_seq(n_groups: int) -> str:
-    """Name der Sequenz, die registriert und gestapelt wird (ohne Merge: Lichter der einzigen Gruppe)."""
+    """Name of the sequence to register and stack (without merge: lights of the single group)."""
     return "lights_" if n_groups > 1 else "pp_light_"
 
 
-# Siril-Befehlsbausteine; planview.py zeigt dieselben Werte an.
-REJECTION = "rej w 3 3"              # winsorisiert, 3 σ / 3 σ
+# Siril command building blocks; planview.py shows the same values.
+REJECTION = "rej w 3 3"              # winsorized, 3 σ / 3 σ
 REG_TRANSFORM = "-transf=homography"
 INTERP = "lanczos4"
 
 
 def build_script(spec: dict) -> str:
-    """Skript für einen Lauf. spec: outdir, lights (Ordner), osc, bias/dark/darkflat/flat →
-    dict(raw=Ordner mit Präfix-Sequenz|None, prefix, master=Pfad|None), cosmetic (bool), sigma (float),
-    groups (optional): [dict(sub, lights=Ordner, flat=…)] – je Gruppe eigener Master-Flat, dann merge."""
+    """Script for one run. spec: outdir, lights (folder), osc, bias/dark/darkflat/flat →
+    dict(raw=folder with prefix sequence|None, prefix, master=path|None), cosmetic (bool), sigma (float),
+    groups (optional): [dict(sub, lights=folder, flat=…)] – own master flat per group, then merge."""
     out = spec["outdir"]
     L = ["requires 1.4.0", "setext fit"]
-    if spec.get("osc") and spec.get("bayer"):              # Header fehlt/widerspricht → Muster festlegen
+    if spec.get("osc") and spec.get("bayer"):              # header missing or conflicting → force the pattern
         L += ["set debayer.use_bayer_header=false", "set debayer.pattern=%d" % BAYER_INDEX[spec["bayer"]]]
     masters = {}
 
@@ -221,7 +217,7 @@ def build_script(spec: dict) -> str:
             return None
         seq = os.path.join(out, sub, "seq_" + kind)
         L.extend(["cd " + _quote(s["raw"]), "convert %s %s" % (s["prefix"], _kv("-out", seq)), "cd " + _quote(seq)])
-        # Siril hängt an konvertierte Sequenzen „_“ an: Sequenz „bias“ → Befehle nutzen „bias_“
+        # Siril appends "_" to converted sequences: sequence "bias" → commands use "bias_"
         if kind == "flat":
             opt = (" " + _kv("-dark" if parent[0] == "dark" else "-bias", parent[1])) if parent else ""
             L.append("calibrate %s_%s -prefix=pp_" % (s["prefix"], opt))
@@ -266,12 +262,12 @@ def build_script(spec: dict) -> str:
     sigma_line = "setfindstar " + " ".join(
         "-%s=%s" % (k, ("%.2f" % v) if k == "sigma" else v) for k, v in sorted(findstar.items())) if findstar else ""
     ref = spec.get("reference")
-    if ref:                                                # Referenzframes als eigene Sequenz (nicht kalibriert)
+    if ref:                                                # reference frames as own sequence (not calibrated)
         L.extend(["cd " + _quote(ref), "convert ref %s" % _kv("-out", os.path.join(out, "seq_ref")), ])
         seqs.append(_p(os.path.join(out, "seq_ref", "ref_")))
     seq = _stack_seq(len(seqs))
     framing = " -framing=min" if spec.get("framing") == "min" else ""     # autocrop: common area only
-    if len(seqs) > 1:                                      # Gruppen (+ Referenz) → eine Sequenz in dieser Reihenfolge
+    if len(seqs) > 1:                                      # groups (+ reference) → one sequence in this order
         L.append("cd " + _quote(os.path.join(out, "seq_light")))
         L.append("merge %s lights" % " ".join(_quote(s) for s in seqs))
     if sigma_line:
@@ -290,30 +286,26 @@ def build_script(spec: dict) -> str:
              % (seq, REJECTION, spec.get("weight", "wfwhm"), " -rgb_equal" if spec.get("osc") else "",
                 " -filter-included" if ref else "", " -rejmaps" if spec.get("rejmaps") else ""))
     return "\n".join(L) + "\n"
-
-
-# ------------------------------------------------------------------ Lauf
-
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][A-Za-z0-9]|\x1b[=>]")
 
 
 def clean_line(raw: str) -> str:
-    """Eine Ausgabezeile von Terminal-Steuerzeichen befreien. Fortschritt überschreibt sich mit „\\r“ bzw. ANSI-Codes
-    (z. B. Zeilen-Löschen + Cursor hoch) → nur der letzte sichtbare Stand bleibt; „Tprogress:“ wird zu „progress:“."""
+    """Strip terminal control codes from an output line. Progress overwrites itself with "\\r" or ANSI codes
+    (e.g. erase line + cursor up) → only the last visible state stays; "Tprogress:" becomes "progress:"."""
     parts = [p for p in raw.rstrip("\r\n").split("\r") if p.strip()]
     line = _ANSI.sub("", parts[-1] if parts else "").replace("\x1b", "")
-    line = re.sub(r"^(?:\[\d*[AKJ])+", "", line)            # ESC verloren gegangen: „[A[2K“ am Zeilenanfang
+    line = re.sub(r"^(?:\[\d*[AKJ])+", "", line)            # ESC lost: "[A[2K" at line start
     i = line.find("progress:")
-    if i > 0 and not line[:i].strip(" [T\t"):              # Fortschritt mit Steuerrest davor (z. B. „[A[2KT“)
+    if i > 0 and not line[:i].strip(" [T\t"):              # progress with leftover control text before it (e.g. "[A[2KT")
         line = line[i:]
     return line.strip()
 
 
 class SirilRunner:
-    """Startet siril-cli mit dem Skript und sammelt die Ausgabe (Fehlerausgabe in derselben Leitung)."""
+    """Start siril-cli with the script and collect its output (stderr on the same pipe)."""
 
     def __init__(self, inst: Install, script: str, workdir: str, dirs):
-        # Siril löst den Skriptpfad relativ zum (mit -d gewechselten) Arbeitsordner auf → absolut übergeben
+        # Siril resolves the script path relative to the work folder (changed via -d) → pass an absolute path
         self.args = inst.command(dirs, ["-d", os.path.abspath(workdir), "-s", os.path.abspath(script)])
         self.proc = None
         self.thread = None
@@ -321,8 +313,8 @@ class SirilRunner:
         self._lock = threading.Lock()
 
     def start(self) -> str:
-        env = dict(os.environ, LC_ALL="C", LANG="C", LANGUAGE="en")       # Siril-Meldungen auf Englisch
-        # Eigene Prozessgruppe: Abbruch beendet auch Kindprozesse (Flatpak-Sandbox, siril-cli)
+        env = dict(os.environ, LC_ALL="C", LANG="C", LANGUAGE="en")       # English Siril messages: the output parser matches them
+        # Own process group: cancel also ends child processes (Flatpak sandbox, siril-cli)
         self.proc = subprocess.Popen(self.args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                      stderr=subprocess.STDOUT, env=env, text=True, encoding="utf-8",
                                      errors="replace", creationflags=_NO_WINDOW if sys.platform == "win32" else 0,
@@ -374,7 +366,7 @@ def _is_master(p: str) -> bool:
 
 
 def _calib_spec(paths: list[str], prefix: str, raw_dir: str, log) -> dict | None:
-    """Fertiger Master (ein Bild) → direkt verwenden; sonst Rohbilder in eine Sequenz legen."""
+    """Finished master (one image) → use directly; otherwise put raw frames into a sequence."""
     if not paths:
         return None
     masters = [p for p in paths if _is_master(p)]
@@ -384,13 +376,13 @@ def _calib_spec(paths: list[str], prefix: str, raw_dir: str, log) -> dict | None
 
 
 def _seq_name(folder: str, prefix: str, i: int, src: str) -> str:
-    """Zielname für die Sequenz „prefix_NNNNN“. XISF behält seine Endung (Siril liest es direkt), FITS wird .fit."""
+    """Target name for the sequence "prefix_NNNNN". XISF keeps its extension (Siril reads it directly), FITS becomes .fit."""
     ext = ".xisf" if src.lower().endswith(".xisf") else ".fit"
     return os.path.join(folder, "%s_%05d%s" % (prefix, i, ext))
 
 
 def _stage_set(stg, cs: dict | None, folder: str, prefix: str) -> dict | None:
-    """Rohbilder einer Kalibrierung als Sequenz „prefix_NNNNN“ bereitstellen (Master: nur Pfad)."""
+    """Provide raw frames of a calibration as sequence "prefix_NNNNN" (master: path only)."""
     if cs and cs.get("paths"):
         for i, p in enumerate(cs.pop("paths"), 1):
             stg.place(p, _seq_name(folder, prefix, i, p))
@@ -399,13 +391,13 @@ def _stage_set(stg, cs: dict | None, folder: str, prefix: str) -> dict | None:
 
 BAYER_INDEX = {"RGGB": 0, "BGGR": 1, "GBRG": 2, "GRBG": 3}     # Siril: debayer.pattern
 
-# WBPP-Stellschrauben → Siril. Näherungen sind markiert; was Siril nicht umsetzt, steht im Lauf-Log.
-WEIGHT_MAP = {"psf_signal": "wfwhm", "psf_snr": "noise", "snr": "noise"}   # Näherung: Siril hat keine PSF-Gewichtung (Siril 1.4: wfwhm|nbstars|noise)
-FINDSTAR_MAP = {                    # WBPP-Sternerkennung → setfindstar
+# WBPP knobs → Siril. Approximations are marked; what Siril does not implement goes to the run log.
+WEIGHT_MAP = {"psf_signal": "wfwhm", "psf_snr": "noise", "snr": "noise"}   # approximation: Siril has no PSF weighting (Siril 1.4: wfwhm|nbstars|noise)
+FINDSTAR_MAP = {                    # WBPP star detection → setfindstar
     "maxStarDistortion": ("roundness", "Näherung: Siril misst Rundheit statt Fläche/Quadrat"),
     "minStructureSize": ("minA", "Näherung: kleinste Sternfläche statt Strukturgröße"),
 }
-NOT_MAPPED = {                      # keine Entsprechung in Siril → im Log nennen, nicht still weglassen
+NOT_MAPPED = {                      # no Siril equivalent → name it in the log, never drop silently
     "localNormalization": "Lokale Normierung (Siril normiert global)",
     "distortionCorrection": "Verzeichnungskorrektur (Siril registriert nur über Homografie)",
     "lightsLargeScaleRejectionHigh": "Filter für Satelliten-/Flugzeugspuren",
@@ -422,14 +414,14 @@ HANDLED = {"hotPixelFilterRadius": "Hotpixel entfernt b2stacker selbst (Cosmetic
 
 
 def map_wbpp(plan: dict, run: dict, lock_retry: bool = False) -> dict:
-    """WBPP-Optionen und Sternerkennung → Siril-Befehle. → dict(findstar, weight, rejmaps, notes)."""
+    """WBPP options and star detection → Siril commands. → dict(findstar, weight, rejmaps, notes)."""
     opt = plan.get("options", {})
     wb = dict(run.get("wbpp") or {})
     params = dict((run.get("star_detection") or {}).get("params") or {})
     notes, findstar = [], {}
-    if "sensitivity" in params:          # höhere WBPP-Empfindlichkeit → kleineres sigma (Näherung)
+    if "sensitivity" in params:          # higher WBPP sensitivity → smaller sigma (approximation)
         findstar["sigma"] = min(3.0, max(0.3, round(2.0 - 1.5 * float(params.pop("sensitivity")), 2)))
-    if lock_retry:                       # strengere Sternerkennung nach Fehlregistrierung
+    if lock_retry:                       # stricter star detection after a misregistration
         findstar["sigma"] = min(5.0, findstar.get("sigma", 1.0) + 1.0)
     for k, (siril_key, why) in FINDSTAR_MAP.items():
         if k in params:
@@ -456,13 +448,13 @@ def map_wbpp(plan: dict, run: dict, lock_retry: bool = False) -> dict:
 
 
 def bayer_override(paths: list[str], log=print) -> str | None:
-    """Bayer-Muster, das Siril erzwingen muss: Header fehlt oder die Lights widersprechen sich. None = Header passt."""
+    """Bayer pattern Siril must be forced to: header missing or lights disagree. None = header is fine."""
     from .. import fitsmeta
     pats = []
     for p in paths:
         try:
             pats.append((fitsmeta.read_meta(p).bayer or "").upper() or None)
-        except Exception:  # noqa: BLE001 – unlesbarer Header zählt wie fehlend
+        except Exception:  # noqa: BLE001 – unreadable header counts as missing
             pats.append(None)
     known = [x for x in pats if x in BAYER_INDEX]
     if known and len(known) == len(pats) and len(set(known)) == 1:
@@ -477,13 +469,13 @@ def bayer_override(paths: list[str], log=print) -> str | None:
     return pat
 
 
-REF_MARK = "<Referenz>"       # Platzhalter für die zwei Referenzframes in der Registrierungsauswertung
+REF_MARK = "<Referenz>"       # placeholder for the two reference frames in the registration evaluation
 
 
 def _reference_files(src: str, osc: bool, shape: tuple, folder: str) -> str:
-    """Referenzbild als zwei gleiche FITS-Frames („ref_00001/2“) mit Geometrie der Lights.
+    """Reference image as two identical FITS frames ("ref_00001/2") with the lights' geometry.
 
-    Siril legt aus einem Einzelbild keine Sequenz an, daher zwei Frames; der zweite wird ebenfalls ausgeschlossen."""
+    Siril creates no sequence from a single image, hence two frames; the second is excluded too."""
     from astropy.io import fits
     if src.lower().endswith(".xisf"):
         from .. import xisf
@@ -498,9 +490,9 @@ def _reference_files(src: str, osc: bool, shape: tuple, folder: str) -> str:
     if arr.shape[0] not in (1, 3):
         raise StackError("Referenzbild hat %d Kanäle – erwartet werden 1 (Mono) oder 3 (RGB)." % arr.shape[0])
     if osc and arr.shape[0] == 1:
-        arr = np.repeat(arr, 3, axis=0)                  # Mono-Master für RGB-Lauf: Graustufen auf 3 Kanäle
+        arr = np.repeat(arr, 3, axis=0)                  # mono master for RGB run: grayscale to 3 channels
     elif not osc and arr.shape[0] == 3:
-        arr = arr.mean(axis=0, keepdims=True)            # RGB-Master für Mono-Lauf: Helligkeit als Mittelwert
+        arr = arr.mean(axis=0, keepdims=True)            # RGB master for mono run: luminance as channel mean
     data = arr if osc else arr[0]
     os.makedirs(folder, exist_ok=True)
     for i in (1, 2):
@@ -509,7 +501,7 @@ def _reference_files(src: str, osc: bool, shape: tuple, folder: str) -> str:
     return folder
 
 
-SIGNAL_CAUSES = {                 # POSIX: negativer Exit-Code = Signalnummer
+SIGNAL_CAUSES = {                 # POSIX: negative exit code = signal number
     -9: "Siril wurde vom Betriebssystem beendet (SIGKILL) – meist fehlt Arbeitsspeicher.",
     -11: "Siril ist abgestürzt (Speicherzugriffsfehler) – meist zu wenig Arbeitsspeicher.",
     -6: "Siril ist abgebrochen (SIGABRT).",
@@ -533,7 +525,7 @@ def _causes(lines: list[str], code: int | None = None) -> list[dict]:
         ("dimension", "Bildgrößen sind unterschiedlich – Lights und Kalibrierbilder müssen gleich groß sein."),
         ("out of memory", "Zu wenig Arbeitsspeicher – andere Programme schließen."),
         ("bad_alloc", "Zu wenig Arbeitsspeicher – andere Programme schließen."),
-        # „memory“ allein steht in normalen Siril-Zeilen („memory difference: 0 MB“) → kein Stichwort
+        # "memory" alone appears in normal Siril lines ("memory difference: 0 MB") → not a keyword
     ]
     for needle, msg in rules:
         if needle in text:
@@ -547,7 +539,7 @@ def _causes(lines: list[str], code: int | None = None) -> list[dict]:
 
 
 def parse_registration(text: str, lights: list[str]) -> list[dict]:
-    """Siril sequence after „register“ → per-light metrics (same shape as wbpplog.registrations).
+    """Siril sequence after "register" → per-light metrics (same shape as wbpplog.registrations).
 
     S field 6 = 0-based reference index. One Rk row per frame: star/FWHM values, 3x3 homography in fields 8-16.
     Mono uses R0, OSC registers on the green channel (R1). Failed: 0 stars or I flag 0."""
@@ -584,20 +576,20 @@ def parse_registration(text: str, lights: list[str]) -> list[dict]:
 
 
 def _check_registration(run: dict, outdir: str, seq_name: str, ref_frames: int, notes: list, log) -> dict | None:
-    """Registrierung aus der Siril-Sequenz prüfen. Wie PixInsight: Lauf ohne falsche Frames wiederholen (einmal)
-    bzw. bei „am Sensor ausgerichtet“ mit Hotpixel-Entfernung und strengerer Sternerkennung neu rechnen."""
+    """Check registration from the Siril sequence. As in PixInsight: repeat the run without wrong frames (once)
+    or, for "aligned to the sensor", recompute with hot-pixel removal and stricter star detection."""
     # register writes the matrices into the input sequence; seqapplyreg's r_ output has identity matrices only
     seq = os.path.join(outdir, "seq_light", "%s.seq" % seq_name)
     try:
         regs = parse_registration(open(seq, encoding="utf-8", errors="replace").read(),
                                   run["lights"] + [REF_MARK] * ref_frames)
-        regs = [r for r in regs if r.get("file") != REF_MARK]          # zweiter Referenzframe: nicht bewerten
+        regs = [r for r in regs if r.get("file") != REF_MARK]          # second reference frame: not evaluated
         bad = wbpplog.judge(regs, wbpplog.light_info(run["lights"]))
-    except Exception as e:  # noqa: BLE001 – Prüfung darf das Ergebnis nicht gefährden
+    except Exception as e:  # noqa: BLE001 – the check must not endanger the result
         log("  Hinweis: Registrierung nicht geprüft (%s)" % e)
         return None
     frames = [r for r in regs if "file" in r]
-    if not frames:                       # nichts auswertbar – „alle 0 plausibel“ wäre irreführend
+    if not frames:                       # nothing to evaluate – "all 0 plausible" would be misleading
         log("  Hinweis: Registrierung nicht geprüft (keine Frames in der Siril-Auswertung)")
         return None
     lock = [b for b in bad if b.get("lock")]
@@ -608,7 +600,7 @@ def _check_registration(run: dict, outdir: str, seq_name: str, ref_frames: int, 
                   stats=[dict(file=os.path.basename(r["file"]), fwhm=r.get("fwhm"), nstars=r.get("nstars"),
                               roundness=r.get("roundness"), bglvl=r.get("bglvl")) for r in frames if "file" in r])
     if not bad:
-        if ref_frames:      # externe Referenz hat keine Lights-Herkunft → Sensor-Muster nicht prüfbar
+        if ref_frames:      # external reference has no lights origin → sensor pattern not checkable
             log("  Registrierung geprüft: %d Frames ohne Befund – Sensor-Prüfung nicht prüfbar (externe Referenz)"
                 % len(frames))
         else:
@@ -646,12 +638,12 @@ def _drop_intermediates(outdir: str) -> None:
     for old in [outdir] + glob.glob(glob.escape(outdir) + ".versuch-*"):
         for d in os.listdir(old):
             full = os.path.join(old, d)
-            if os.path.isdir(full) and d not in ("logs", "master"):      # master/: Rejection-Maps bleiben
+            if os.path.isdir(full) and d not in ("logs", "master"):      # master/: rejection maps stay
                 shutil.rmtree(full, ignore_errors=True)
 
 
 def _reference_source(run: dict, plan: dict, masters: dict, log) -> str | None:
-    """Referenzbild aus „file:“ oder „master:<lauf>“ (wie PixInsight). None = Siril wählt selbst."""
+    """Reference image from "file:" or "master:<run>" (as in PixInsight). None = Siril picks itself."""
     r = run.get("reference") or "auto"
     if r.startswith("master:"):
         src = r[7:]
@@ -680,13 +672,13 @@ def _light_shape(p: str) -> tuple:
 
 
 def siril_processes() -> list[dict]:
-    """Laufende siril-cli-Prozesse (Linux: /proc, auch Flatpak-Sandbox; Windows: tasklist). → [{pid, mem_mb}]"""
+    """Running siril-cli processes (Linux: /proc, also Flatpak sandbox; Windows: tasklist). → [{pid, mem_mb}]"""
     if sys.platform == "win32":
         try:
             out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq siril-cli.exe", "/FO", "CSV", "/NH"],
                                  capture_output=True, timeout=15, creationflags=_NO_WINDOW).stdout
             return system.parse_tasklist(_decode(out))
-        except Exception:  # noqa: BLE001 – Statusabfrage darf nie die Oberfläche blockieren
+        except Exception:  # noqa: BLE001 – a status query must never block the GUI
             return []
     if not sys.platform.startswith("linux"):
         return []
@@ -699,7 +691,7 @@ def siril_processes() -> list[dict]:
             args = open(os.path.join(d, "cmdline"), "rb").read().split(b"\0")
         except (OSError, ValueError):
             continue
-        if not args or os.path.basename(args[0]) != b"siril-cli":      # nur die CLI selbst, nicht flatpak/bwrap
+        if not args or os.path.basename(args[0]) != b"siril-cli":      # only the CLI itself, not flatpak/bwrap
             continue
         try:
             rss = int(open(os.path.join(d, "statm")).read().split()[1]) * os.sysconf("SC_PAGE_SIZE")
@@ -710,19 +702,19 @@ def siril_processes() -> list[dict]:
 
 
 def siril_max_path(outdir: str) -> int:
-    """Längster Pfad, den Siril im Arbeitsordner anlegt (Gruppen, Sequenzen mit kurzen Namen)."""
+    """Longest path Siril creates in the work folder (groups, sequences with short names)."""
     base = outdir if re.match(r"^([A-Za-z]:)?[\\/]", outdir) else os.path.abspath(outdir)
-    tails = ["\\seq_light\\r_lights_00001.fit",               # zusammengeführte Sequenz
-             "\\g99\\seq_light\\r_pp_light_00001.fit",         # Gruppenordner (Kamera-Stellung je Nacht)
-             "\\raw\\g99\\light\\light_00001.fit"]              # bereitgestellte Lights
+    tails = ["\\seq_light\\r_lights_00001.fit",               # merged sequence
+             "\\g99\\seq_light\\r_pp_light_00001.fit",         # group folder (camera position per night)
+             "\\raw\\g99\\light\\light_00001.fit"]              # provided lights
     return len(base) + max(len(t) for t in tails)
 
 
-LOG_LINES_PER_COMMAND = 20       # Siril-Ausgabe je Befehl im Lauf-Log; alles Weitere steht in siril.log
+LOG_LINES_PER_COMMAND = 20       # Siril output per command in the run log; the rest goes to siril.log
 
 
 def phases_from_script(script_text: str, n: int, n_flats: int) -> list[dict]:
-    """Befehlszeilen → Unterschritte (Master bauen, Kalibrieren, Registrieren, Stapeln) in Befehlsreihenfolge."""
+    """Command lines → substeps (build master, calibrate, register, stack) in command order."""
     import shlex
     phases = []
     for i, ln in enumerate(l for l in script_text.splitlines() if l.strip()):
@@ -751,7 +743,7 @@ def phases_from_script(script_text: str, n: int, n_flats: int) -> list[dict]:
 
 
 def substep_view(subs: list[dict], cmd_idx: int, pct: float | None) -> list[dict]:
-    """Stand der Unterschritte: fertige, aktueller (mit Zähler aus dem Siril-Fortschritt) – Befehlsindex 0-basiert."""
+    """Substep state: finished, current (with counter from Siril progress) – command index 0-based."""
     view = []
     for s in subs:
         if s["first"] > cmd_idx:
@@ -769,7 +761,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     name = run["name"]
     orig_run = run
     outdir = os.path.join(jobdir, pi.safe_file(name))
-    pi._isolate_attempt(outdir, log)                # frühere Versuche bleiben als .versuch-n (Protokolle)
+    pi._isolate_attempt(outdir, log)                # keep the logs of earlier attempts
     os.makedirs(outdir, exist_ok=True)
     n = len(run["lights"])
     log("=== Lauf %s (Siril): %d Lights ===" % (name, n))
@@ -777,7 +769,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     if missing:
         raise StackError("%d Lights fehlen, z. B. %s" % (len(missing), missing[0]))
     others = siril_processes()
-    if others:      # ein headless siril-cli eines abgebrochenen Laufs würde Speicher und Dateien belegen
+    if others:      # a headless siril-cli from an aborted run would hold memory and files
         raise StackError("Siril läuft bereits (%d Instanz(en), %s MB). Bitte beenden – sonst teilen sich die Läufe "
                          "Arbeitsspeicher und Dateien." % (
                              len(others), "/".join("%.0f" % (o["mem_mb"] or 0) for o in others)))
@@ -801,12 +793,12 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
         log("  WARNUNG: keine Flats – Vignettierung und Staub bleiben im Bild.")
     ref_src = _reference_source(run, plan, masters, log)
 
-    # Ohne Darks: Hotpixel vor dem Stacken mit unserer Korrektur entfernen (Siril-Äquivalent zur PixInsight-Stufe).
-    # Mit Darks übernimmt -cc=dark die Hotpixel; _force_cosmetic (Wiederholung) erzwingt die Vorstufe immer.
+    # Without darks: remove hot pixels before stacking with our correction (Siril equivalent of the PixInsight step).
+    # With darks, -cc=dark handles hot pixels; _force_cosmetic (retry) always forces the pre-step.
     if (not calib["darks"] or run.get("_force_cosmetic")) and plan.get("options", {}).get("hot_pixels", True) is not False:
         run = pi._cosmetic(plan, dict(run, _force_cosmetic=True), settings, jobdir, calib, st, log, save, cancel)
 
-    # Flat-Gruppen (Kamera-Stellung je Nacht): je Gruppe eigene Flats, danach eine gemeinsame Sequenz
+    # Flat groups (camera position per night): own flats per group, then one shared sequence
     groups = None
     if run.get("flat_groups"):
         fg = [dict(g, flats=pi.fix_calibration(g.get("flats", []), FLAT, cache)) for g in run["flat_groups"]]
@@ -824,7 +816,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     elif groups:
         calib["flats"] = list(groups[0].flats)
 
-    # Bereitstellen: Lights und Rohkalibrierung als Sequenzen (Original-Dateien bleiben unverändert)
+    # Provide lights and raw calibration as sequences (original files stay unchanged)
     raw = os.path.join(outdir, "raw")
     stg = staging.Stager(jobdir, os.path.join(settings.workdir, "cache"), log)
     if multi:
@@ -861,14 +853,14 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     for note in mp["notes"]:
         log("  Hinweis (WBPP → Siril): nicht übernommen – " + note if "→" not in note else
             "  Hinweis (WBPP → Siril): " + note)
-    os.makedirs(os.path.join(outdir, "seq_light"), exist_ok=True)     # Ziel von merge (Siril wechselt dorthin)
+    os.makedirs(os.path.join(outdir, "seq_light"), exist_ok=True)     # merge target (Siril switches there)
     ref_dir = None
     if ref_src:
         ref_dir = _reference_files(ref_src, spec["osc"], _light_shape(merged[0]), os.path.join(raw, "ref"))
         spec["reference"] = ref_dir
         log("  Referenz: %s (Siril-Frames %d und %d, ausgeschlossen)" % (os.path.basename(ref_src), n + 1, n + 2))
-    to_orig = dict(zip(run["lights"], orig_run["lights"]))           # Cosmetic-Kopien → Original-Lights
-    reg_lights = [to_orig.get(p, p) for p in merged]                  # Registrierung in Siril-Reihenfolge
+    to_orig = dict(zip(run["lights"], orig_run["lights"]))           # cosmetic copies → original lights
+    reg_lights = [to_orig.get(p, p) for p in merged]                  # registration in Siril order
     script_text = build_script(spec)
     script = os.path.join(outdir, "siril.ssf")
     open(script, "w", encoding="utf-8").write(script_text)
@@ -917,10 +909,10 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
 
     def read_lines():
         nonlocal alert
-        for ln in runner.drain():                        # Zeile für Zeile, in Reihenfolge
+        for ln in runner.drain():                        # line by line, in order
             seen.append(ln)
             logf.write(ln + "\n")
-            cmd = _RUNNING.search(ln)                     # Siril meldet jeden Befehl → Schritt daraus ableiten
+            cmd = _RUNNING.search(ln)                     # Siril reports each command → derive the step from it
             if cmd:
                 c = cmd.group(1)
                 state["cmd"] += 1
@@ -945,8 +937,8 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
                 alert = re.sub(r"^\W*(log:\s*)?", "", ln.strip())
                 st.alert, st.alert_raw = alert, ln
                 log("  ⚠ Siril: " + ln)
-            elif not any(x in low for x in NOISE):           # bei Erfolg harmlos, nur in siril.log
-                if state["shown"] < LOG_LINES_PER_COMMAND:    # gedrosselt: Stapel-Ausgaben füllen sonst das Protokoll
+            elif not any(x in low for x in NOISE):           # harmless on success, only in siril.log
+                if state["shown"] < LOG_LINES_PER_COMMAND:    # throttled: batch output would otherwise flood the log
                     state["shown"] += 1
                     log("    Siril: " + ln)
                 else:
@@ -975,7 +967,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     read_lines()
     logf.close()
     key = state["key"]
-    pi._finish_step(st, settings.workdir, n)  # letzter Schritt zählt als erledigt
+    pi._finish_step(st, settings.workdir, n)  # last step counts as done
     st.message = "Siril beendet – werte Ergebnis aus …"
     save()
     result = os.path.join(outdir, "seq_light", "result.fit")
@@ -995,9 +987,9 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
     if retry is not None:
         return _one_run(plan, retry, settings, jobdir, masters, finaldir, st, log, save, cancel, runner_factory)
     log("  Stack: %s (%s)" % (os.path.basename(result), pi._elapsed(time.time() - t0)))
-    master_keep = os.path.join(outdir, "master.fit")          # bleibt nach der Bereinigung erhalten
+    master_keep = os.path.join(outdir, "master.fit")          # kept after cleanup
     shutil.copy2(result, master_keep)
-    if spec["rejmaps"]:                                     # wie PixInsight: Rejection-Maps neben dem Master (master/)
+    if spec["rejmaps"]:                                     # as in PixInsight: rejection maps next to the master (master/)
         for stem in ("low", "high"):
             src = os.path.join(outdir, "seq_light", "result_%s_rejmap.fit" % stem)
             if os.path.exists(src):
@@ -1049,7 +1041,7 @@ def _one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, canc
 
 def run_plan(plan: dict, settings, log=print, on_status=None, cancel=None, runner_factory=None,
              status_file=None, open_results=None, **_kw) -> Status:
-    """Alle Läufe eines Plans mit Siril. Gemeinsamer Rahmen mit PixInsight (engines.pixinsight.run_frame)."""
+    """All runs of a plan with Siril. Shared frame with PixInsight (engines.pixinsight.run_frame)."""
     c = check(settings.siril)
     if not c["ok"]:
         raise StackError(c["message"])

@@ -145,8 +145,8 @@ def night_flat_groups(groups, rows, inv, calib: dict, analysis_dir: str) -> dict
 
 
 def engine_meta(pdir: str, planned: str) -> dict:
-    """Motor für den Bericht: der des letzten Stacks im Projekt, sonst der geplante.
-    Stack-Einträge ohne Motor-Feld sind ältere PixInsight-Läufe."""
+    """Engine for the report: that of the project's last stack, otherwise the planned one.
+    Stack records without an engine field are older PixInsight runs."""
     from ..engines import LABELS
 
     def text(eng: str, ver: str | None) -> str:

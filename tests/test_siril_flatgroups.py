@@ -1,4 +1,4 @@
-"""Siril: Flat-Gruppen (Kamera-Stellung je Nacht) – je Gruppe Master-Flat, dann merge zu einer Sequenz."""
+"""Siril: flat groups (camera position per night) – master flat per group, then merge into one sequence."""
 import os
 
 from astropy.io import fits
@@ -56,11 +56,11 @@ def test_two_flat_groups_stack_together_and_map_back_to_originals(tmp_path, monk
 def test_bad_frame_in_second_group_is_mapped_to_original_light(tmp_path, monkeypatch):
     monkeypatch.setattr(siril, "_VERSION_CACHE", {})
     cli = make_cli(tmp_path / "siril-cli")
-    monkeypatch.setenv("FAKESIRIL_BAD_FRAMES", "3")          # 1-basiert in der gemergten Sequenz → erster Light aus Gruppe 2
+    monkeypatch.setenv("FAKESIRIL_BAD_FRAMES", "3")          # 1-based in the merged sequence → first light of group 2
     plan, run, a, b = make_group_plan(tmp_path)
     st = engines.run_plan(plan, settings(tmp_path, cli), log=lambda *a: None, open_results=False)
     assert st.state == "done", st.error
     res = st.runs["L"]
     assert res["excluded"] == [b[0]]
-    assert res["lights"] == 3                               # Wiederholung ohne den falschen Frame
+    assert res["lights"] == 3                               # retry without the wrong frame
 

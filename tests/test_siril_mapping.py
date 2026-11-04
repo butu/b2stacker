@@ -1,4 +1,4 @@
-"""WBPP-Optionen → Siril-Befehle (siril.map_wbpp) und ihre Wirkung im Skript / Lauf."""
+"""WBPP options → Siril commands (siril.map_wbpp) and their effect in script / run."""
 import os
 import sys
 
@@ -43,7 +43,7 @@ def test_unmapped_params_are_named_not_silently_dropped():
     m = siril.map_wbpp(PLAN, run)
     text = " | ".join(m["notes"])
     assert "structureLayers" in text and "peakResponse" in text
-    assert "hotPixelFilterRadius" not in text                    # durch b2stacker erledigt, kein Hinweis
+    assert "hotPixelFilterRadius" not in text                    # handled by b2stacker, no hint
 
 
 def test_weighting_options_map_to_siril_weight():

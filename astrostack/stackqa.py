@@ -27,7 +27,7 @@ MIN_STARS = 25
 
 FITS_EXT = (".fit", ".fits", ".fts")          # Siril schreibt FITS, PixInsight XISF
 SKIP_KEYS = ("HISTORY", "COMMENT", "NAXIS", "NAXIS1", "NAXIS2", "NAXIS3", "BITPIX")
-FITS_SKIP_KEYS = SKIP_KEYS + ("SIMPLE", "EXTEND", "BZERO", "BSCALE", "BLANK")   # FITS-Container-Keywords, nicht übernehmen
+FITS_SKIP_KEYS = SKIP_KEYS + ("SIMPLE", "EXTEND", "BZERO", "BSCALE", "BLANK")   # FITS container keywords, not copied
 
 
 def _is_fits(path: str) -> bool:
@@ -35,7 +35,7 @@ def _is_fits(path: str) -> bool:
 
 
 def load_master(path: str) -> np.ndarray:
-    """Erstes Bild eines Masters (XISF oder FITS) als (C, H, W) float32 in [0,1]."""
+    """First image of a master (XISF or FITS) as (C, H, W) float32 in [0,1]."""
     if _is_fits(path):
         from astropy.io import fits
         with fits.open(path) as hdul:

@@ -1,7 +1,7 @@
 """Plan view for the selected engine: shows what the run actually applies (shared with the Siril run)."""
 from __future__ import annotations
 
-# Plan-Optionen ohne Wirkung in Siril → Begründung aus siril.NOT_MAPPED (Schlüssel = WBPP-Name)
+# Plan options without effect in Siril: reason from siril.NOT_MAPPED (key = WBPP name)
 _OPTION_NOT_MAPPED = {"local_normalization": "localNormalization",
                       "distortion_correction": "distortionCorrection",
                       "large_scale_rejection": "lightsLargeScaleRejectionHigh"}
@@ -47,7 +47,7 @@ def _settings(plan: dict, opt: dict, weight: str, findstar: list[str]) -> list:
 
 
 def apply(plan: dict, engine: str) -> dict:
-    """Kopie des Plans mit der Anzeige der gewählten Engine. PixInsight: unverändert."""
+    """Copy of the plan showing the selected engine. PixInsight: unchanged."""
     if engine != "siril":
         return plan
     from .siril import map_wbpp

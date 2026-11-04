@@ -556,7 +556,7 @@ def stage_lights(paths: list[str], dst: str, log) -> list[str]:
 
 def run_plan(plan: dict, settings, log=print, on_status=None, cancel: threading.Event | None = None,
              runner_factory=None, status_file: str | None = None, open_results: bool | None = None) -> Status:
-    """Alle aktivierten Läufe eines Plans nacheinander ausführen (PixInsight/WBPP)."""
+    """Run all enabled runs of a plan one after another (PixInsight/WBPP)."""
     real_pi = runner_factory is None
     runner_factory = runner_factory or (lambda: Runner(settings.pixinsight))
 
@@ -575,10 +575,10 @@ def run_plan(plan: dict, settings, log=print, on_status=None, cancel: threading.
 def run_frame(plan: dict, settings, one_run, runner_factory, preflight, opener=None, log=print, on_status=None,
               cancel: threading.Event | None = None, status_file: str | None = None,
               open_results: bool | None = None) -> Status:
-    """Engine-neutraler Rahmen: Jobdir, Status-Datei, Protokoll, Energiesparsperre, Schleife über die Läufe.
+    """Engine-neutral frame: job dir, status file, log, sleep inhibitor, loop over the runs.
 
-    one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, cancel, runner_factory) → Master-Pfad.
-    preflight() prüft Engine-Voraussetzungen; opener(finals) öffnet Ergebnisse (None = nicht öffnen).
+    one_run(plan, run, settings, jobdir, masters, finaldir, st, log, save, cancel, runner_factory) → master path.
+    preflight() checks engine prerequisites; opener(finals) opens results (None = do not open).
     """
     cancel = cancel or threading.Event()
     st = Status(state="running", started=datetime.datetime.now().isoformat(timespec="seconds"))
@@ -1070,7 +1070,7 @@ def _check_registration(run: dict, outdir: str, master: str, notes: list, log) -
     Gibt den Lauf für die Wiederholung zurück oder None (alles gut bzw. keine Wiederholung möglich)."""
     try:
         chk = wbpplog.check_registration(outdir, wbpplog.light_info(run["lights"]))
-    except Exception as e:  # noqa: BLE001 – Prüfung darf das Ergebnis nicht gefährden
+    except Exception as e:  # noqa: BLE001 – the check must not endanger the result
         log("  Hinweis: Registrierung nicht geprüft (%s)" % e)
         return None
     bad = chk["bad"]
@@ -1111,8 +1111,8 @@ def _check_registration(run: dict, outdir: str, master: str, notes: list, log) -
 
 
 def registration_verdict(bad: list[dict], drop: list[str], run: dict) -> str:
-    """Gemeinsame Entscheidung für PixInsight und Siril: "lock" (am Sensor ausgerichtet → Hotpixel-Retry),
-    "drop" (Frames ohne sie neu rechnen), "suspect" (nur melden) oder "ok"."""
+    """Shared decision for PixInsight and Siril: "lock" (aligned to the sensor → hot-pixel retry),
+    "drop" (recompute frames without them), "suspect" (report only), or "ok"."""
     if any(b.get("lock") for b in bad):
         return "lock"
     if not bad:
@@ -1124,7 +1124,7 @@ def registration_verdict(bad: list[dict], drop: list[str], run: dict) -> str:
 
 
 def drop_frames(run: dict, drop: list[str], notes: list, who: str) -> dict:
-    """Lauf ohne die falsch registrierten Frames; Gruppen-Flats und Belichtungszeit mit anpassen."""
+    """Run without the wrongly registered frames; adjust group flats and exposure time too."""
     dropped = set(drop)
     keep = [p for p in run["lights"] if p not in dropped]
     old_n = len(run["lights"])
@@ -1215,7 +1215,7 @@ def _eta(st: Status, n: int, timing: dict) -> float | None:
 
 
 def _record_stacks(plan: dict, st: Status, stamp: str, log, info: dict | None = None):
-    """Fertige Stacks in die Projekt-Historie (stacks.json) eintragen. info: Motor und Version des Laufs."""
+    """Add finished stacks to the project history (stacks.json). info: engine and version of the run."""
     from .. import project as _project
     info = info or {}
     for name, r in st.runs.items():

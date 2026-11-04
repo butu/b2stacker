@@ -76,7 +76,7 @@ def _isolated_preview_cache(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _no_foreign_siril(request, monkeypatch):
-    # Laufende siril-cli-Instanzen des Entwicklers würden Siril-Läufe blockieren; nur der Prozess-Test prüft echt.
+    # A running siril-cli of the developer would block Siril runs; only the process test checks for real.
     if request.node.get_closest_marker("real_siril_processes"):
         return
     from astrostack.engines import siril
