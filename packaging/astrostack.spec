@@ -18,7 +18,8 @@ datas = [
 datas += collect_data_files("astropy", excludes=["**/tests/**", "**/*.c", "**/*.h"])
 datas += collect_data_files("astropy_iers_data")
 hidden = collect_submodules("astropy.coordinates") + collect_submodules("astropy.io.fits") + ["erfa"]
-hidden += ["astrostack.mcp", "astrostack.appclient", "astrostack.claude_link", "astrostack.web.server"]   # nur in Funktionen importiert
+hidden += ["astrostack.mcp", "astrostack.appclient", "astrostack.claude_link", "astrostack.web.server",
+           "astrostack.web.window"]   # nur in Funktionen importiert
 if sys.platform == "win32":
     hidden += ["tkinter", "tkinter.filedialog", "clr"]
     hidden += collect_submodules("webview")

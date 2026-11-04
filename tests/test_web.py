@@ -382,3 +382,59 @@ def test_cli_web_and_new_ui_switch(monkeypatch, tmp_path):
     monkeypatch.setenv("B2_NEW_UI", "1")
     cli.main(["gui", "--no-browser"])
     assert calls == [("old", 8765, False), ("web", 8775, False), ("web", 9000, True), ("web", 8775, False)]
+
+
+# ---------------------------------------------------------------- Dialoge, MCP-Infos, Programmfenster
+
+def test_pickers_and_pixinsight_check(bare, monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    seen = []
+
+    def no_dialog(initial=""):
+        raise RuntimeError("Ordner-Dialog nicht verfügbar – Pfad bitte eintippen.")
+    fake = SimpleNamespace(pick_folder=lambda initial="": seen.append(("folder", initial)) or "/daten/M31",
+                           pick_file=lambda initial="", kind="": seen.append(("file", initial, kind)) or None,
+                           check_pixinsight=lambda path: {"path": path, "ok": False, "message": "Datei nicht gefunden."})
+    monkeypatch.setattr(web, "dialogs", lambda: fake)
+    assert call(bare, "POST", "api/pick-folder", {"initial": "/daten"})[1] == {"path": "/daten/M31"}
+    assert call(bare, "POST", "api/pick-file", {"initial": "C:/x", "kind": "image"})[1] == {"path": None}
+    assert seen == [("folder", "/daten"), ("file", "C:/x", "image")]
+    st, r, _ = call(bare, "POST", "api/check-pixinsight", {"path": str(tmp_path)})
+    assert st == 200 and r["ok"] is False and r["message"]
+    fake.pick_folder = no_dialog
+    st, r, _ = call(bare, "POST", "api/pick-folder", {})
+    assert st == 400 and "eintippen" in r["error"]
+    assert call(bare, "POST", "api/pick-folder", {"initial": 5})[0] == 400
+    # die echte Prüfung der alten App ist eingehängt
+    monkeypatch.undo()
+    st, r, _ = call(bare, "POST", "api/check-pixinsight", {"path": str(tmp_path / "nichts.exe")})
+    assert st == 200 and r["ok"] is False and r["exists"] is False
+
+
+def test_mcp_info_and_new_token(bare):
+    st, info, _ = call(bare, "POST", "api/mcp-info")
+    assert st == 200 and info["token"] == TOKEN and info["url"] == bare.url + "mcp"
+    assert TOKEN in info["claude_code"] and "b2stacker" in info["opencode"]
+    assert call(bare, "GET", "api/mcp-info")[0] == 404                  # nie per GET
+    st, info, _ = call(bare, "POST", "api/mcp-token")
+    assert st == 200 and info["token"] != TOKEN and Settings.load().mcp_token == info["token"]
+    init = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
+    assert call(bare, "POST", "mcp", init, headers={"Authorization": "Bearer " + TOKEN})[0] == 401
+    assert call(bare, "POST", "mcp", init, headers={"Authorization": "Bearer " + info["token"]})[0] == 200
+
+
+def test_double_click_opens_new_window_only_with_switch(monkeypatch):
+    import sys
+
+    from astrostack import __main__ as entry
+    from astrostack.app import window as oldwin
+    from astrostack.web import window as webwin
+    calls = []
+    monkeypatch.setattr(oldwin, "run", lambda *a, **k: calls.append("alt"))
+    monkeypatch.setattr(webwin, "run", lambda *a, **k: calls.append("neu"))
+    monkeypatch.setattr(sys, "argv", ["b2stacker.exe"])
+    monkeypatch.delenv("B2_NEW_UI", raising=False)
+    entry.run()
+    monkeypatch.setenv("B2_NEW_UI", "1")
+    entry.run()
+    assert calls == ["alt", "neu"]

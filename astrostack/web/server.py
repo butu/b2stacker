@@ -162,6 +162,13 @@ def bootstrap(srv: WebServer) -> dict:
                 tasks=core.tasks.snapshot(), projects=core.projects())
 
 
+def dialogs():
+    """Ordner-/Datei-Dialoge und PixInsight-Prüfung der alten App (im Programmfenster nativ, sonst über einen
+    Hilfsprozess). Eigene Funktion, damit Tests sie ersetzen können."""
+    from ..app import server as old
+    return old
+
+
 def quit_server(srv: WebServer) -> dict:
     """Programm beenden: laufende Aufträge abbrechen, Server stoppen (``main`` räumt danach auf)."""
     for t in srv.core.tasks.active():
@@ -171,6 +178,13 @@ def quit_server(srv: WebServer) -> dict:
     def bye():
         time.sleep(0.3)                       # die Antwort soll noch ankommen
         srv.stop()
+        from ..app import window              # im Programmfenster: Fenster schließen
+        w = window.STATE.get("window")
+        if w is not None:
+            try:
+                w.destroy()
+            except Exception:  # noqa: BLE001
+                pass
     threading.Thread(target=bye, daemon=True, name="quit").start()
     return {"ok": True}
 
@@ -429,6 +443,27 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"removed": c.clear_temp()})
         if api == ["quit"]:
             return self._json(quit_server(self.server))
+        if api in (["pick-folder"], ["pick-file"]):
+            try:
+                path = (dialogs().pick_folder(_text(b, "initial")) if api == ["pick-folder"] else
+                        dialogs().pick_file(_text(b, "initial"), _text(b, "kind")))
+            except RuntimeError as e:                 # kein Dialog verfügbar → Klartext, Pfad eintippen
+                raise ValueError(str(e)) from None
+            return self._json({"path": path})
+        if api == ["check-pixinsight"]:
+            return self._json(dialogs().check_pixinsight(_text(b, "path")))
+        if api == ["mcp-info"]:
+            from .. import mcp_http
+            return self._json(mcp_http.info(self.server.url, mcp_http.ensure_token(Settings.load())))
+        if api == ["mcp-token"]:
+            from .. import mcp_http
+            with SETTINGS_LOCK:
+                tok = mcp_http.new_token(Settings.load())
+            logbook.event("mcp_token_renewed", ui="web")
+            return self._json(mcp_http.info(self.server.url, tok))
+        if api == ["focus"]:
+            from ..app import window
+            return self._json({"ok": window.focus()})
         if len(api) == 3 and api[0] == "tasks" and api[2] == "cancel":
             t = c.tasks.cancel(api[1])
             if t is None:
