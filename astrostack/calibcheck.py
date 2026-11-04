@@ -50,8 +50,8 @@ class Finding:
 
 # ----------------------------------------------------------------------------- Flats
 
-def flat_frame_stats(path: str, bayer: str | None) -> dict:
-    a = imageio.load(path)
+def flat_frame_stats(path: str, bayer: str | None, data: bytes | None = None) -> dict:
+    a = imageio.load(path, data)
     if a.ndim == 3:                                 # bereits debayerter Master (3 Kanäle)
         ch = {"R": a[0], "G": a[1], "B": a[2]} if a.shape[0] == 3 else {"L": a[0]}
         a = a.mean(axis=0)

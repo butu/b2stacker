@@ -68,6 +68,7 @@ MIGRATIONS: list[str] = [
         checksum        TEXT,                                 -- SHA-256 des Inhalts, berechnet in Schritt 3
         discovered_at   TEXT NOT NULL,
         missing_since   TEXT,                                 -- gesetzt, solange die Datei fehlt
+        excluded_dir    INTEGER NOT NULL DEFAULT 0,           -- liegt in einem Ordner wie _rejected, _alt …
         header_version  INTEGER,                              -- NULL = Header noch nicht gelesen
         header_error    TEXT,
         type            TEXT,                                 -- light | flat | bias | dark | darkflat | unknown

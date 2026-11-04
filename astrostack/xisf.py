@@ -4,6 +4,7 @@ Reicht für PixInsight-Masters und eigene Ausgaben; komprimierte XISF werden erk
 """
 from __future__ import annotations
 
+import io
 import re
 from xml.sax.saxutils import escape
 
@@ -13,10 +14,19 @@ _SIG = b"XISF0100"
 _DTYPES = {"Float32": "<f4", "Float64": "<f8", "UInt16": "<u2", "UInt8": "u1", "UInt32": "<u4"}
 
 
-def _xml(path: str) -> tuple[str, int]:
-    with open(path, "rb") as f:
+def _open(src):
+    """Pfad oder bereits gelesener Inhalt (bytes) → Datei-Objekt."""
+    return io.BytesIO(src) if isinstance(src, (bytes, bytearray, memoryview)) else open(src, "rb")
+
+
+def _name(src) -> str:
+    return "<Speicher>" if isinstance(src, (bytes, bytearray, memoryview)) else str(src)
+
+
+def _xml(path) -> tuple[str, int]:
+    with _open(path) as f:
         if f.read(8) != _SIG:
-            raise ValueError("keine XISF-Datei: " + path)
+            raise ValueError("keine XISF-Datei: " + _name(path))
         hl = int.from_bytes(f.read(4), "little")
         f.read(4)
         return f.read(hl).decode("utf-8", "replace"), 16 + hl
@@ -30,7 +40,7 @@ def _images(xml: str) -> list[dict]:
     return out
 
 
-def read_header(path: str) -> dict:
+def read_header(path) -> dict:
     """FITS-Keywords + Geometrie des ersten Bildes als dict (wie ein FITS-Header)."""
     xml, _ = _xml(path)
     h: dict = {}
@@ -55,18 +65,18 @@ def read_header(path: str) -> dict:
     return h
 
 
-def read_image(path: str, index: int = 0) -> np.ndarray:
-    """Bild Nr. ``index`` als Array (Kanäle, Höhe, Breite)."""
+def read_image(path, index: int = 0) -> np.ndarray:
+    """Bild Nr. ``index`` als Array (Kanäle, Höhe, Breite). ``path`` darf auch der Dateiinhalt (bytes) sein."""
     xml, _ = _xml(path)
     imgs = _images(xml)
     a = imgs[index]
     if "compression" in a:
-        raise ValueError("komprimierte XISF wird nicht unterstützt: " + path)
+        raise ValueError("komprimierte XISF wird nicht unterstützt: " + _name(path))
     w, h, *c = (int(x) for x in a["geometry"].split(":"))
     ch = c[0] if c else 1
     off, size = (int(x) for x in a["location"].split(":")[1:3])
     dt = np.dtype(_DTYPES[a.get("sampleFormat", "Float32")])
-    with open(path, "rb") as f:
+    with _open(path) as f:
         f.seek(off)
         data = np.frombuffer(f.read(size), dtype=dt)
     return data.reshape(ch, h, w)

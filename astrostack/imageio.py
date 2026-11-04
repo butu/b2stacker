@@ -1,6 +1,8 @@
 """Bilddaten laden (FITS/XISF) und Bayer-Kanäle trennen."""
 from __future__ import annotations
 
+import io
+
 import numpy as np
 
 from . import xisf
@@ -8,16 +10,21 @@ from . import xisf
 FULL_SCALE = 65535.0
 
 
-def load(path: str) -> np.ndarray:
-    """Bild als float32 in ADU (0…65535). XISF-Float [0,1] wird hochskaliert. Form: (H, W) oder (C, H, W)."""
+def load(path: str, data: bytes | None = None) -> np.ndarray:
+    """Bild als float32 in ADU (0…65535). XISF-Float [0,1] wird hochskaliert. Form: (H, W) oder (C, H, W).
+
+    Mit ``data`` (bereits gelesener Dateiinhalt) wird die Datei nicht noch einmal gelesen; ``path`` bestimmt
+    dann nur das Format.
+    """
     low = path.lower()
     if low.endswith(".xisf"):
-        a = xisf.read_image(path).astype(np.float32)
+        a = xisf.read_image(path if data is None else data).astype(np.float32)
         if a.max() <= 1.0 + 1e-6:
             a = a * FULL_SCALE
         return a[0] if a.shape[0] == 1 else a
     from astropy.io import fits
-    with fits.open(path, memmap=False) as hd:
+    src = path if data is None else io.BytesIO(data)
+    with fits.open(src, memmap=False) as hd:
         a = hd[0].data
     a = np.asarray(a, dtype=np.float32)
     if a.max() <= 1.0 + 1e-6 and a.dtype.kind == "f":
