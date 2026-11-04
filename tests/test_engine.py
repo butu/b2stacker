@@ -107,6 +107,7 @@ def test_stack_extract_haoiii(tmp_path, monkeypatch):
     assert names == ["vdB131_Ha_%s_0.5h.xisf" % day, "vdB131_OIII_%s_0.5h.xisf" % day], names
     wbpp_items = FakePI.calls[0][1]
     assert "automationMode=true" in wbpp_items and "debayerOutputMethod=0" in wbpp_items
+    assert "autoIntegrationMode=false" in wbpp_items      # nie still auf Fast Integration umschalten
     # keine Darks → PixInsight-CosmeticCorrection per Pipeline-Builder-Script, Original-Lights, strengere Sternerkennung
     assert "usePipelineBuilderScript=true" in wbpp_items and "hotPixelFilterRadius=2" in wbpp_items
     script = [i[len("pipelineBuilderScriptFile="):] for i in wbpp_items if i.startswith("pipelineBuilderScriptFile=")][0]

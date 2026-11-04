@@ -47,6 +47,9 @@ WBPP_DEFAULTS = {
     "platesolve": "false",
     "generateRejectionMaps": "true",
     "saveFrameGroups": "false",
+    # WBPP schaltet Light-Gruppen ab 200 Frames (vor 3.2.0: ab 150) sonst still auf Fast Integration um –
+    # schwächere Ausrichtung und Rejection. b2stacker stackt immer in voller Qualität.
+    "autoIntegrationMode": "false",
 }
 
 
