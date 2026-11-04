@@ -47,6 +47,16 @@ Motor: PixInsight + WBPP (JSON-Auftrag, Startskript, Event-Script)
 
 ## Reihenfolge
 
+## Aufträge (`astrostack/tasks.py`) – fertig
+
+- Spuren `stack`, `analysis`, `misc` laufen parallel, je Spur ein Auftrag; nie zwei PixInsight.
+- Gleicher `key` wird nicht doppelt eingereiht (automatische Auslöser), das geöffnete Projekt hat Vorrang.
+- Fortschritt mit Schritt, Zähler und geglätteter Restzeit; höchstens ~5 Meldungen je Sekunde.
+- `EventHub` hält die letzten Ereignisse für Wiederverbindungen (SSE `Last-Event-ID`); `snapshot()` liefert
+  den Gesamtstand. Ersetzt `jobs.py`, sobald der neue Server steht.
+
+## Reihenfolge
+
 Siehe Prioliste im Umsetzungsplan: Datenbank → Aufträge mit Live-Rückmeldung → Ordner & Watcher →
 Ablauf (Schritte 1–5) → Stacking → Oberfläche → Stacks/History. Jedes Paket ist erst fertig mit
 Oberfläche, CLI, MCP und Test.
