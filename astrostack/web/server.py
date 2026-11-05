@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import math
 import os
 import select
 import socket
@@ -43,8 +44,25 @@ SETTINGS_LOCK = threading.Lock()
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "[::1]")
 
 
+def _finite(x):
+    """NaN/inf → None: Python schreibt sonst „NaN“, und der Browser verwirft die ganze Antwort (0.13.0: Nachtübersicht
+    blieb leer, sobald die Rig-Hinweise einen NaN-Median enthielten)."""
+    if isinstance(x, float):
+        return x if math.isfinite(x) else None
+    if isinstance(x, dict):
+        return {k: _finite(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [_finite(v) for v in x]
+    if type(x).__module__ == "numpy" and hasattr(x, "item"):
+        return _finite(x.item())
+    return x
+
+
 def _json_bytes(data) -> bytes:
-    return json.dumps(data, ensure_ascii=False, default=str).encode("utf-8")
+    try:
+        return json.dumps(data, ensure_ascii=False, default=str, allow_nan=False).encode("utf-8")
+    except ValueError:
+        return json.dumps(_finite(data), ensure_ascii=False, default=str, allow_nan=False).encode("utf-8")
 
 
 def public_settings(s: Settings) -> dict:
@@ -1005,7 +1023,7 @@ class Handler(BaseHTTPRequestHandler):
                     next_beat = time.monotonic() + srv.heartbeat_s
                     continue
                 if items:
-                    self.wfile.write(b"".join(sse_format(seq, kind, json.dumps(data, ensure_ascii=False, default=str))
+                    self.wfile.write(b"".join(sse_format(seq, kind, _json_bytes(data).decode("utf-8"))
                                               for seq, kind, data in items))
                     last = items[-1][0]
                     next_beat = time.monotonic() + srv.heartbeat_s

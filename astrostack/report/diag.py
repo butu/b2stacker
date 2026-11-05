@@ -12,6 +12,12 @@ def _f(x):
     try: return float(x)
     except (TypeError, ValueError): return float('nan')
 
+def _thumb(path):
+    """Thumbnails liegen als float16 (scipy kann damit nicht rechnen); übergelaufene Sterne (inf) kappen."""
+    t = np.load(path).astype(np.float32)
+    return np.nan_to_num(t, nan=0.0, posinf=65535.0, neginf=0.0)
+
+
 def _shift(a, b):
     from scipy import ndimage as ndi
     def prep(t):
@@ -163,7 +169,7 @@ def rig_diagnostics(rows, scale, analysis_dir):
                 pa = os.path.join(analysis_dir, 'thumbs', thumb_name(a['path']))
                 pb = os.path.join(analysis_dir, 'thumbs', thumb_name(b['path']))
             if not (os.path.exists(pa) and os.path.exists(pb)): continue
-            d = _shift(np.load(pb), np.load(pa))
+            d = _shift(_thumb(pb), _thumb(pa))
             if d < 200: sh.append(round(d, 1))
         if sh:
             dith.append(dict(night=night, shifts=sh)); frac.append(np.mean(np.array(sh) > 2)); amp += [x for x in sh if x > 2]

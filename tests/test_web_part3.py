@@ -569,6 +569,34 @@ def test_insights_rows_have_fields_of_old_report(proj, monkeypatch):
     assert not any("nicht berechnet" in r for r in d["rec"])
 
 
+def test_insights_real_rig_hints_with_float16_thumbs(proj):
+    """0.13.0 auf echten Daten: „array type dtype('float16') not supported“ – die Thumbnails sind float16, scipy rechnet
+    damit nicht. Hier ohne Attrappe: die echte Diagnose läuft über die echten Thumbnails."""
+    import glob
+    import numpy as np
+    from astrostack.flow import insights
+    from astrostack.report import diag
+    co, pid, _ = proj
+    insights.forget()
+    d = co.insights(pid)
+    assert "Fehler" not in (d.get("diag_note") or ""), d.get("diag_note")
+    from astrostack.web.server import _json_bytes
+    import json
+    json.loads(_json_bytes(d), parse_constant=lambda c: (_ for _ in ()).throw(ValueError(c)))  # kein NaN zum Browser
+    th = glob.glob(os.path.join(co.ws.previews, "thumbs", "*.npy"))
+    assert th and np.load(th[0]).dtype == np.float16
+    t = diag._thumb(th[0])
+    assert t.dtype == np.float32 and np.isfinite(t).all()
+    rng = np.random.default_rng(1)                  # Sternfeld wie ein echtes Thumbnail, gesättigter Stern = inf
+    f = rng.normal(1000, 20, (120, 160))
+    f[rng.integers(0, 120, 40), rng.integers(0, 160, 40)] = 70000
+    p = os.path.join(co.ws.previews, "star.npy")
+    np.save(p, f.astype(np.float16))
+    a = diag._thumb(p)
+    assert np.isfinite(a).all() and diag._shift(a, a) < 1
+    assert 30 < diag._shift(np.roll(a, 3, axis=1), a) < 66     # 3 Thumbnail-Pixel = 48 Pixel
+
+
 def test_lan_connection_test_page_and_arrivals(proj, tmp_path, monkeypatch):
     """Eingebauter Verbindungstest: /test geht ohne Koppeln und wird als „angekommen“ vermerkt."""
     co, pid, _ = proj
@@ -621,3 +649,17 @@ def test_found_master_lights_are_offered(proj, tmp_path):
     co.ignore_found_stacks(pid, [m])
     assert co.found_stacks(pid) == []
     assert all(r["light_ids"] for r in co.plan(pid)["runs"])               # Master zählt nicht als Light
+
+
+def test_old_stack_named_like_its_folder(proj):
+    """Stacks vor 0.13.0 heißen in der Datenbank nur „HaO3“ – angezeigt wird der Ordnername; umbenannt bleibt."""
+    co, pid, _ = proj
+    _stack_ha(co, pid)
+    s = co.stacks(pid, measure=False)[0]
+    folder = os.path.basename(os.path.dirname(s["files"][0]))
+    assert s["name"] == folder and "HaO3" in folder
+    co.db.execute("UPDATE stacks SET name = run_label WHERE id = ?", (s["id"],))
+    assert co.stacks(pid, measure=False)[0]["name"] == folder
+    co.db.execute("UPDATE stacks SET name = 'Mein Ha' WHERE id = ?", (s["id"],))
+    assert co.stacks(pid, measure=False)[0]["name"] == "Mein Ha"
+    assert any(g.get("stack_name") == "Mein Ha" for g in co.gallery(pid))

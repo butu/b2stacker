@@ -484,6 +484,9 @@ class Core:
             d["missing"] = bool(d["files"]) and not any(f["exists"] for f in d["file_info"]
                                                         if f["owned"] or d["imported"])
             d["hours"] = round((d.get("exposure_s") or 0) / 3600, 2)
+            folder = os.path.basename((d.get("folder") or "").rstrip("/\\"))
+            if d.get("name") == d.get("run_label") and folder[:4].isdigit():
+                d["name"] = folder                       # Stacks vor 0.13 hießen nur „RGB“ – Name wie der Ordner
             q = d["quality"] or {}
             d["preview_url"] = ("/api/stacks/%d/preview?v=%s" % (r["id"], q["preview"])) if q.get("preview") else None
             master = stackview.light_master(self.db, int(r["id"]))

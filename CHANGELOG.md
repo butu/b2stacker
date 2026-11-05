@@ -6,6 +6,9 @@ Neueste Version oben. Der Abschnitt der aktuellen Version erscheint auch im Upda
 
 - **„Was auffällt“ zeigt bei Flats den echten Grund.** Bisher stand dort je Nacht eine rote Zeile „Flats vom … (7 Tage entfernt)“. Rot war aber die Helligkeit der Flats („Flats zu hell“), nicht der Abstand. Jetzt gibt es eine Zeile je Flat-Satz mit dem Grund und den Nächten, für die er gilt. Mehr als 14 Tage Abstand erscheinen nur als Info und verschwinden mit „Passt, Setup unverändert“.
 - Claude sieht im Projektüberblick ebenfalls den Grund (`findings`) statt nur den Abstand.
+- **Rig-Hinweise laufen auf echten Daten.** 0.13.0 meldete „array type dtype('float16') not supported“: Die Vorschaubilder sind float16, damit rechnet die Dithering-Erkennung nicht. Sie werden jetzt vorher umgewandelt; ein Test rechnet mit echten Thumbnails statt einer Attrappe. Eine Fehlermeldung an dieser Stelle hat jetzt ein Warnsymbol statt eines grünen Hakens.
+- **Keine leeren Ansichten mehr durch „NaN“.** Fehlt ein Messwert, schrieb der Server „NaN“ ins JSON, und der Browser verwarf die ganze Antwort. Der Server liefert jetzt überall „leer“ statt NaN.
+- **Ältere Stacks heißen wie ihr Ordner** (z. B. „2026-11-05 RGB 8h30“ statt „RGB“). Selbst vergebene Namen bleiben.
 
 ## 0.13.0 – 05.11.2026
 
