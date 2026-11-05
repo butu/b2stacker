@@ -69,6 +69,25 @@ function b2Run()
       engine.parametersManager.setDefaultParameters();
 
       out.phase = "params";
+      // Startprüfung: jede Einstellung muss es in dieser WBPP-Version geben, und zwar mit derselben Art
+      // (Zahl/ja-nein/Text) wie die Voreinstellung. Sonst scheitert WBPP erst mitten im Lauf (z. B.
+      // StarAlignment.hotPixelFilterRadius(): numeric value expected) – hier fällt es nach Sekunden auf.
+      out.paramErrors = [];
+      out.paramTypes = {};
+      for ( let k in job.params || {} )
+      {
+         let v = job.params[ k ], d = engine[ k ];
+         out.paramTypes[ k ] = d === undefined ? "undefined" : d === null ? "null" : typeof d;
+         if ( d === undefined )
+            out.paramErrors.push( k + ": gibt es in WBPP " + BPP.Version.WBPP_VERSION + " nicht" );
+         else if ( d !== null && typeof d != typeof v )
+            out.paramErrors.push( k + ": WBPP erwartet " + typeof d + ", bekommen " + typeof v + " (" + v + ")" );
+      }
+      if ( out.paramErrors.length > 0 )
+      {
+         out.error = "Einstellungen passen nicht zu WBPP – nichts gerechnet: " + out.paramErrors.join( "; " );
+         return;
+      }
       for ( let k in job.params || {} )
          engine[ k ] = job.params[ k ];
       for ( let k in job.indexed || {} )

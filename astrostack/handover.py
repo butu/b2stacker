@@ -65,23 +65,6 @@ class HandoverError(RuntimeError):
     pass
 
 
-def _numeric(params: dict) -> dict:
-    """Die WBPP-Engine prüft Typen: ``StarAlignment.hotPixelFilterRadius()`` mit "2" statt 2 bricht die
-    Registrierung ab (vdB 131, RGB: „numeric value expected“, kein Light überlebt). Zahlen als Text daher immer
-    in echte Zahlen wandeln – Pfade und Namen bleiben Text."""
-    out = {}
-    for k, val in params.items():
-        if isinstance(val, str) and k not in ("referenceImage",):
-            t = val.strip().replace(",", ".")
-            try:
-                f = float(t)
-                val = int(f) if f.is_integer() and "." not in t and "e" not in t.lower() else f
-            except ValueError:
-                pass
-        out[k] = val
-    return out
-
-
 def pi_path(p: str) -> str:
     return os.path.abspath(p).replace("\\", "/")
 
@@ -194,7 +177,7 @@ def build_job(db: dbm.Database, run: dict, out_dir: str, reference_path: str | N
         files += [dict(path=pi_path(p), type="dark") for p in _paths(db, dark_ids).values()]
     v = wbpp_values(run)
     indexed = {"rejection": [None, None, None, v.pop("rejection_4")]}
-    params = _numeric(dict(v, groupingKeywordsEnabled=True))
+    params = dict(v, groupingKeywordsEnabled=True)
     if reference_path:
         params.update(bestFrameReferenceMethod=0, referenceImage=pi_path(reference_path))
     else:
@@ -209,6 +192,7 @@ def build_job(db: dbm.Database, run: dict, out_dir: str, reference_path: str | N
         job["cosmetic"] = True
     if any(s["key"] == "drizzle" and s["value"] for s in run.get("settings") or []):
         job["drizzle"] = dict(enabled=True, scale=2, dropShrink=0.9)       # je Light-Gruppe (WBPP 3.2.0 geprüft)
+    _check(job)
     return job
 
 
@@ -235,9 +219,22 @@ def write_scripts(job: dict, temp_dir: str, pixinsight_exe: str) -> tuple[str, s
             fh.write(cc)
         job["params"] = dict(job.get("params") or {}, usePipelineBuilderScript=True,
                              pipelineBuilderScriptFile=pi_path(cc_path))
+    _check(job)                                    # letzte Kontrolle: genau so geht der Auftrag an WBPP
     with open(job_path, "w", encoding="utf-8") as fh:
         json.dump(job, fh, indent=1, ensure_ascii=False)
     return launcher, job_path
+
+
+def _check(job: dict) -> None:
+    """Alle WBPP-Einstellungen gegen ``wbppschema`` prüfen und in die richtige Art bringen (in place).
+    Ein Fehler hier stoppt den Lauf, bevor PixInsight startet – mit Klartext statt „kein Master“ nach Minuten."""
+    from . import wbppschema
+    try:
+        notes = wbppschema.normalize_job(job)
+    except wbppschema.WbppParamError as e:
+        raise HandoverError(str(e)) from None
+    if notes:
+        job["paramNotes"] = notes
 
 
 def command(exe: str, launcher: str, job_path: str) -> list[str]:

@@ -190,6 +190,7 @@ def test_selftest_runs_twice_and_reuses_masters(c, tmp_path):  # noqa: F811
     res = task.result
     names = {s["name"]: s for s in res["steps"]}
     assert names["Ablauf (Entdecken bis Plan)"]["ok"], names
+    assert names["Einstellungen von Hand (Sternerkennung, Rejection)"]["ok"], names
     assert names["Stacken – erster Durchlauf"]["ok"], names["Stacken – erster Durchlauf"]
     assert names["Master wiederverwendet"]["ok"]
     second = res["stacks"][1][0]["masters"]

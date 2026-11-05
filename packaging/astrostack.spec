@@ -19,7 +19,8 @@ datas += collect_data_files("astropy", excludes=["**/tests/**", "**/*.c", "**/*.
 datas += collect_data_files("astropy_iers_data")
 hidden = collect_submodules("astropy.coordinates") + collect_submodules("astropy.io.fits") + ["erfa"]
 hidden += ["astrostack.mcp", "astrostack.appclient", "astrostack.claude_link", "astrostack.web.server",
-           "astrostack.web.window", "astrostack.web.lan", "astrostack.trash", "astrostack.selftest_neu"]
+           "astrostack.web.window", "astrostack.web.lan", "astrostack.trash", "astrostack.selftest_neu",
+           "astrostack.wbppschema", "astrostack.stackimport", "astrostack.flow.insights", "astrostack.checklist"]
 hidden += collect_submodules("segno")         # QR-Code fürs Handy (nur in Funktionen importiert)
 if sys.platform == "win32":
     hidden += ["tkinter", "tkinter.filedialog", "clr"]

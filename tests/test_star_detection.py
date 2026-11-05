@@ -9,11 +9,12 @@ def test_large_oval_stars_get_adapted_detection():
     sd = plan.star_detection(NGC3486)
     p = sd["params"]
     assert 0.4 <= float(p["maxStarDistortion"]) <= 0.5
-    assert p["hotPixelFilterRadius"] == "2" and p["noiseReductionFilterRadius"] == "2"
+    assert p["hotPixelFilterRadius"] == 2 and p["noiseReductionFilterRadius"] == 2       # Zahlen, nie Text
     assert 4 <= int(p["minStructureSize"]) <= 12
     assert "ovale" in sd["why"] and "große" in sd["why"]
     checked, notes = pi.check_wbpp_params(p)
-    assert checked == p and not notes, "alle Werte im gültigen Bereich"
+    assert not notes, "alle Werte im gültigen Bereich"
+    assert all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in p.values())
 
 
 def test_small_round_stars_keep_wbpp_defaults():
@@ -23,7 +24,7 @@ def test_small_round_stars_keep_wbpp_defaults():
 
 def test_huge_stars_get_more_layers():
     p = plan.star_detection(dict(fwhm_p10=14, fwhm_med=17, fwhm_p90=20, ecc_p90=0.4))["params"]
-    assert p["structureLayers"] == "6"
+    assert p["structureLayers"] == 6
 
 
 def test_light_stats_percentiles():

@@ -244,5 +244,13 @@ Beim direkten Setzen der Engine-Eigenschaften (Weg B, `b2launch.js`) akzeptiert 
 `StarAlignment.hotPixelFilterRadius(): Invalid argument type: numeric value expected` – für **jeden** Frame;
 Kalibrieren, Debayern und ImageAnalysis liefen vorher sauber durch (51/51). Ergebnis: kein Light für die Integration,
 also „kein Master“. Ursache waren die Sternerkennungs-Werte im Plan (aus der Oberfläche als Text gespeichert).
-Seit 0.12 wandelt `plan.wbpp_values` sie in Zahlen und `handover._numeric` zusätzlich alles, was nach Zahl
-aussieht (außer `referenceImage`). `wbpplog` erkennt den Fehler und nennt die betroffene Einstellung.
+Seit 0.12.2 an der Wurzel gelöst (vier Schichten):
+1. `wbppschema.SCHEMA` listet jede Einstellung mit Art und Bereich; `handover._check` wandelt eindeutig um oder bricht
+   vor dem Start ab. Unbekannte Namen sind ein Fehler. `plan.star_detection` liefert von Anfang an Zahlen, und
+   `flow.plan.edit_plan` prüft Eingaben beim Speichern.
+2. `b2launch.js` vergleicht vor dem Rechnen jede Einstellung mit `typeof` der Engine-Voreinstellung (und meldet
+   `paramTypes`). Gemessen auf PixInsight 1.9.6 / WBPP 3.2.0: alle 30 Einstellungen im Schema existieren mit genau
+   dieser Art; der alte vdB-131-Auftrag wurde in 7 s mit den vier Text-Werten abgewiesen.
+3. Das nachgebaute PixInsight der Tests prüft dieselben Arten (`tests/wbpp_engine_types.json`, gemessen); ein Test
+   hält Schema und gemessene Arten deckungsgleich.
+4. Der Selbsttest setzt Sternerkennung und Rejection von Hand (als Text eingetippt) und stackt damit mit echtem WBPP.

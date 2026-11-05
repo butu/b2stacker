@@ -29,6 +29,20 @@ for f in job["files"]:
     sess.setdefault(f["type"], set()).add(f.get("session"))
 out["sessions"] = {k: sorted(x or "" for x in v) for k, v in sess.items()}
 out["params"] = job["params"]
+# Wie b2launch.js im echten WBPP: Art jeder Einstellung gegen die Voreinstellung der Engine prüfen (Typen gemessen
+# an PixInsight 1.9.6 / WBPP 3.2.0, tests/wbpp_engine_types.json). Text statt Zahl → nichts wird gerechnet.
+TYPES = json.load(open(os.environ["FAKE_WBPP_TYPES"], encoding="utf-8"))["types"]
+JS = {bool: "boolean", int: "number", float: "number", str: "string"}
+errs = []
+for k, v in job["params"].items():
+    if k not in TYPES:
+        errs.append(k + ": gibt es in WBPP 3.2.0 nicht")
+    elif JS.get(type(v)) != TYPES[k]:
+        errs.append("%s: WBPP erwartet %s, bekommen %s (%s)" % (k, TYPES[k], JS.get(type(v), type(v).__name__), v))
+if errs:
+    out.update(phase="params", error="Einstellungen passen nicht zu WBPP – nichts gerechnet: " + "; ".join(errs))
+    json.dump(out, open(job["result"], "w"))
+    sys.exit(0)
 mode = os.environ.get("FAKE_MODE", "ok")
 if mode == "crash":
     sys.exit(1)
@@ -265,8 +279,18 @@ def test_wbpp_params_are_numbers_not_text(stacked):
     assert p["hotPixelFilterRadius"] == 2 and isinstance(p["hotPixelFilterRadius"], int)
     assert p["maxStarDistortion"] == 0.52 and isinstance(p["maxStarDistortion"], float)
     assert all(not (isinstance(v, str) and v.replace(".", "").isdigit()) for v in p.values())
-    assert handover._numeric({"a": "2", "b": "0,5", "c": "F:/x 2.fits", "referenceImage": "1"}) == \
-        {"a": 2, "b": 0.5, "c": "F:/x 2.fits", "referenceImage": "1"}
+    from astrostack import wbppschema
+    out, notes = wbppschema.normalize({"hotPixelFilterRadius": "2", "maxStarDistortion": "0,5", "autocrop": "false",
+                                       "referenceImage": "F:/x 2.fits", "structureLayers": 12})
+    assert out == {"hotPixelFilterRadius": 2, "maxStarDistortion": 0.5, "autocrop": False,
+                   "referenceImage": "F:/x 2.fits", "structureLayers": 8} and "structureLayers" in notes[0]
+    with pytest.raises(wbppschema.WbppParamError, match="unbekannte Einstellung „hotPixelRadius“"):
+        wbppschema.normalize({"hotPixelRadius": 2})
+    with pytest.raises(wbppschema.WbppParamError, match="ganze Zahl"):
+        wbppschema.normalize({"minStructureSize": "2.5"})
+    bad = dict(job, params=dict(job["params"], sensitivity="hoch"))      # Fehler stoppt vor PixInsight
+    with pytest.raises(handover.HandoverError, match="sensitivity"):
+        handover.write_scripts(bad, str(ws.temp), "C:/PixInsight/bin/PixInsight.exe")
 
 
 def test_type_error_in_wbpp_log_is_explained():
@@ -275,3 +299,26 @@ def test_type_error_in_wbpp_log_is_explained():
          "Invalid argument type: numeric value expected.")
     texts = [d["text"] for d in wbpplog.diagnose_text(t)]
     assert any("hotPixelFilterRadius" in x for x in texts) and not any("Sonderzeichen" in x for x in texts)
+
+
+def test_schema_matches_real_wbpp_types():
+    """Jede Einstellung im Schema gibt es im echten WBPP 3.2.0 – mit derselben Art (gemessen auf Benjamins PC)."""
+    from astrostack import wbppschema
+    real = json.load(open(os.path.join(os.path.dirname(__file__), "wbpp_engine_types.json"), encoding="utf-8"))["types"]
+    js = {wbppschema.B: "boolean", wbppschema.I: "number", wbppschema.F: "number", wbppschema.S: "string"}
+    assert set(wbppschema.SCHEMA) == set(real)
+    assert {k: js[v[0]] for k, v in wbppschema.SCHEMA.items()} == real
+
+
+def test_fake_wbpp_rejects_text_instead_of_number_like_real_wbpp(stacked, tmp_path):
+    """Regression vdB 131 RGB: so ein Auftrag kommt nie mehr bis zu PixInsight – und täte er es, stoppt die
+    Startprüfung sofort statt nach Minuten mit „kein Master“."""
+    ws, db, plan, popen, _ = stacked
+    job = handover.build_job(db, _ha(plan), os.path.join(ws.temp, "t"))
+    launcher, job_path = handover.write_scripts(job, ws.temp, "C:/PixInsight/bin/PixInsight.exe")
+    raw = json.load(open(job_path, encoding="utf-8"))
+    raw["params"]["hotPixelFilterRadius"] = "2"                      # wie 0.11: Text statt Zahl
+    json.dump(raw, open(job_path, "w", encoding="utf-8"))
+    res = handover.run("PixInsight.exe", launcher, job_path, popen=popen, poll_s=0.02)
+    assert not res.get("ok") and res["phase"] == "params" and "hotPixelFilterRadius" in res["error"]
+    assert res["masters"] == []

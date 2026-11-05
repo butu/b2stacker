@@ -70,6 +70,12 @@ os.environ["B2_APP_URL"] = "http://127.0.0.1:9/"   # nie mit einer echten, laufe
 
 
 @pytest.fixture(autouse=True)
+def _wbpp_types(monkeypatch):
+    """Das nachgebaute PixInsight prüft die Art jeder WBPP-Einstellung so streng wie das echte WBPP 3.2.0."""
+    monkeypatch.setenv("FAKE_WBPP_TYPES", os.path.join(os.path.dirname(__file__), "wbpp_engine_types.json"))
+
+
+@pytest.fixture(autouse=True)
 def _isolated_preview_cache(tmp_path, monkeypatch):
     # Default cache otherwise lives in the user profile; every test gets a throwaway cache.
     monkeypatch.setenv("ASTROSTACK_PREVIEW_CACHE", str(tmp_path / "preview-cache"))

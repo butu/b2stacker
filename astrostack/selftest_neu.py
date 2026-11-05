@@ -2,7 +2,8 @@
 PixInsight über die Übergabe (Weg B).
 
 Prüft auf dem echten Rechner, was Linux-Tests nicht sehen: PixInsight- und WBPP-Version, Komma im Ordnernamen,
-Netzlaufwerk, Flats je Nacht, Wiederverwendung der Master (zweiter Durchlauf). Testdaten werden nur neu angelegt
+Netzlaufwerk, Flats je Nacht, von Hand gesetzte Einstellungen (Sternerkennung, Rejection – müssen als richtige
+Art bei WBPP ankommen), Wiederverwendung der Master (zweiter Durchlauf). Testdaten werden nur neu angelegt
 (``b2stacker-selbsttest, mit Komma``); das Testprojekt liegt in einem eigenen Arbeitsverzeichnis
 (``<arbeitsverzeichnis>/selbsttest/neu``) und erscheint nicht in der Projektliste.
 """
@@ -78,6 +79,24 @@ def run(pixinsight: str, workdir: str, folder: str, progress=None, cancel=None, 
         flats = sum(len(r.get("flats") or []) for r in runs)
         step("Ablauf (Entdecken bis Plan)", bool(runs) and lights >= 8,
              "%d Läufe, %d Lights, %d Flat-Sätze" % (len(runs), lights, flats))
+        if runs:
+            # Einstellungen von Hand wie aus der Oberfläche (Werte als Text eingetippt): Sternerkennung mit allen
+            # Werten, Rejection ausdrücklich. Prüft den Weg, an dem vdB 131 (RGB) gescheitert ist – große Sterne,
+            # angepasste Sternerkennung – mit dem echten WBPP.
+            manual = {"star_detection": {"hotPixelFilterRadius": "2", "noiseReductionFilterRadius": "1",
+                                         "minStructureSize": "4", "structureLayers": "5", "sensitivity": "0,5",
+                                         "peakResponse": "0.5", "maxStarDistortion": "0.6"},
+                      "rejection": "winsorized"}
+            try:
+                plan = fplan.edit_plan(db, pid, ws.root, runs={r["id"]: manual for r in runs})
+                vals = [s["value"] for r in plan["runs"] if r["enabled"] for s in r["settings"]
+                        if s["key"] == "star_detection"]
+                ok = bool(vals) and all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                                        for d in vals for v in d.values())
+                step("Einstellungen von Hand (Sternerkennung, Rejection)", ok,
+                     "als Zahlen gespeichert" if ok else "nicht als Zahlen gespeichert: %s" % vals)
+            except ValueError as e:
+                step("Einstellungen von Hand (Sternerkennung, Rejection)", False, str(e))
         if with_pixinsight and env["pixinsight_ok"] and env["wbpp_ok"]:
             for i, label in ((2, "erster Durchlauf"), (3, "zweiter Durchlauf (Master wiederverwenden)")):
                 if cancel is not None and cancel.is_set():

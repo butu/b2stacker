@@ -307,19 +307,19 @@ def star_detection(stats: dict | None) -> dict | None:
     if e90 is not None:
         d = 0.785 * math.sqrt(max(0.0, 1 - e90 * e90)) - 0.1
         if d < SA_DEFAULT_DISTORTION - 0.02:
-            p["maxStarDistortion"] = "%.2f" % max(0.3, d)
+            p["maxStarDistortion"] = round(max(0.3, d), 2)
             why.append("leicht ovale Sterne (Exzentrizität bis %s)" % ("%.2f" % e90).replace(".", ","))
     fmed, f10, f90 = stats["fwhm_med"], stats.get("fwhm_p10") or stats["fwhm_med"], stats.get("fwhm_p90") or stats["fwhm_med"]
     if fmed > 4:
-        p["hotPixelFilterRadius"] = "2"
-        p["noiseReductionFilterRadius"] = "2" if fmed > 6 else "1"
+        p["hotPixelFilterRadius"] = 2
+        p["noiseReductionFilterRadius"] = 2 if fmed > 6 else 1
         mss = int((f10 / 2.5) ** 2)
         if mss >= 2:
-            p["minStructureSize"] = str(min(mss, 64))
+            p["minStructureSize"] = min(mss, 64)
         why.append("große Sterne (FWHM %s px)" % ("%.1f" % fmed).replace(".", ","))
     layers = max(5, math.ceil(math.log2(max(2.0, 2 * f90))))
     if layers > 5:
-        p["structureLayers"] = str(min(layers, 8))
+        p["structureLayers"] = min(layers, 8)
     if not p:
         return None
     return dict(params=p, why=" und ".join(why) or "angepasst an die gemessenen Sterne", stats=stats)

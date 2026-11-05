@@ -286,6 +286,20 @@ def load_edits(db: dbm.Database, pid: int) -> dict:
     return json.loads(t) if t else {}
 
 
+def _star_edit(old: dict | None, new: dict) -> dict:
+    """Von Hand eingegebene Sternerkennungs-Werte prüfen und als Zahlen speichern (leer = zurück auf Automatik)."""
+    from ..wbppschema import star_values
+    if not isinstance(new, dict):
+        raise ValueError("star_detection: Werte als Objekt erwartet")
+    out = dict(old or {})
+    for k, v in star_values(new).items():
+        if v is None:
+            out.pop(k, None)
+        else:
+            out[k] = v
+    return out
+
+
 def edit_plan(db: dbm.Database, pid: int, workdir: str, options: dict | None = None,
               runs: dict | None = None, reset: bool = False) -> dict:
     """Änderungen des Nutzers speichern (``None`` als Wert = zurück zur Automatik) und den Plan neu berechnen."""
@@ -301,6 +315,8 @@ def edit_plan(db: dbm.Database, pid: int, workdir: str, options: dict | None = N
             if scope == "options":
                 if k not in known:
                     raise ValueError("unbekannte Einstellung: %s" % k)
+                if k == "star_detection" and v is not None:
+                    v = _star_edit(target.get(k), v)
                 if v is None:
                     target.pop(k, None)
                 else:
@@ -310,6 +326,8 @@ def edit_plan(db: dbm.Database, pid: int, workdir: str, options: dict | None = N
                 for kk, vv in (v or {}).items():
                     if kk not in known:
                         raise ValueError("unbekannte Einstellung: %s" % kk)
+                    if kk == "star_detection" and vv is not None:
+                        vv = _star_edit(run.get(kk), vv)
                     if vv is None:
                         run.pop(kk, None)
                     else:
@@ -357,19 +375,8 @@ def wbpp_values(run: dict) -> dict:
                  debayerActiveChannelG="G" in ch, debayerActiveChannelB="B" in ch)
     if v.get("fast_integration"):
         p["autoIntegrationMode"] = True              # bewusste Wahl für einen schnellen Probe-Stack
-    for k, val in (v.get("star_detection") or {}).items():
-        p[k] = _number(val)                       # WBPP-Engine erwartet Zahlen (Weg B setzt Eigenschaften direkt)
+    p.update(v.get("star_detection") or {})       # Arten prüft und wandelt ``wbppschema`` in handover._check
     return p
-
-
-def _number(v):
-    if isinstance(v, (int, float)) and not isinstance(v, bool):
-        return v
-    try:
-        f = float(str(v).replace(",", "."))
-    except ValueError:
-        return v
-    return int(f) if f.is_integer() and "." not in str(v) else f
 
 
 def explain(plan: dict) -> list[str]:

@@ -2,6 +2,21 @@
 
 Neueste Version oben. Der Abschnitt der aktuellen Version erscheint auch im Update-Dialog von b2stacker.
 
+## 0.12.2 – 05.11.2026
+
+**Fehler wie beim RGB-Stack von vdB 131 an der Wurzel verhindert.** Damals ging eine Einstellung als Text statt als
+Zahl an PixInsight – erst nach Minuten scheiterte das Ausrichten, und am Ende stand nur „kein Master“.
+
+- **Jede Einstellung wird vor dem Start geprüft:** b2stacker kennt alle WBPP-Einstellungen, die es setzt, samt Art
+  (Zahl, ja/nein, Text) und gültigem Bereich – abgeglichen mit dem echten WBPP 3.2.0. Was nicht passt, wird
+  eindeutig umgewandelt oder stoppt den Lauf sofort mit Klartext, bevor PixInsight startet.
+- **Startprüfung in PixInsight:** Bevor WBPP rechnet, vergleicht b2stacker jede Einstellung mit den Voreinstellungen
+  der installierten WBPP-Version. Ein Fehler fällt nach Sekunden auf statt nach etlichen Minuten.
+- **Werte im Plan:** Von Hand eingegebene Sternerkennungs-Werte werden beim Speichern geprüft (Komma oder Punkt
+  egal) und als Zahlen gespeichert; Unsinn wird mit Hinweis abgelehnt.
+- **Selbsttest** stackt jetzt auch mit von Hand gesetzter Sternerkennung und Rejection – genau dem Weg, an dem
+  vdB 131 gescheitert ist.
+
 ## 0.12.1 – 05.11.2026
 
 - **Handy kam nicht durch:** b2stacker prüft jetzt die Windows-Firewall. Sperrt sie (z. B. weil der Hinweis beim

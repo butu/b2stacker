@@ -359,4 +359,13 @@ def test_plan_top_percent_reference_label_and_manual_calibration(env):
                                                          "top_percent": 34}})
     h3 = next(r for r in p3["runs"] if r["id"] == ha["id"])
     assert h3["flats"][0]["file_ids"] and h3["flats"][0]["manual"] and h3["lights"] == 3   # mind. 3 Lights bleiben
-    assert fp._number("0.52") == 0.52 and fp._number("4") == 4
+    # Sternerkennung von Hand (wie aus der Oberfläche: Text) → als Zahl gespeichert; Unsinn wird abgelehnt
+    p4 = fp.edit_plan(db, pid, ws.root, runs={ha["id"]: {"star_detection": {"maxStarDistortion": "0,52",
+                                                                             "hotPixelFilterRadius": "2"}}})
+    sd4 = next(s for s in next(r for r in p4["runs"] if r["id"] == ha["id"])["settings"] if s["key"] == "star_detection")
+    assert sd4["value"]["maxStarDistortion"] == 0.52 and sd4["value"]["hotPixelFilterRadius"] == 2
+    assert sd4["value"]["minStructureSize"] == 7                       # frühere Eingabe bleibt
+    with pytest.raises(ValueError, match="hotPixelFilterRadius"):
+        fp.edit_plan(db, pid, ws.root, runs={ha["id"]: {"star_detection": {"hotPixelFilterRadius": "zwei"}}})
+    with pytest.raises(ValueError, match="unbekannt"):
+        fp.edit_plan(db, pid, ws.root, runs={ha["id"]: {"star_detection": {"hotPixelRadius": 2}}})
