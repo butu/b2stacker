@@ -468,7 +468,7 @@ def test_compare_overlay_slider_and_values(page, app):
                            "document.querySelector('#cmpIb').naturalWidth > 0")
     assert page.locator("#cmpBox").bounding_box()["width"] > 300
     expect(page.locator("#cmpLa")).to_contain_text("A · ")
-    expect(page.locator("#cmpSide")).to_contain_text("wird noch nicht ausgeglichen")
+    expect(page.locator("#cmpSide")).to_contain_text("Mausrad oder Doppelklick zoomt")
     expect(page.locator("[data-cnote='a']")).to_have_value("Erster Versuch, Mond hell")
     # Schieber per Tastatur und Maus
     page.keyboard.press("ArrowLeft")

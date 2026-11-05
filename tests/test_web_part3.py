@@ -226,3 +226,57 @@ def test_mcp_settings_selftest_tools(proj, tmp_path, monkeypatch):
         assert not any("delete" in t for t in tools)
     finally:
         _stop(srv)
+
+
+# ---------------------------------------------------------------- Vergleich mit Drehung, Sternmarkierung
+
+@pytest.mark.parametrize("deg", [3.0, -12.0, 178.0])
+def test_rotation_between_finds_angle_and_side(deg):
+    import numpy as np
+    from scipy import ndimage as ndi
+
+    from astrostack import stackview as sv
+
+    from .test_web_part2 import star_image
+    A = star_image(1, shape=(400, 600))
+    B = np.stack([ndi.rotate(ch, deg, reshape=False, order=1, mode="nearest")
+                  for ch in star_image(2, shape=(400, 600), shift=(5, -7))])
+    ang, _conf = sv.rotation_between(A, B)
+    assert ang is not None and abs(ang + deg) < 0.3
+    assert sv.rotation_between(A, star_image(3, shape=(400, 600), shift=(4, 2)))[0] is None
+
+
+def test_compare_aligns_rotated_stack(c, tmp_path):  # noqa: F811
+    import numpy as np
+    from scipy import ndimage as ndi
+
+    from .test_web_part2 import real_masters, star_image
+    co, data = c
+    rot = np.stack([ndi.rotate(ch, 7.0, reshape=False, order=1, mode="nearest")
+                    for ch in star_image(2, shift=(3.0, -4.0), noise=0.002)])
+    co.stack_runner = real_masters(co.stack_runner, [star_image(1, noise=0.003), rot])
+    r = co.create_project("Drehung", [data])
+    assert co.tasks.wait_idle(60)
+    for _ in range(2):
+        _stack_ha(co, r["id"])
+    st = co.stacks(r["id"])
+    assert co.tasks.wait_idle(60)
+    st = co.stacks(r["id"])
+    out = co.compare(r["id"], st[1]["id"], st[0]["id"])
+    al = out["align"]
+    assert al["aligned"] and abs(al["rotation"] - 7.0) < 0.5, al
+
+
+def test_frame_stars_endpoint(proj, tmp_path, monkeypatch):
+    co, pid, _ = proj
+    s = _settings(tmp_path, monkeypatch, co.ws.root, co.pixinsight)
+    srv = _serve(co, s)
+    try:
+        f = _lights(co, pid)[0]
+        st, d, _ = call(srv, "GET", "/api/frame/%d/stars" % f["id"])
+        assert st == 200 and d["width"] > 0 and d["height"] > 0 and isinstance(d["stars"], list)
+        assert d["nstars"] >= len(d["stars"]) and all(len(x) == 5 for x in d["stars"])
+        st, _d, _ = call(srv, "GET", "/api/frame/999999/stars")
+        assert st == 404
+    finally:
+        _stop(srv)

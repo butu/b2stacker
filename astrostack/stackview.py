@@ -27,7 +27,7 @@ from . import stackqa
 QUALITY_VERSION = 1          # erhöhen, wenn sich die Messung ändert → ältere Stacks werden neu gemessen
 SMALL_W = 1200               # Breite der linearen Kopie (Vergleich, Vorschau)
 PREVIEW_W = 1200
-COMPARE_VERSION = 2
+COMPARE_VERSION = 3
 STACKS_DIR = "stacks"
 COMPARE_DIR = "compare"
 
@@ -219,6 +219,29 @@ def _features(a: np.ndarray) -> np.ndarray:
     return np.clip(L / s, 0, 50)
 
 
+def rotation_between(a: np.ndarray, b: np.ndarray, min_deg: float = 0.25) -> tuple[float | None, float]:
+    """Winkel (Grad), um den B mit ``ndi.rotate`` gedreht werden muss, damit es auf A liegt – nur wenn die Drehung
+    deutlich und sicher ist, sonst ``None``. Sternpaare liefern den Winkel bis auf ±180° (Verschiebung stört nicht);
+    die Probe mit der Phasenkorrelation entscheidet zwischen beiden und schützt vor Fehltreffern."""
+    from .rotation import estimate_rotation, stars_from_thumb
+    La = a.mean(axis=0) if a.ndim == 3 else a
+    Lb = b.mean(axis=0) if b.ndim == 3 else b
+    ang, conf = estimate_rotation(stars_from_thumb(La, 80), stars_from_thumb(Lb, 80))
+    if ang is None or conf < 0.3:
+        return None, conf
+    base = phase_shift(La[None], Lb[None])[2]
+    best, score = None, 0.0
+    for cand in (ang, ang - 180 if ang > 0 else ang + 180):
+        if abs(cand) < min_deg:
+            return None, conf                              # praktisch nicht gedreht
+        q = phase_shift(La[None], ndi.rotate(Lb, cand, reshape=False, order=1, mode="nearest")[None])[2]
+        if q > score:
+            best, score = cand, q
+    if score < 8 or score < 1.5 * base:
+        return None, conf
+    return float(best), conf
+
+
 def phase_shift(a: np.ndarray, b: np.ndarray) -> tuple[float, float, float]:
     """Verschiebung (dy, dx), um die ``b`` verschoben werden muss, damit es auf ``a`` liegt, und die Güte des
     Treffers (Spitze / Rauschen der Korrelationsfläche; unter ~8 ist das Ergebnis unsicher)."""
@@ -322,6 +345,15 @@ def _render_pair(ws, a: int, b: int, qa: dict, qb: dict) -> dict:
             h, w = min(H, B.shape[1]), min(W, B.shape[2])
             Bp[:, :h, :w] = B[:, :h, :w]
             B = Bp
+        angle, rconf = rotation_between(A, B)
+        if angle is not None:                                # gedreht (Kamera/Meridian-Flip): B zurückdrehen
+            B = np.stack([ndi.rotate(ch, angle, reshape=False, order=1, mode="nearest") for ch in B])
+            phi = math.radians((angle + 90) % 180 - 90)      # 180° gedreht deckt dieselbe Fläche ab
+            H, W = A.shape[1:]
+            my = int(math.ceil(W * abs(math.sin(phi)) / 2 + H * (1 - math.cos(phi)) / 2))
+            mx = int(math.ceil(H * abs(math.sin(phi)) / 2 + W * (1 - math.cos(phi)) / 2))
+            if H - 2 * my > H // 2 and W - 2 * mx > W // 2:  # nur den Bereich, den beide Bilder abdecken
+                A, B = A[:, my:H - my, mx:W - mx], B[:, my:H - my, mx:W - mx]
         dy, dx, conf = phase_shift(A, B)
         ok = conf >= 8 and abs(dy) < A.shape[1] / 3 and abs(dx) < A.shape[2] / 3
         if ok and math.hypot(dy, dx) >= 0.05:
@@ -339,6 +371,7 @@ def _render_pair(ws, a: int, b: int, qa: dict, qb: dict) -> dict:
         to_jpeg(apply_stretch(An, lo, m), pa)
         to_jpeg(apply_stretch(Bn, lo, m), pb)
         info = dict(dy=round(dy, 2), dx=round(dx, 2), confidence=round(conf, 1), aligned=bool(ok),
+                    rotation=round(-angle, 2) if angle is not None else 0.0,      # B gegenüber A
                     width=int(A.shape[2]), height=int(A.shape[1]))
         from .previews import _atomic_write
         _atomic_write(meta, json.dumps(info).encode("utf-8"))

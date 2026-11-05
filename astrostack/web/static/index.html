@@ -287,9 +287,17 @@ h3{margin:0;font-size:16px;font-weight:700}
 .lb{position:fixed;inset:0;z-index:50;background:#08080a;display:grid;grid-template-columns:minmax(0,1fr) 340px;grid-template-rows:52px minmax(0,1fr)}
 .lbtop{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:0 8px 0 18px;border-bottom:1px solid rgba(255,255,255,.06);min-width:0}
 .lbtop .lbn{min-width:0;font-size:14px;opacity:.6}
-.lbimg{position:relative;display:grid;place-items:center;overflow:hidden;min-height:0;background:#000}
+.lbimg{position:relative;display:grid;place-items:center;overflow:hidden;min-height:0;background:#000;touch-action:none}
 .lbimg img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block}
 .lbimg img.soft{filter:blur(1px);opacity:.85}
+.zoomt{position:absolute;inset:0;transform-origin:0 0}
+.zoomt.zoomed{cursor:grab}.zoomt.zoomed:active{cursor:grabbing}
+.stsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+.stsvg ellipse{fill:none;stroke-width:1.5}
+.zoomi{position:absolute;left:12px;bottom:12px;z-index:3;padding:3px 10px;border-radius:999px;background:rgba(15,15,15,.85);font-size:12.5px;font-weight:700;pointer-events:none}
+.cmpbox{transform-origin:0 0}
+.hbtn.on{background:rgba(255,255,255,.16)}
+.stinfo{font-size:13px;opacity:.75;text-wrap:pretty}
 .lbnav{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:44px;border:0;border-radius:999px;background:rgba(255,255,255,.1);color:#fff;cursor:pointer;display:grid;place-items:center}
 .lbnav:hover{background:rgba(255,255,255,.2)}
 .lbnav.l{left:14px}.lbnav.r{right:14px}
@@ -429,9 +437,9 @@ details>summary{cursor:pointer}
 .cmpbox{position:relative;user-select:none;cursor:ew-resize}
 .cmpbox img{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none}
 .cmpbox .cb{clip-path:inset(0 0 0 var(--x,50%))}
-.cmph{position:absolute;top:0;bottom:0;left:var(--x,50%);width:2px;margin-left:-1px;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.4);pointer-events:none}
+.cmph{position:absolute;top:0;bottom:0;left:var(--x,50%);width:calc(2px / var(--zs,1));margin-left:calc(-1px / var(--zs,1));background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.4);pointer-events:none}
 .cmph:after{content:"";position:absolute;top:50%;left:50%;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:999px;background:#fff;
-  box-shadow:0 2px 8px rgba(0,0,0,.5);background-image:linear-gradient(90deg,transparent 9px,#0b0b0c 9px 11px,transparent 11px 19px,#0b0b0c 19px 21px,transparent 21px)}
+  box-shadow:0 2px 8px rgba(0,0,0,.5);background-image:linear-gradient(90deg,transparent 9px,#0b0b0c 9px 11px,transparent 11px 19px,#0b0b0c 19px 21px,transparent 21px);transform:scale(calc(1 / var(--zs,1)))}
 .cmplab{position:absolute;top:12px;padding:3px 10px;border-radius:999px;background:rgba(15,15,15,.85);font-size:12.5px;font-weight:700;pointer-events:none;max-width:45%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cmplab.a{left:12px}.cmplab.b{right:12px}
 .cmpmsg{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);padding:8px 16px;border-radius:999px;background:rgba(20,20,22,.92);box-shadow:0 0 0 1px #2a2a2e;font-size:13.5px;text-align:center;max-width:90%}
@@ -539,8 +547,10 @@ details>summary{cursor:pointer}
 <!-- Großansicht eines Frames -->
 <div class="lb" id="lb" hidden role="dialog" aria-modal="true" aria-label="Frame-Ansicht">
   <div class="lbtop"><span id="lbTitle" class="ftag"></span><span class="lbn ell" id="lbN"></span><span class="grow"></span>
+    <button class="hbtn" id="lbStars" title="Erkannte Sterne einblenden (S)" aria-pressed="false"></button>
     <button class="hbtn icon" id="lbClose" title="Schließen (Esc)" aria-label="Schließen"></button></div>
-  <div class="lbimg" id="lbImgBox"><img id="lbImg" alt="">
+  <div class="lbimg" id="lbImgBox"><div class="zoomt" id="lbZoom"><img id="lbImg" alt=""><svg class="stsvg" id="lbSvg" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg></div>
+    <div class="zoomi" id="lbZoomI" hidden></div>
     <button class="lbnav l" id="lbPrev" aria-label="vorheriges Bild"></button><button class="lbnav r" id="lbNext" aria-label="nächstes Bild"></button>
     <div class="lbload" id="lbLoad" hidden></div><div class="lbmsg" id="lbMsg" hidden></div></div>
   <aside class="lbside" id="lbSide"></aside>
@@ -551,8 +561,8 @@ details>summary{cursor:pointer}
   <div class="cmptop"><b>Vergleich</b><select id="cmpA" aria-label="Stack A (links)"></select><span class="vs">gegen</span><select id="cmpB" aria-label="Stack B (rechts)"></select>
     <button class="btn sm ghost" id="cmpSwap" title="A und B tauschen">⇄ tauschen</button><span class="grow"></span>
     <button class="hbtn icon" id="cmpClose" title="Schließen (Esc)" aria-label="Schließen"></button></div>
-  <div class="cmpimg" id="cmpImg"><div class="cmpbox" id="cmpBox"><img id="cmpIa" class="ca" alt=""><img id="cmpIb" class="cb" alt=""><div class="cmph"></div>
-    <span class="cmplab a" id="cmpLa"></span><span class="cmplab b" id="cmpLb"></span></div><div class="cmpmsg" id="cmpMsg" hidden></div></div>
+  <div class="cmpimg" id="cmpImg"><div class="zoomi" id="cmpZoomI" hidden></div><div class="cmpbox" id="cmpBox"><img id="cmpIa" class="ca" alt=""><img id="cmpIb" class="cb" alt=""><div class="cmph"></div></div>
+    <span class="cmplab a" id="cmpLa"></span><span class="cmplab b" id="cmpLb"></span><div class="cmpmsg" id="cmpMsg" hidden></div></div>
   <aside class="cmpside" id="cmpSide"></aside>
 </div>
 
@@ -1417,11 +1427,62 @@ async function decide(ids,decision){
   }
 }
 
-// ---------- Großansicht
-const LB={list:null,i:0,tok:0,msgT:0};
-function openLightbox(i){
-  LB.list=FV.view.slice();LB.i=i;$('#lb').hidden=false;renderLightbox();
+// ---------- Zoom: Mausrad oder zwei Finger, ziehen verschiebt, Doppelklick wechselt Einpassen ↔ 1:1
+function makeZoom(host,target,o){
+  const Z={s:1,x:0,y:0,max:o.max||8,ptr:new Map(),pan:null,pinch:null};
+  const lay=()=>{const r=target.getBoundingClientRect();return {l:r.left-Z.x,t:r.top-Z.y};};
+  const apply=()=>{
+    if(Z.s<=1.001){Z.s=1;Z.x=0;Z.y=0;}
+    target.style.transform=Z.s===1?'':`translate(${Z.x}px,${Z.y}px) scale(${Z.s})`;
+    target.classList.toggle('zoomed',Z.s>1);
+    if(o.info){const el=o.info();if(el){el.hidden=Z.s===1;el.textContent=o.label?o.label(Z.s):Math.round(Z.s*100)+' %';}}
+    if(o.onChange)o.onChange(Z.s);
+  };
+  Z.to=(s,cx,cy)=>{s=Math.max(1,Math.min(Z.max,s));const L=lay();
+    if(cx==null){const r=host.getBoundingClientRect();cx=r.left+r.width/2;cy=r.top+r.height/2;}
+    const ux=(cx-L.l-Z.x)/Z.s,uy=(cy-L.t-Z.y)/Z.s;Z.x=cx-L.l-s*ux;Z.y=cy-L.t-s*uy;Z.s=s;apply();};
+  Z.reset=()=>{Z.s=1;apply();};
+  host.addEventListener('wheel',e=>{if(o.enabled&&!o.enabled())return;e.preventDefault();Z.to(Z.s*Math.exp(-e.deltaY*(e.deltaMode===1?0.05:0.0016)),e.clientX,e.clientY);},{passive:false});
+  host.addEventListener('dblclick',e=>{if(o.enabled&&!o.enabled())return;if(e.target.closest('button'))return;e.preventDefault();
+    const one=o.oneToOne?o.oneToOne():2;Z.to(Z.s>1.01?1:Math.max(one,1.5),e.clientX,e.clientY);});
+  host.addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;Z.ptr.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(Z.ptr.size===2){const [a,b]=[...Z.ptr.values()];Z.pinch={d:Math.hypot(a.x-b.x,a.y-b.y),s:Z.s};Z.pan=null;e.stopPropagation();return;}
+    if(Z.s>1&&(!o.panOk||o.panOk(e))){Z.pan={x:e.clientX,y:e.clientY,ox:Z.x,oy:Z.y};host.setPointerCapture(e.pointerId);e.stopPropagation();}},true);
+  host.addEventListener('pointermove',e=>{if(!Z.ptr.has(e.pointerId))return;Z.ptr.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(Z.pinch&&Z.ptr.size===2){const [a,b]=[...Z.ptr.values()];Z.to(Z.pinch.s*Math.hypot(a.x-b.x,a.y-b.y)/Math.max(1,Z.pinch.d),(a.x+b.x)/2,(a.y+b.y)/2);e.stopPropagation();return;}
+    if(Z.pan){Z.x=Z.pan.ox+e.clientX-Z.pan.x;Z.y=Z.pan.oy+e.clientY-Z.pan.y;apply();e.stopPropagation();}},true);
+  const up=e=>{Z.ptr.delete(e.pointerId);if(Z.ptr.size<2)Z.pinch=null;if(!Z.ptr.size)Z.pan=null;};
+  host.addEventListener('pointerup',up,true);host.addEventListener('pointercancel',up,true);
+  return Z;
 }
+
+// ---------- Großansicht
+const LB={list:null,i:0,tok:0,msgT:0,stars:false,starCache:new Map()};
+function openLightbox(i){
+  LB.list=FV.view.slice();LB.i=i;$('#lb').hidden=false;LBZ.reset();renderLightbox();
+}
+// Sterne der b2stacker-Erkennung als Ellipsen (Größe = FWHM, Form = Exzentrizität); rot = länglich
+async function drawStars(){
+  const svg=$('#lbSvg'),btn=$('#lbStars');btn.classList.toggle('on',LB.stars);btn.setAttribute('aria-pressed',LB.stars);
+  const info=$('#lbStarInfo');
+  if(!LB.stars||!LB.list){svg.innerHTML='';if(info)info.textContent='';return;}
+  const f=LB.list[LB.i];let d=LB.starCache.get(f.id);
+  if(!d){if(info)info.innerHTML=`${ic('spinner','s14 spin')} Sterne werden erkannt …`;
+    try{d=await api('/api/frame/'+f.id+'/stars');LB.starCache.set(f.id,d);}catch(e){if(info)info.textContent='Sterne nicht verfügbar: '+e.message;svg.innerHTML='';return;}
+    if(!LB.list||LB.list[LB.i]!==f||!LB.stars)return;}
+  svg.setAttribute('viewBox',`0 0 ${d.width} ${d.height}`);
+  const col=e=>e<0.5?'#8ff0a4':e<0.65?'#f8e45c':'#ff7b63';
+  svg.innerHTML=d.stars.map(x=>{const rx=Math.max(3,x[2]*1.4),ry=rx*Math.sqrt(Math.max(0.05,1-x[3]*x[3]));
+    return `<ellipse cx="${x[0]}" cy="${x[1]}" rx="${rx}" ry="${ry}" transform="rotate(${x[4]} ${x[0]} ${x[1]})" stroke="${col(x[3])}" vector-effect="non-scaling-stroke"/>`;}).join('');
+  const inf=$('#lbStarInfo');
+  if(inf)inf.innerHTML=`${int(d.nstars)} Sterne erkannt${d.stars.length<d.nstars?`, die hellsten ${int(d.stars.length)} markiert`:''} · FWHM ${d.fwhm_med!=null?num(d.fwhm_med,1)+' px':'–'} · Form ${d.ecc_med!=null?num(d.ecc_med,2):'–'}<br><span style="color:#8ff0a4">●</span> rund <span style="color:#f8e45c">●</span> leicht oval <span style="color:#ff7b63">●</span> länglich · b2stacker-Erkennung`;
+}
+const LBZ=makeZoom($('#lbImgBox'),$('#lbZoom'),{max:10,info:()=>$('#lbZoomI'),
+  oneToOne:()=>{const img=$('#lbImg'),b=$('#lbImgBox');if(!img.naturalWidth)return 2;const ar=img.naturalWidth/img.naturalHeight;
+    const w=Math.min(b.clientWidth,b.clientHeight*ar);return img.naturalWidth/Math.max(1,w);},
+  label:s=>Math.round(s*100)+' % · Doppelklick: einpassen'});
+$('#lbStars').innerHTML=ic('search','s14')+'<span class="hl"> Sterne</span>';
+$('#lbStars').onclick=()=>{LB.stars=!LB.stars;drawStars();};
 function closeLightbox(silent){
   if($('#lb').hidden)return;$('#lb').hidden=true;LB.list=null;LB.tok++;
   if(!silent&&S.route.tab==='frames'){applyFrameView();}
@@ -1431,7 +1492,7 @@ function lbGo(d){
   if(!LB.list)return;const n=LB.i+d;
   if(n<0){lbMsg('erstes Bild');return;}
   if(n>=LB.list.length){lbMsg('letztes Bild');return;}
-  LB.i=n;$('#lbMsg').hidden=true;renderLightbox();
+  LB.i=n;$('#lbMsg').hidden=true;LBZ.reset();renderLightbox();
 }
 function renderLightbox(){
   if(!LB.list||$('#lb').hidden)return;
@@ -1461,9 +1522,11 @@ function renderLightbox(){
       <button class="dbtn auto" data-d="auto" ${man?'':'disabled style="opacity:.4;cursor:default"'}>${ic('undo')}<span class="g">Automatik entscheiden lassen</span><span class="kbd">A</span></button>
       <button class="dbtn del ${f.status==='delete'?'on':''}" data-d="delete">${ic('trash')}<span class="g">Zum Löschen vormerken</span><span class="kbd">Entf</span></button></div>
     <div class="meta">${m.map(([k,v])=>`<span>${k}</span><span>${esc(v)}</span>`).join('')}</div>
+    <div class="stinfo" id="lbStarInfo"></div>
     <div class="fpath" title="Datei">${esc(f.path)}</div>
-    <div class="keys lbkeys"><span><span class="kbd">←</span> <span class="kbd">→</span> blättern</span><span><span class="kbd">V</span> <span class="kbd">N</span> entscheiden und weiter</span><span><span class="kbd">A</span> Automatik</span><span><span class="kbd">Entf</span> zum Löschen vormerken</span><span><span class="kbd">Esc</span> schließen</span></div>`;
+    <div class="keys lbkeys"><span><span class="kbd">←</span> <span class="kbd">→</span> blättern</span><span><span class="kbd">V</span> <span class="kbd">N</span> entscheiden und weiter</span><span><span class="kbd">A</span> Automatik</span><span><span class="kbd">Entf</span> zum Löschen vormerken</span><span><span class="kbd">S</span> Sterne</span><span>Mausrad/Doppelklick: Zoom</span><span><span class="kbd">Esc</span> schließen</span></div>`;
   $$('#lbSide [data-d]').forEach(b=>b.onclick=()=>lbDecide(b.dataset.d));
+  drawStars();
 }
 function lbDecide(d){
   if(!LB.list)return;const f=LB.list[LB.i];
@@ -1487,6 +1550,10 @@ window.addEventListener('keydown',e=>{
   else if(!e.repeat&&k==='n'){e.preventDefault();lbDecide('skip');}
   else if(!e.repeat&&k==='a'){e.preventDefault();lbDecide('auto');}
   else if(!e.repeat&&k==='Delete'){e.preventDefault();lbDecide('delete');}
+  else if(!e.repeat&&k==='s'){e.preventDefault();LB.stars=!LB.stars;drawStars();}
+  else if(k==='+'||k==='='){e.preventDefault();LBZ.to(LBZ.s*1.5);}
+  else if(k==='-'){e.preventDefault();LBZ.to(LBZ.s/1.5);}
+  else if(k==='0'){e.preventDefault();LBZ.reset();}
 });
 
 /* =====================================================================================================
@@ -1740,7 +1807,7 @@ function openCompare(a,b){
   $('#cmpA').innerHTML=opt(a);$('#cmpB').innerHTML=opt(b);
   $('#cmp').hidden=false;setSlider(50);loadCompare();
 }
-function closeCompare(){if($('#cmp').hidden)return;$('#cmp').hidden=true;CV.tok++;CV.data=null;$('#cmpIa').removeAttribute('src');$('#cmpIb').removeAttribute('src');}
+function closeCompare(){if($('#cmp').hidden)return;$('#cmp').hidden=true;if(CV.zoom)CV.zoom.reset();CV.tok++;CV.data=null;$('#cmpIa').removeAttribute('src');$('#cmpIb').removeAttribute('src');}
 function setSlider(x){CV.x=Math.max(0,Math.min(100,x));$('#cmpBox').style.setProperty('--x',CV.x+'%');const r=$('#cmpRange');if(r)r.value=CV.x;}
 function fitCompare(){
   const d=CV.data,box=$('#cmpBox'),host=$('#cmpImg');if(!d||!d.align)return;
@@ -1750,7 +1817,7 @@ function fitCompare(){
 }
 window.addEventListener('resize',()=>{if(!$('#cmp').hidden)fitCompare();});
 async function loadCompare(){
-  const tok=++CV.tok,pid=S.P.id,msg=$('#cmpMsg');
+  const tok=++CV.tok,pid=S.P.id,msg=$('#cmpMsg');if(CV.zoom)CV.zoom.reset();
   if(CV.a===CV.b){msg.hidden=false;msg.textContent='Bitte zwei verschiedene Stacks wählen.';$('#cmpSide').innerHTML='';return;}
   msg.hidden=false;msg.innerHTML=`${ic('spinner','s14 spin')} Stacks werden ausgerichtet …`;
   $('#cmpSide').innerHTML=`<div class="live">${ic('spinner','s14 spin')} Werte werden geladen …</div>`;
@@ -1780,7 +1847,7 @@ function renderCompareSide(){
       <div>Lights</div><div class="v">${int(d.a.frames)}</div><div class="v">${int(d.b.frames)}</div></div>
     <div class="small muted">Weniger ist besser bei Schärfe, Rauschen, Sternform und Verlauf, mehr bei Sternen. Unter 2 % Unterschied gilt als gleich.${d.a.quality_error||d.b.quality_error?' Fehlende Werte: '+esc(d.a.quality_error||d.b.quality_error):''}</div>
     ${['a','b'].map(k=>`<div class="cnote"><span class="rlab">Notiz ${k.toUpperCase()} · ${esc(d[k].name)}</span><textarea data-cnote="${k}" rows="2" placeholder="Notiz zu diesem Stack …">${esc(d[k].note||'')}</textarea></div>`).join('')}
-    <div class="small muted">${al?(al.aligned?`Gleiche Streckung für beide. B wurde um ${num(Math.hypot(al.dx,al.dy),1)} px verschoben, damit die Sterne genau auf A liegen.`:'Ausrichten war nicht sicher möglich.'):''} Eine Drehung zwischen den Stacks wird noch nicht ausgeglichen.</div>`;
+    <div class="small muted">${al?(al.aligned?`Gleiche Streckung für beide. B wurde ${al.rotation?`um ${num(Math.abs(al.rotation),1)}° gedreht und `:''}um ${num(Math.hypot(al.dx,al.dy),1)} px verschoben, damit die Sterne genau auf A liegen.`:'Ausrichten war nicht sicher möglich.'):''} Mausrad oder Doppelklick zoomt, ziehen neben dem Schieber verschiebt.</div>`;
   $('#cmpRange').oninput=e=>setSlider(+e.target.value);
   $$('[data-cnote]').forEach(t=>t.onchange=async()=>{const k=t.dataset.cnote,sid=d[k].id,text=t.value.trim();
     try{await api('/api/projects/'+S.P.id+'/stacks/'+sid+'/note',{text});d[k].note=text;const s=(S.P.stacks||[]).find(x=>x.id===sid);if(s)s.note=text;toast('Notiz gespeichert');}catch(e){toast(e.message,true);}});
@@ -1793,6 +1860,8 @@ $('#cmpSwap').onclick=()=>{[CV.a,CV.b]=[CV.b,CV.a];$('#cmpA').value=CV.a;$('#cmp
 (function(){
   const box=$('#cmpBox');
   const at=e=>{const r=box.getBoundingClientRect();setSlider(100*(e.clientX-r.left)/Math.max(1,r.width));};
+  CV.zoom=makeZoom($('#cmpImg'),box,{max:8,info:()=>$('#cmpZoomI'),onChange:s=>box.style.setProperty('--zs',s),label:s=>Math.round(s*100)+' % · Doppelklick: einpassen',
+    panOk:e=>{const r=box.getBoundingClientRect(),hx=r.left+r.width*CV.x/100;return Math.abs(e.clientX-hx)>28;}});
   box.addEventListener('pointerdown',e=>{CV.drag=true;box.setPointerCapture(e.pointerId);at(e);});
   box.addEventListener('pointermove',e=>{if(CV.drag)at(e);});
   box.addEventListener('pointerup',()=>{CV.drag=false;});
@@ -1947,7 +2016,7 @@ async function renderLibrary(){
   if(!list.length){$('#libBox').innerHTML=`<div class="empty"><div class="t">Noch keine Master</div><div class="x">Nach dem ersten Stack mit Bias, Darks oder Flats erscheinen die Master hier.</div></div>`;return;}
   const total=list.reduce((a,m)=>a+(m.size||0),0);
   const groups=Object.keys(MTYPE).map(k=>[k,list.filter(m=>m.type===k)]).filter(g=>g[1].length);
-  $('#libBox').innerHTML=`<div class="sec" style="gap:18px"><div class="fsum"><span>${plural(list.length,'Master','Master')}</span><span>${gb(total)}</span><span>${int(new Set(list.map(m=>m.project_id)).size)} ${list.length===1?'Projekt':'Projekte'}</span></div>
+  $('#libBox').innerHTML=`<div class="sec" style="gap:18px"><div class="fsum"><span>${plural(list.length,'Master','Master')}</span><span>${gb(total)}</span><span>${plural(new Set(list.map(m=>m.project_id)).size,'Projekt','Projekte')}</span></div>
     ${groups.map(([k,ms])=>`<div class="sec" style="gap:8px"><h3 class="lh">${MTYPE[k][0]} <span class="n">${ms.length}</span></h3><div class="card mlist">${ms.map(mRow).join('')}</div></div>`).join('')}
     <div class="keys">${ic('info','s14')} Entfernen löscht nur den gespeicherten Master (eine von b2stacker erzeugte Datei). Die Kalibrier-Rohframes bleiben; beim nächsten Stack entsteht der Master bei Bedarf neu.</div></div>`;
   $$('[data-mdel]').forEach(b=>b.onclick=async()=>{

@@ -89,3 +89,16 @@ def preview(ws, db, fid: int) -> tuple[str, str]:
     except (OSError, ValueError, RuntimeError) as e:
         raise MediaError("Vorschau nicht möglich: %s" % e, 422) from None
     return out, os.path.splitext(os.path.basename(out))[0]
+
+
+def stars(ws, db, fid: int) -> dict:
+    """Erkannte Sterne eines Frames (Originalpixel) für die Markierung in der Großansicht; zwischengespeichert."""
+    from .. import starmap
+    row = _known_file(db, fid)
+    if row["missing_since"] or not os.path.isfile(row["path"]):
+        raise MediaError("Originaldatei nicht erreichbar: %s" % row["path"])
+    bayer = db.value("SELECT bayer FROM files WHERE id = ?", (fid,))
+    try:
+        return starmap.frame_stars(row["path"], os.path.join(ws.previews, "stars"), bayer)
+    except (OSError, ValueError, RuntimeError) as e:
+        raise MediaError("Sterne nicht erkennbar: %s" % e, 422) from None
