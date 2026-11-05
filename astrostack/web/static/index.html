@@ -298,6 +298,8 @@ h3{margin:0;font-size:16px;font-weight:700}
 .cmpbox{transform-origin:0 0}
 .hbtn.on{background:rgba(255,255,255,.16)}
 .stinfo{font-size:13px;opacity:.75;text-wrap:pretty}
+.touchonly{display:none}
+@media (pointer:coarse){.touchonly{display:inline}.dbtn .kbd,.lbkeys>span:not(.touchonly){display:none}}
 .lbnav{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:44px;border:0;border-radius:999px;background:rgba(255,255,255,.1);color:#fff;cursor:pointer;display:grid;place-items:center}
 .lbnav:hover{background:rgba(255,255,255,.2)}
 .lbnav.l{left:14px}.lbnav.r{right:14px}
@@ -514,6 +516,14 @@ details>summary{cursor:pointer}
   .tli{grid-template-columns:104px 32px minmax(0,1fr)}.tli .tw{white-space:normal}
   .cmpbar{top:-20px}
 }
+@media (max-width:640px){
+  .cmptop{padding:0 4px 0 10px;gap:6px}.cmptop .ct,.cmptop .vs,#cmpSwap .hl{display:none}.cmptop select{flex:1 1 0;min-width:0;max-width:none!important}
+  .mrow{grid-template-columns:minmax(0,1fr) auto;padding:10px 12px}.mrow .mi{display:none}.mrow .mn{white-space:normal}.mrow .ms{grid-column:1;grid-row:2;justify-self:start}
+  .mrow [data-mdel]{grid-column:2;grid-row:1/3}
+  .dl{grid-template-columns:minmax(0,1fr) auto;row-gap:2px}.dl .m:nth-of-type(2){display:none}
+  .lbtop .hl{display:none}
+  .tabs{overflow-x:auto;scrollbar-width:none}
+}
 @media (max-width:640px){.stk{grid-template-columns:1fr}.stk .sp{min-height:180px}.tli{grid-template-columns:32px minmax(0,1fr)}.tli .tw{grid-column:2;padding-top:0;order:3}.cmptop select{max-width:120px}}
 @media (max-width:1000px){
   main.view{padding:20px 16px 72px}
@@ -558,8 +568,8 @@ details>summary{cursor:pointer}
 
 <!-- Vergleich zweier Stacks: übereinander mit Schieber -->
 <div class="cmp" id="cmp" hidden role="dialog" aria-modal="true" aria-label="Stacks vergleichen">
-  <div class="cmptop"><b>Vergleich</b><select id="cmpA" aria-label="Stack A (links)"></select><span class="vs">gegen</span><select id="cmpB" aria-label="Stack B (rechts)"></select>
-    <button class="btn sm ghost" id="cmpSwap" title="A und B tauschen">⇄ tauschen</button><span class="grow"></span>
+  <div class="cmptop"><b class="ct">Vergleich</b><select id="cmpA" aria-label="Stack A (links)"></select><span class="vs">gegen</span><select id="cmpB" aria-label="Stack B (rechts)"></select>
+    <button class="btn sm ghost" id="cmpSwap" title="A und B tauschen">⇄<span class="hl"> tauschen</span></button><span class="grow"></span>
     <button class="hbtn icon" id="cmpClose" title="Schließen (Esc)" aria-label="Schließen"></button></div>
   <div class="cmpimg" id="cmpImg"><div class="zoomi" id="cmpZoomI" hidden></div><div class="cmpbox" id="cmpBox"><img id="cmpIa" class="ca" alt=""><img id="cmpIb" class="cb" alt=""><div class="cmph"></div></div>
     <span class="cmplab a" id="cmpLa"></span><span class="cmplab b" id="cmpLb"></span><div class="cmpmsg" id="cmpMsg" hidden></div></div>
@@ -1482,6 +1492,15 @@ const LBZ=makeZoom($('#lbImgBox'),$('#lbZoom'),{max:10,info:()=>$('#lbZoomI'),
     const w=Math.min(b.clientWidth,b.clientHeight*ar);return img.naturalWidth/Math.max(1,w);},
   label:s=>Math.round(s*100)+' % · Doppelklick: einpassen'});
 $('#lbStars').innerHTML=ic('search','s14')+'<span class="hl"> Sterne</span>';
+(function(){
+  const box=$('#lbImgBox');let st=null;
+  box.addEventListener('pointerdown',e=>{if(e.pointerType!=='touch'||LBZ.s>1||e.target.closest('button'))return;st={x:e.clientX,y:e.clientY,id:e.pointerId,n:LBZ.ptr.size-1};});
+  box.addEventListener('pointerup',e=>{if(!st||e.pointerId!==st.id)return;const dx=e.clientX-st.x,dy=e.clientY-st.y,multi=st.n>0||LBZ.s>1;st=null;
+    if(multi)return;
+    if(Math.abs(dx)>60&&Math.abs(dx)>1.5*Math.abs(dy))lbGo(dx<0?1:-1);
+    else if(Math.abs(dy)>70&&Math.abs(dy)>1.5*Math.abs(dx)){lbDecide(dy<0?'use':'skip');lbMsg(dy<0?'verwendet':'nicht verwendet');}});
+  box.addEventListener('pointercancel',()=>{st=null;});
+})();
 $('#lbStars').onclick=()=>{LB.stars=!LB.stars;drawStars();};
 function closeLightbox(silent){
   if($('#lb').hidden)return;$('#lb').hidden=true;LB.list=null;LB.tok++;
@@ -1524,7 +1543,7 @@ function renderLightbox(){
     <div class="meta">${m.map(([k,v])=>`<span>${k}</span><span>${esc(v)}</span>`).join('')}</div>
     <div class="stinfo" id="lbStarInfo"></div>
     <div class="fpath" title="Datei">${esc(f.path)}</div>
-    <div class="keys lbkeys"><span><span class="kbd">←</span> <span class="kbd">→</span> blättern</span><span><span class="kbd">V</span> <span class="kbd">N</span> entscheiden und weiter</span><span><span class="kbd">A</span> Automatik</span><span><span class="kbd">Entf</span> zum Löschen vormerken</span><span><span class="kbd">S</span> Sterne</span><span>Mausrad/Doppelklick: Zoom</span><span><span class="kbd">Esc</span> schließen</span></div>`;
+    <div class="keys lbkeys"><span><span class="kbd">←</span> <span class="kbd">→</span> blättern</span><span><span class="kbd">V</span> <span class="kbd">N</span> entscheiden und weiter</span><span><span class="kbd">A</span> Automatik</span><span><span class="kbd">Entf</span> zum Löschen vormerken</span><span><span class="kbd">S</span> Sterne</span><span>Mausrad/Doppelklick: Zoom</span><span class="touchonly">Wischen: ← → blättern · ↑ verwenden · ↓ nicht verwenden · zwei Finger: Zoom</span><span><span class="kbd">Esc</span> schließen</span></div>`;
   $$('#lbSide [data-d]').forEach(b=>b.onclick=()=>lbDecide(b.dataset.d));
   drawStars();
 }

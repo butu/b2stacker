@@ -164,3 +164,48 @@ def test_compare_zoom(page, app):
     assert page.locator("#cmpBox").evaluate("e => e.style.getPropertyValue('--x')") == x0
     shot(page, "vergleich-zoom")
     page.keyboard.press("Escape")
+
+
+def test_phone_layout_swipe_and_no_delete(browser, app):  # noqa: F811
+    from playwright.sync_api import sync_playwright  # noqa: F401
+    pid = pid_of(app, "vdB 131")
+    ctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=2, is_mobile=True,
+                              has_touch=True)
+    pg = ctx.new_page()
+    errors = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    try:
+        for url in ("#/", "#/p/%d" % pid, "#/p/%d/frames" % pid, "#/p/%d/plan" % pid, "#/p/%d/stacks" % pid,
+                    "#/kalibrierung", "#/verlauf"):
+            pg.goto(app.url + url)
+            pg.wait_for_timeout(300)
+            over = pg.evaluate("() => document.documentElement.scrollWidth - window.innerWidth")
+            assert over <= 1, (url, over)                                      # kein waagrechtes Scrollen
+        pg.goto(app.url + "#/p/%d/frames" % pid)
+        pg.locator("#vgrid .vt[data-i='0']").tap()
+        expect(pg.locator("#lb")).to_be_visible()
+        expect(pg.locator("#lbN")).to_contain_text("1 von 7")
+        box = pg.locator("#lbImgBox").bounding_box()
+        cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+
+        def swipe(dx, dy):
+            pg.locator("#lbImgBox").dispatch_event("pointerdown", {"pointerType": "touch", "pointerId": 7,
+                                                                    "clientX": cx, "clientY": cy, "isPrimary": True})
+            pg.locator("#lbImgBox").dispatch_event("pointerup", {"pointerType": "touch", "pointerId": 7,
+                                                                  "clientX": cx + dx, "clientY": cy + dy, "isPrimary": True})
+        swipe(-120, 5)
+        expect(pg.locator("#lbN")).to_contain_text("2 von 7")
+        swipe(4, 110)                                                          # runter: nicht verwenden → weiter
+        expect(pg.locator("#lbN")).to_contain_text("3 von 7")
+        fid = app.core.frames(pid, limit=10)["frames"][1]["id"]
+        _wait(lambda: next(f for f in app.core.frames(pid, limit=10)["frames"] if f["id"] == fid)["status"] == "skip")
+        pg.keyboard.press("Escape")
+        app.core.decide(pid, [fid], "delete")
+        pg.goto(app.url + "#/p/%d/frames" % pid)
+        pg.click("#delShow")
+        expect(pg.locator("#delBody")).to_contain_text("nur am Computer")
+        expect(pg.locator("#delOk")).to_be_disabled()
+        shot(pg, "handy-loeschen")
+    finally:
+        ctx.close()
+    assert errors == [], errors
