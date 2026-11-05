@@ -2808,7 +2808,9 @@ function openSettings(){
     <div class="field"><label class="optline"><span class="grow"><div class="t">Vom Handy im Heimnetz erreichbar</div><div class="d">Frames sichten, aussortieren, Plan ändern und Stacken vom Handy oder Tablet im selben WLAN. Nur gekoppelte Geräte mit privater Adresse; Rohdaten löschen und Einstellungen gehen nur hier am Computer.</div></span><span class="switch"><input type="checkbox" id="lanOn"><span></span></span></label>
       <div id="lanBox"></div></div>`+
     `<div class="dsec">KI-Bedienung (MCP)</div>
-    <div class="field"><div class="frow"><input type="text" class="mono" id="mcpUrl" readonly style="font-size:13px" aria-label="MCP-Adresse"><button class="btn sm" type="button" data-copy="mcpUrl">Kopieren</button></div>
+    <div class="field"><span class="lbl">Claude-Desktop-App</span><div class="frow" style="align-items:center"><span class="grow" id="claudeTxt" style="font-size:14px">wird geprüft …</span><button class="btn" type="button" id="claudeBtn" hidden></button></div>
+      <div class="d">Claude kann b2stacker dann bedienen: Projekte und Frames prüfen, Plan anpassen, Stacken einreihen. Alles erscheint hier in der Warteschlange („per Claude“); Originaldateien werden nie verändert. Nach dem Verbinden die Claude-App ganz beenden und neu starten.</div></div>
+    <div class="field"><span class="lbl">Andere KI-Werkzeuge</span><div class="frow"><input type="text" class="mono" id="mcpUrl" readonly style="font-size:13px" aria-label="MCP-Adresse"><button class="btn sm" type="button" data-copy="mcpUrl">Kopieren</button></div>
       <div class="frow"><input type="password" class="mono" id="mcpTok" readonly style="font-size:13px" aria-label="Schlüssel"><button class="btn sm" type="button" id="mcpShow">Zeigen</button><button class="btn sm" type="button" data-copy="mcpTok">Kopieren</button><button class="btn sm" type="button" id="mcpNew" title="Der alte Schlüssel wird ungültig">Neu erzeugen</button></div>
       <details><summary class="small">Fertige Einstellungen zum Kopieren</summary>
         <div class="small" style="margin:8px 0 4px">OpenCode (<span class="mono">opencode.json</span>):</div><textarea id="mcpOc" class="mono" readonly rows="6" style="font-size:12px"></textarea>
@@ -2833,7 +2835,7 @@ function openSettings(){
   lanInfo();
   $('#lanOn').onchange=e=>{const on=e.target.checked;e.target.disabled=true;
     api('/api/lan',{enabled:on}).then(r=>lanInfo(r)).catch(err=>{toast(err.message,true);e.target.checked=!on;}).finally(()=>{e.target.disabled=false;});};
-  mcpInfo();
+  mcpInfo();claudeStatus();
   setDlg.showModal();
 }
 async function lanInfo(r){
@@ -2851,6 +2853,16 @@ async function lanInfo(r){
       <div class="row"><button class="btn sm" type="button" id="lanKey" title="Alle gekoppelten Geräte müssen den QR-Code neu scannen">Alle Handys abmelden</button></div></div></div>`;
   $('#lanKey').onclick=async()=>{if(!await ask('Alle Handys abmelden?','Jedes Gerät muss danach den neuen QR-Code scannen.','Abmelden',true))return;
     try{lanInfo(await api('/api/lan-key',{}));toast('Neuer QR-Code – alle Handys sind abgemeldet');}catch(e){toast(e.message,true);}};
+}
+async function claudeStatus(r){
+  const t=$('#claudeTxt'),b=$('#claudeBtn');if(!t)return;
+  try{r=r||await api('/api/claude');}catch(e){t.textContent='Status nicht lesbar: '+e.message;return;}
+  const ok=r.installed&&r.current;
+  t.innerHTML=`${ok?`<span class="okc">${ic('check','s14')}</span> `:''}${esc(r.text)}`;
+  b.hidden=!r.claude_found&&!r.installed;b.className='btn'+(ok?' ghost':' primary');
+  b.textContent=ok?'Verbindung entfernen':r.installed?'Neu verbinden':'Mit Claude verbinden';
+  b.onclick=()=>busy(b,async()=>{const x=await api('/api/claude/'+(ok?'uninstall':'install'),{});
+    toast(ok?'Verbindung entfernt – Claude-App neu starten':'Verbunden – jetzt die Claude-App ganz beenden und neu starten');claudeStatus(x);});
 }
 async function mcpInfo(r){
   try{r=r||await api('/api/mcp-info',{});}catch(e){$('#mcpUrl').value='nicht verfügbar: '+e.message;return;}

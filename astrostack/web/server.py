@@ -628,6 +628,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(c.timeline(project, limit=_int(q, "limit", 100)))
         if api == ["backups"]:
             return self._json(c.backups())
+        if api == ["claude"]:                                    # Verbindung zur Claude-Desktop-App (MCP)
+            from .. import claude_link
+            return self._json(claude_link.status())
         if api == ["checklist"]:
             from .. import checklist
             outs = checklist.outputs_for(_str(q, "run") or "")
@@ -763,6 +766,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"paths": dialogs_web().pick_images(_text(b, "initial"))})
             except RuntimeError as e:
                 raise ValueError(str(e)) from None
+        if api in (["claude", "install"], ["claude", "uninstall"]):
+            from .. import claude_link
+            return self._json(claude_link.install() if api[1] == "install" else claude_link.uninstall())
         if api == ["selftest"]:
             return self._json(c.selftest(_text(b, "folder")))
         if len(api) == 3 and api[0] == "library" and api[2] == "delete":

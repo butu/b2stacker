@@ -499,3 +499,25 @@ def test_import_old_and_pixinsight_stacks(proj, tmp_path):
     src = ha["files"][0]
     co.delete_stack(pid, ha["id"])                                                     # Eintrag weg, Datei bleibt
     assert os.path.isfile(src) and os.path.isdir(os.path.dirname(src))
+
+
+def test_claude_desktop_link_endpoints(proj, tmp_path, monkeypatch):
+    import json as _json
+    co, pid, _ = proj
+    cfg = tmp_path / "Claude" / "claude_desktop_config.json"
+    cfg.parent.mkdir()
+    cfg.write_text(_json.dumps({"mcpServers": {"andere": {"command": "x"}}}))
+    monkeypatch.setenv("B2_CLAUDE_CONFIG", str(cfg))
+    s = _settings(tmp_path, monkeypatch, co.ws.root, co.pixinsight)
+    srv = _serve(co, s)
+    try:
+        st, r, _ = call(srv, "GET", "/api/claude")
+        assert st == 200 and r["claude_found"] and not r["installed"]
+        st, r, _ = call(srv, "POST", "/api/claude/install")
+        assert st == 200 and r["installed"] and r["current"]
+        d = _json.loads(cfg.read_text())
+        assert "andere" in d["mcpServers"] and d["mcpServers"]["b2stacker"]["args"][-1] == "mcp"
+        st, r, _ = call(srv, "POST", "/api/claude/uninstall")
+        assert st == 200 and not r["installed"]
+    finally:
+        _stop(srv)
