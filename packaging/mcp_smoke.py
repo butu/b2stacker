@@ -47,8 +47,8 @@ r = m["result"]
 if r.get("isError"):
     raise SystemExit("status: " + r["content"][0]["text"])
 st = json.loads(r["content"][0]["text"])
-print("status: App %s, Version %s, neu gestartet %s, %d Projekte (%.1f s)" % (st["app"], st["version"], st["started_now"],
-                                                                          st["projects"], dt))
+print("status: Version %s, %s Projekte, Arbeitsverzeichnis %s (%.1f s)" % (st.get("version"), st.get("projects"),
+                                                                       st.get("workdir"), dt))
 send({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "list_projects", "arguments": {}}})
 m, dt = answer(4)
 print("list_projects: %s (%.2f s)" % (m["result"]["content"][0]["text"][:200], dt))
@@ -62,7 +62,10 @@ except subprocess.TimeoutExpired:
 print("MCP-Server beendet nach %.1f s (Exit %s)" % (time.time() - t0, p.returncode))
 import urllib.request
 time.sleep(2)
-with urllib.request.urlopen(st["app"] + "api/sys", timeout=10) as r:      # App muss das MCP-Ende überleben
-    json.loads(r.read())
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+os.environ.pop("B2_APP_URL", None)
+from astrostack import appclient  # noqa: E402
+if not appclient.find():                                                  # App muss das MCP-Ende überleben
+    raise SystemExit("App läuft nach dem Ende der MCP-Verbindung nicht mehr")
 print("App läuft nach dem Ende der MCP-Verbindung weiter")
 print("MCP-Server der exe OK")

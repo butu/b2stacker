@@ -58,10 +58,19 @@ jobs:
           Run-Exe @("--json", "plan", "`"vdB 131`"")
           Run-Exe @("logs", "--last", "5")
 
-      - name: Server ohne Fenster starten und abfragen
+      - name: Neue Oberfläche ohne Fenster (Projekt anlegen, einlesen, MCP)
         shell: pwsh
         run: |
           $env:ASTROSTACK_SETTINGS = "$env:RUNNER_TEMP\as\settings.json"
+          python packaging/web_smoke.py dist\b2stacker.exe "$env:RUNNER_TEMP\as\NINA"
+          Get-Process b2stacker -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 2
+
+      - name: Alte Oberfläche ohne Fenster starten und abfragen (B2_OLD_UI=1)
+        shell: pwsh
+        run: |
+          $env:ASTROSTACK_SETTINGS = "$env:RUNNER_TEMP\as\settings.json"
+          $env:B2_OLD_UI = "1"
           $p = Start-Process dist\b2stacker.exe -ArgumentList "gui","--no-browser" -PassThru
           Start-Sleep -Seconds 8
           $s = Invoke-RestMethod http://127.0.0.1:8765/api/state
