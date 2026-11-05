@@ -26,9 +26,13 @@ def config_candidates() -> list[str]:
         out.append(os.path.join(appdata, "Claude", FILE))
         local = os.environ.get("LOCALAPPDATA") or os.path.expanduser(r"~\AppData\Local")
         # Store-/MSIX-Installation (Paketname je nach Version) und ältere Installationsorte
-        for pattern in (("Packages", "Claude_*", "LocalCache", "Roaming", "Claude", FILE),
-                        ("Packages", "*Claude*", "LocalCache", "Roaming", "Claude", FILE),
-                        ("AnthropicClaude", FILE), ("Claude", FILE)):
+        # Store-/MSIX-Installation: der Paketordner existiert auch, wenn die Konfiguration noch fehlt
+        for pkg in sorted(glob.glob(os.path.join(local, "Packages", "Claude_*"))
+                          + glob.glob(os.path.join(local, "Packages", "*Claude*"))):
+            hit = os.path.join(pkg, "LocalCache", "Roaming", "Claude", FILE)
+            if hit not in out:
+                out.append(hit)
+        for pattern in (("AnthropicClaude", FILE), ("Claude", FILE)):
             for hit in sorted(glob.glob(os.path.join(local, *pattern))):
                 if hit not in out:
                     out.append(hit)
@@ -93,6 +97,8 @@ def status() -> dict:
     """Ist b2stacker eingetragen, und zeigt der Eintrag auf dieses Programm?"""
     cands = config_candidates()
     claude = any(os.path.isdir(os.path.dirname(p)) for p in cands)
+    if not claude and sys.platform == "win32":     # MSIX: Paket da, aber LocalCache\Roaming\Claude noch nicht
+        claude = any(os.path.isdir(p.split(os.sep + "LocalCache")[0]) for p in cands if os.sep + "LocalCache" in p)
     want = server_entry()
     files = []
     for p in cands:
@@ -108,7 +114,7 @@ def status() -> dict:
     installed = any(f.get("installed") for f in files)
     current = installed and all(f.get("current") for f in files if f.get("installed"))
     if not claude:
-        text = "Claude-Desktop-App nicht gefunden."
+        text = "Claude-Desktop-App nicht gefunden (gesucht: %s)." % "; ".join(os.path.dirname(p) for p in cands)
     elif not installed:
         text = "Nicht verbunden."
     elif not current:

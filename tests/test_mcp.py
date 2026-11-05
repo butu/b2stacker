@@ -284,3 +284,18 @@ def test_claude_link_api(app, tmp_path, monkeypatch):
     assert c.get("api/claude")["installed"] is False
     assert c.post("api/claude/install")["installed"] is True
     assert c.post("api/claude/uninstall")["installed"] is False
+
+
+def test_claude_store_app_found_without_config(tmp_path, monkeypatch):
+    """Store-/MSIX-Claude ohne Konfigurationsdatei: Paketordner reicht, sonst „nicht gefunden“ samt Suchorten."""
+    import sys as _sys
+    from astrostack import claude_link
+    monkeypatch.delenv("B2_CLAUDE_CONFIG", raising=False)
+    monkeypatch.setattr(_sys, "platform", "win32")
+    monkeypatch.setenv("APPDATA", str(tmp_path / "roam"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    st = claude_link.status()
+    assert not st["claude_found"] and "gesucht" in st["text"] and "roam" in st["text"]
+    (tmp_path / "local" / "Packages" / "Claude_pzs8sxrjxfjjc").mkdir(parents=True)
+    st = claude_link.status()
+    assert st["claude_found"] and st["text"] == "Nicht verbunden."
