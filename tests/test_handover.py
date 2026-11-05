@@ -249,3 +249,29 @@ def test_masters_are_kept_and_reused(stacked):
     assert job["reusedMasters"] == {} and [f["type"] for f in job["files"]].count("bias") == 5
     # Prüfsumme fehlt → kein Schlüssel, Rohframes
     assert handover.master_key(db, "bias", []) is None
+
+
+def test_wbpp_params_are_numbers_not_text(stacked):
+    """vdB 131 RGB: hotPixelFilterRadius="2" → StarAlignment „numeric value expected“, kein Stack."""
+    ws, db, plan, _, _ = stacked
+    run = _ha(plan)
+    sd = {"hotPixelFilterRadius": "2", "maxStarDistortion": "0.52", "minStructureSize": "4",
+          "noiseReductionFilterRadius": "1"}
+    run = dict(run, settings=[dict(s, value=sd) if s["key"] == "star_detection" else s for s in run["settings"]]
+               + ([] if any(s["key"] == "star_detection" for s in run["settings"]) else
+                  [dict(key="star_detection", value=sd)]))
+    job = handover.build_job(db, run, os.path.join(ws.temp, "num"))
+    p = job["params"]
+    assert p["hotPixelFilterRadius"] == 2 and isinstance(p["hotPixelFilterRadius"], int)
+    assert p["maxStarDistortion"] == 0.52 and isinstance(p["maxStarDistortion"], float)
+    assert all(not (isinstance(v, str) and v.replace(".", "").isdigit()) for v in p.values())
+    assert handover._numeric({"a": "2", "b": "0,5", "c": "F:/x 2.fits", "referenceImage": "1"}) == \
+        {"a": 2, "b": 0.5, "c": "F:/x 2.fits", "referenceImage": "1"}
+
+
+def test_type_error_in_wbpp_log_is_explained():
+    from astrostack import wbpplog
+    t = ("*** Error: Registration [Light frames] failed: StarAlignment.hotPixelFilterRadius(): "
+         "Invalid argument type: numeric value expected.")
+    texts = [d["text"] for d in wbpplog.diagnose_text(t)]
+    assert any("hotPixelFilterRadius" in x for x in texts) and not any("Sonderzeichen" in x for x in texts)

@@ -212,7 +212,10 @@ _CAUSES = [
      "PixInsight-Hotpixel-Korrektur braucht einen Master-Dark."),
     (re.compile(r"(?:File|Directory) not found:\s*(.+)$", re.I | re.M), "error",
      "PixInsight findet eine Datei nicht: {path} – ist das Laufwerk erreichbar?"),
-    (re.compile(r"Invalid argument", re.I), "error",
+    (re.compile(r"(\w+)\.(\w+)\(\): Invalid argument type: numeric value expected", re.I), "error",
+     "Eine Einstellung ({path}) wurde an PixInsight als Text statt als Zahl übergeben – ein Fehler in b2stacker, "
+     "nicht in deinen Daten. Bitte b2stacker aktualisieren und neu stacken."),
+    (re.compile(r"Invalid argument(?! type: numeric value expected)", re.I), "error",
      "PixInsight hat ein Argument nicht verstanden (Sonderzeichen im Pfad?)."),
     (re.compile(r"Flat frames not calibrated", re.I), "error",
      "Die Flats konnten nicht kalibriert werden, weil ein Master-Bias bzw. Dark-Flat fehlt."),

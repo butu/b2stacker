@@ -56,6 +56,23 @@ class HandoverError(RuntimeError):
     pass
 
 
+def _numeric(params: dict) -> dict:
+    """Die WBPP-Engine prüft Typen: ``StarAlignment.hotPixelFilterRadius()`` mit "2" statt 2 bricht die
+    Registrierung ab (vdB 131, RGB: „numeric value expected“, kein Light überlebt). Zahlen als Text daher immer
+    in echte Zahlen wandeln – Pfade und Namen bleiben Text."""
+    out = {}
+    for k, val in params.items():
+        if isinstance(val, str) and k not in ("referenceImage",):
+            t = val.strip().replace(",", ".")
+            try:
+                f = float(t)
+                val = int(f) if f.is_integer() and "." not in t and "e" not in t.lower() else f
+            except ValueError:
+                pass
+        out[k] = val
+    return out
+
+
 def pi_path(p: str) -> str:
     return os.path.abspath(p).replace("\\", "/")
 
@@ -168,7 +185,7 @@ def build_job(db: dbm.Database, run: dict, out_dir: str, reference_path: str | N
         files += [dict(path=pi_path(p), type="dark") for p in _paths(db, dark_ids).values()]
     v = wbpp_values(run)
     indexed = {"rejection": [None, None, None, v.pop("rejection_4")]}
-    params = dict(v, groupingKeywordsEnabled=True)
+    params = _numeric(dict(v, groupingKeywordsEnabled=True))
     if reference_path:
         params.update(bestFrameReferenceMethod=0, referenceImage=pi_path(reference_path))
     else:
