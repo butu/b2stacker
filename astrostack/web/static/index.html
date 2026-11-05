@@ -496,7 +496,13 @@ dialog.ask .af .btn{flex:1;height:38px;font-weight:700}
 details>summary{cursor:pointer}
 
 /* ---------- Stacks (Teil 2) */
-.stks{display:flex;flex-direction:column;gap:14px}
+.stks{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;align-items:start}
+.stks .stk{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto}
+.stks .stk .sp{min-height:210px}
+.stk.newstk{color:#fff;text-decoration:none;border-style:dashed}
+.stk.newstk .sp{background:rgba(255,255,255,.03)}.stk.newstk:hover{border-color:var(--accent)}
+.nsi{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;background:var(--fill-2);color:#fff}
+
 .stk{display:grid;grid-template-columns:300px minmax(0,1fr);background:var(--card);border:1px solid var(--card-line);border-radius:14px;overflow:hidden;min-width:0}
 .stk.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .stk.nopv{grid-template-columns:minmax(0,1fr)}
@@ -1285,8 +1291,8 @@ $('#npName').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#npOk').cli
 const TABS={
   overview:{label:'Übersicht',render:renderOverview},
   frames:{label:'Frames',render:renderFrames},
-  plan:{label:'Plan',render:renderPlan},
-  stacks:{label:'Stacks',render:renderStacks},
+  stacks:{label:'Stacking',render:renderStacks},
+  plan:{label:'Neuer Stack',render:renderPlan,sub:'stacks'},        // Unterseite von „Stacking“
   gallery:{label:'Galerie',render:renderGallery},
   history:{label:'Verlauf',render:renderProjectHistory},
 };
@@ -1338,8 +1344,14 @@ function renderHead(){
       <div class="pt"><h1 id="pName">${esc(p.name)}</h1><button class="editbtn" id="pRen" title="Umbenennen" aria-label="Umbenennen">${ic('edit')}</button></div>
       <p class="pdesc${p.description?'':' none'}" id="pDesc" title="Klicken zum Bearbeiten">${esc(p.description||'Beschreibung hinzufügen …')}</p>
       <div class="pmeta">${p._partial?'<span>wird geladen …</span>':(cnt.length?cnt.map(x=>`<span>${x}</span>`).join(''):'<span>noch keine Dateien</span>')}</div></div>
-    <div class="row"><button class="btn" id="pRefresh" title="Ordner jetzt auf neue oder geänderte Dateien prüfen">${ic('refresh')} Neu prüfen</button></div>`;
+    <div class="row"><button class="btn" id="pRefresh" title="Ordner jetzt auf neue oder geänderte Dateien prüfen, fehlende Messwerte und Vorschaubilder nachholen">${ic('refresh')} Neu prüfen</button>
+      <button class="btn icon hideremote" id="pMenu" title="Weitere Aktionen" aria-label="Weitere Aktionen">${ic('more')}</button></div>`;
   $('#pRen').onclick=startRename;$('#pName').ondblclick=startRename;
+  const pm=$('#pMenu');if(pm)pm.onclick=()=>{const p2=$('#selPop');
+    p2.innerHTML=`<button type="button" class="mi" data-pm="import">${ic('layers')}<span class="grow">Vorhandene Stacks übernehmen …</span></button>
+      <button type="button" class="mi" data-pm="report">${ic('report')}<span class="grow">Ausführlicher Bericht</span></button>`;
+    p2.style.minWidth='260px';openPop('selPop',pm,false);
+    $$('[data-pm]',p2).forEach(b=>b.onclick=()=>{closePops();if(b.dataset.pm==='import')openImport();else openReport(S.P.id);});};
   $('#pDesc').onclick=startDescribe;
   $('#pRefresh').onclick=e=>busy(e.currentTarget,async()=>{onTask(await api('/api/projects/'+p.id+'/refresh',{}));});
   const l=$('#pLive');if(l)l.innerHTML=liveHtml(p.id);
@@ -1370,8 +1382,9 @@ function startDescribe(){
 function renderTabs(){
   const n=$('#pTabs');if(!n||!S.P)return;const c=S.P.counts||{};
   const total=['light','flat','bias','dark','darkflat'].reduce((s,k)=>s+(c[k]||0),0);
-  n.innerHTML=Object.entries(TABS).map(([k,t])=>`<a href="#/p/${S.P.id}/${k}" class="${S.route.tab===k?'on':''}" data-tab="${k}">${t.label}
-    ${k==='frames'&&total?`<span class="n">${int(total)}</span>`:''}${k==='stacks'&&(S.P.stacks||[]).length?`<span class="n">${int(S.P.stacks.length)}</span>`:''}${k==='plan'&&S.P.plan?(S.P.plan.ready?`<span class="pill ok" style="padding:0 7px">bereit</span>`:''):''}${t.soon?'<span class="soon">bald</span>':''}</a>`).join('');
+  const cur=(TABS[S.route.tab]||{}).sub||S.route.tab;
+  n.innerHTML=Object.entries(TABS).filter(([,t])=>!t.sub).map(([k,t])=>`<a href="#/p/${S.P.id}/${k}" class="${cur===k?'on':''}" data-tab="${k}">${t.label}
+    ${k==='frames'&&total?`<span class="n">${int(total)}</span>`:''}${k==='stacks'&&(S.P.stacks||[]).length?`<span class="n">${int(S.P.stacks.length)}</span>`:''}${k==='stacks'&&S.P.plan&&S.P.plan.ready?`<span class="pill ok" style="padding:0 7px">bereit</span>`:''}${t.soon?'<span class="soon">bald</span>':''}</a>`).join('');
 }
 function renderTab(){
   const box=$('#tab');if(!box||!S.P)return;
@@ -2027,6 +2040,8 @@ function hintHtml(h){
 }
 function renderPlan(box){
   const p=S.P,plan=p.plan;
+  const back=`<a class="back" href="#/p/${p.id}/stacks" style="margin:0 0 12px">${ic('prev','s14')} Stacking</a>`;
+  setTimeout(()=>{if(S.route.tab==='plan'&&box.firstElementChild&&!box.querySelector('.back'))box.insertAdjacentHTML('afterbegin',back);},0);
   if(p._partial){box.innerHTML=`<div class="live">${ic('spinner','s14 spin')} Plan wird geladen …</div>`;return;}
   if(!plan||!(plan.runs||[]).length){
     const busyNow=projTasks(p.id).some(t=>t.lane==='analysis');
@@ -2305,9 +2320,9 @@ function renderStacks(box){
   SV.sel=SV.sel.filter(id=>st.some(s=>s.id===id&&s.status==='done'));
   const runSt=stackBlock().st;
   if(!st.length){
-    box.innerHTML=(runSt?'<div class="card" id="stackBox" style="margin-bottom:16px"></div>':'')+`<div class="empty"><div class="t">Noch keine Stacks</div><div class="x">Sobald der Plan bereit ist, startest du das Stacken im Tab „Plan“. Jeder Stack bekommt hier seinen Eintrag – mit Vorschau, Qualitätswerten und Platz für Notizen. Alle Stacks bleiben erhalten, bis du sie löschst.</div>
-      <div class="row" style="margin-top:8px;justify-content:center"><a class="btn primary" href="#/p/${p.id}/plan">Zum Plan</a><button class="btn hideremote" data-import>Vorhandene Stacks übernehmen …</button></div></div>`;
-    $$('[data-import]',box).forEach(x=>x.onclick=openImport);if(runSt)renderStackBox();return;
+    box.innerHTML=(runSt?'<div class="card" id="stackBox" style="margin-bottom:16px"></div>':'')+`<div class="empty"><div class="t">Noch keine Stacks</div><div class="x">Mit „Neuer Stack“ siehst du den Plan – welche Lights, Flats und Einstellungen verwendet werden – und startest von dort. Jeder Stack bekommt hier seinen Eintrag – mit Vorschau, Qualitätswerten und Platz für Notizen. Alle Stacks bleiben erhalten, bis du sie löschst.</div>
+      <div class="row" style="margin-top:8px;justify-content:center"><a class="btn primary" href="#/p/${p.id}/plan">${ic('plus')} Neuer Stack</a></div></div>`;
+    if(runSt)renderStackBox();return;
   }
   box.innerHTML=`<div class="sec" style="gap:16px">${runSt?'<div class="card" id="stackBox"></div>':''}
     <div class="cmpbar" id="cmpBar"></div>
@@ -2315,16 +2330,23 @@ function renderStacks(box){
       ${QL.map(([k,l,h])=>`<p><b>${l}:</b> ${esc(h)}</p>`).join('')}
       <p><b>Vergleichen:</b> Zwei Stacks anhaken (oder „Neuesten vergleichen“). Beide werden gleich gestreckt und übereinandergelegt – der Schieber zeigt den Unterschied, die Werte stehen nebeneinander. So siehst du, ob mehr Nächte, andere Flats oder strengeres Aussortieren wirklich besser sind.</p>
       <p><b>Danach:</b> „Spickzettel“ zeigt die Reihenfolge der Bearbeitung in PixInsight, passend zum Ergebnis.</p></div></details>
-    <div class="stks">${st.map(stackCard).join('')}</div></div>`;
+    <div class="stks">${newStackTile(p)}${st.map(stackCard).join('')}</div></div>`;
   renderCmpBar();
   if(runSt)renderStackBox();
   wireStacks(box);
+}
+function newStackTile(p){
+  const plan=p.plan,on=((plan&&plan.runs)||[]).filter(r=>r.enabled),h=on.reduce((a,r)=>a+(r.hours||0),0);
+  return `<a class="stk newstk" href="#/p/${p.id}/plan"><div class="sp"><span class="nsi">${ic('plus','s18')}</span></div>
+    <div class="sb"><div class="st"><h3>Neuer Stack</h3>${plan&&plan.ready?'<span class="pill ok">bereit</span>':''}</div>
+      <div class="smeta"><span>${plan&&plan.ready?plural(on.length,'Lauf','Läufe')+' · '+hrs(h)+' h Belichtung':'Plan ansehen – was fehlt noch?'}</span></div>
+      <div class="small muted">Lights, Flats und Einstellungen prüfen, anpassen und stacken.</div></div></a>`;
 }
 function renderCmpBar(){
   const b=$('#cmpBar');if(!b||!S.P)return;
   const st=S.P.stacks||[],dn=doneStacks(),total=st.reduce((a,s)=>a+(s.size_bytes||0),0),n=SV.sel.length;
   b.innerHTML=`<div class="grow"><b>${plural(st.length,'Stack','Stacks')}</b> <span class="muted small">· ${bytes(total)} im Projektordner</span></div>
-    <button class="btn sm ghost hideremote" data-import title="Ergebnisse aus b2stacker 0.10 oder direkt aus PixInsight/WBPP in die Liste holen">Stacks übernehmen …</button>
+
     ${dn.length>=2?(n===2?`<span class="small">2 ausgewählt</span><button class="btn sm ghost" id="cmpClr">Auswahl aufheben</button><button class="btn sm primary" id="cmpGo">${ic('layers','s14')} Vergleichen</button>`:
       `<span class="small muted">${n?'Noch einen Stack wählen':'Zwei Stacks wählen, um sie zu vergleichen'}</span><button class="btn sm" id="cmpLatest" title="Neuester Stack gegen den vorigen desselben Laufs">${ic('layers','s14')} Neuesten vergleichen</button>`):''}`;
   $$('[data-import]',b).forEach(x=>x.onclick=openImport);

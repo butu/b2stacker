@@ -30,6 +30,13 @@ def stack_name(run: dict, day: datetime.date | None = None) -> str:
     return folder_name("%s %s %dh%02d" % (day.isoformat(), run.get("name") or "Stack", minutes // 60, minutes % 60))
 
 
+def display_name(run: dict, day: datetime.date | None = None) -> str:
+    """Name in der Stack-Liste: wie der Ergebnisordner, bei Auswahl der besten Frames mit Zusatz – unterscheidbar."""
+    name = stack_name(run, day)
+    top = run.get("top_percent") or 100
+    return name + (" · beste %g %%" % top if top < 100 else "")
+
+
 def _unique_dir(parent: str, name: str) -> str:
     cand, n = name, 2
     while os.path.exists(os.path.join(parent, cand)):
@@ -164,7 +171,7 @@ def stack_project(db: dbm.Database, ws: Workspace, pid: int, pixinsight: str, ru
             cur = db.execute(
                 "INSERT INTO stacks (project_id, name, folder, status, created_at, run_label, frames, exposure_s, "
                 "nights, settings_json, reference_file_id) VALUES (?, ?, '', 'running', ?, ?, ?, ?, ?, ?, ?)",
-                (pid, run["name"], now, run["name"], run["lights"], run["hours"] * 3600, len(run["nights"]),
+                (pid, display_name(run), now, run["name"], run["lights"], run["hours"] * 3600, len(run["nights"]),
                  json.dumps(dict(settings=run["settings"], origin=origin, aligned_to_master=bool(align_master))),
                  None if align_master else run.get("reference_id")))
             sid = int(cur.lastrowid)
