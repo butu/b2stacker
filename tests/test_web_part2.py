@@ -186,6 +186,17 @@ def test_gallery_add_files_and_folders_cover_missing_hide(c, tmp_path):  # noqa:
         assert os.path.isfile(p) and v == g[n]["version"]
     with pytest.raises(Exception):
         co.asset_thumb(g["e.psd"]["id"])                       # kaputtes PSD: Platzhalter in der Oberfläche
+    # Bild-Infos: Maße, Bittiefe, Header/EXIF, Messwerte (zwischengespeichert)
+    d = co.asset_info(g["d.xisf"]["id"])
+    assert (d["width"], d["height"], d["format"], d["float"]) == (80, 60, "XISF", True)
+    assert d["measured"] and d["measured"]["stars"] >= 1
+    assert co.asset_info(g["d.xisf"]["id"]) == d
+    t = co.asset_info(g["c16.tif"]["id"])
+    assert t["bits"] == 16 and t["channels"] == 1
+    j = co.asset_info(g["a.jpg"]["id"])
+    assert j["bits"] == 8 and j["format"] == "JPEG"
+    with pytest.raises(Exception):
+        co.asset_info(g["e.psd"]["id"])
     assert co.add_images(pid, [single])["known"] == 1          # doppelt: nichts Neues
     with pytest.raises(ValueError, match="unterstützt"):
         co.add_images(pid, [str(ext / "notiz.txt")])

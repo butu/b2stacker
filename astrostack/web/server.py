@@ -639,6 +639,8 @@ class Handler(BaseHTTPRequestHandler):
         if len(api) == 3 and api[0] == "stacks" and api[2] == "preview":
             path, version = self._file(c.stack_preview, self._fid(api[1]))
             return self._image(path, version, immutable=_str(q, "v") == version)
+        if len(api) == 3 and api[0] == "assets" and api[2] == "info":
+            return self._json(c.asset_info(self._fid(api[1])))
         if len(api) == 3 and api[0] == "assets" and api[2] in ("thumb", "view"):
             path, version = self._file(c.asset_thumb, self._fid(api[1]), api[2] == "view")
             return self._image(path, version, immutable=_str(q, "v") == version)

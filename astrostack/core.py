@@ -584,6 +584,23 @@ class Core:
         self._notify("projects")
         self._notify("project", id=pid)
 
+    def asset_info(self, asset_id: int) -> dict:
+        """Bild-Infos für die Galerie: Maße, Bittiefe, Header/EXIF, gemessene Sterne/FWHM/Rauschen."""
+        pid = self.db.value("SELECT project_id FROM assets WHERE id = ?", (int(asset_id),))
+        scale = None
+        if pid:
+            vals = []
+            for r in self.db.query("SELECT m.data_json FROM frame_metrics m JOIN project_files pf ON pf.file_id = "
+                                   "m.file_id WHERE pf.project_id = ? LIMIT 50", (pid,)):
+                try:
+                    v = json.loads(r["data_json"] or "{}").get("pixscale")
+                    if v:
+                        vals.append(float(v))
+                except (ValueError, TypeError):
+                    pass
+            scale = sorted(vals)[len(vals) // 2] if vals else None
+        return gallery.info(self.db, self.ws, int(asset_id), scale)
+
     def asset_thumb(self, asset_id: int, large: bool = False) -> tuple[str, str]:
         return gallery.thumb(self.db, self.ws, int(asset_id), gallery.VIEW_W if large else gallery.THUMB_W)
 

@@ -309,3 +309,116 @@ def relocate(db: dbm.Database, pid: int, old_dir: str, new_dir: str) -> None:
                 if os.path.normcase(r["path"]).startswith(os.path.normcase(old)):
                     db.execute("UPDATE %s SET path = ? WHERE id = ?" % table,
                                (os.path.join(new_dir, r["path"][len(old):]), r["id"]))
+
+
+# ------------------------------------------------------------------ Bild-Infos für die Großansicht
+
+INFO_VERSION = 1
+_EXIF = {306: "Datum", 305: "Software", 271: "Hersteller", 272: "Kamera", 315: "Autor", 270: "Beschreibung",
+         33432: "Copyright"}
+
+
+def _load_any(path: str) -> tuple[np.ndarray, dict, dict]:
+    """→ (Bild als float32 [K, H, W], Header, Format-Infos)"""
+    ext = os.path.splitext(path)[1].lower()
+    fmt: dict = {}
+    if ext == ".xisf":
+        from . import xisf
+        a = np.asarray(xisf.read_image(path, 0))
+        hdr = dict(xisf.read_header(path))
+        fmt["format"] = "XISF"
+    elif ext in (".fit", ".fits", ".fts"):
+        from astropy.io import fits
+        with fits.open(path, memmap=False) as hd:
+            h = next(x for x in hd if getattr(x, "data", None) is not None)
+            a = np.asarray(h.data)
+            hdr = {k: v for k, v in dict(hd[0].header).items() if k not in ("COMMENT", "HISTORY", "")}
+            hdr.update({k: v for k, v in dict(h.header).items() if k not in ("COMMENT", "HISTORY", "")})
+        fmt["format"] = "FITS"
+    else:
+        from PIL import Image
+        Image.MAX_IMAGE_PIXELS = 400_000_000
+        with Image.open(path) as im:
+            fmt["format"] = im.format or ext.lstrip(".").upper()
+            fmt["mode"] = im.mode
+            try:
+                ex = im.getexif()
+                hdr = {_EXIF[k]: str(v)[:200] for k, v in ex.items() if k in _EXIF}
+            except Exception:  # noqa: BLE001
+                hdr = {}
+            if im.mode not in ("RGB", "L", "F", "I") and not im.mode.startswith("I;"):
+                im = im.convert("RGB")
+            a = np.asarray(im)
+        fmt["bits"] = {"1": 1, "L": 8, "P": 8, "RGB": 8, "RGBA": 8, "I;16": 16, "I;16B": 16, "I;16L": 16,
+                       "I": 32, "F": 32}.get(fmt.get("mode"), None)
+        if a.ndim == 3:
+            a = np.moveaxis(a[..., :3], -1, 0)
+    fmt.setdefault("bits", {1: 8, 2: 16, 4: 32, 8: 64}.get(a.dtype.itemsize))
+    fmt["float"] = bool(np.issubdtype(a.dtype, np.floating))
+    a = np.asarray(a, dtype=np.float32)
+    if a.ndim == 2:
+        a = a[None]
+    return a, hdr, fmt
+
+
+def _hdr_public(hdr: dict) -> dict:
+    out = {}
+    for k, v in list(hdr.items())[:300]:
+        if isinstance(v, (bytes, bytearray)):
+            continue
+        s = v if isinstance(v, (int, float, bool)) else str(v)[:200]
+        if isinstance(s, float) and s != s:
+            continue
+        out[str(k)] = s
+    return out
+
+
+def _num(v):
+    try:
+        f = float(v)
+        return f if f == f else None
+    except (TypeError, ValueError):
+        return None
+
+
+def info(db: dbm.Database, ws, aid: int, pixscale: float | None = None) -> dict:
+    """Alles zu einem Galerie-Bild: Pixelmaße, Kanäle, Bittiefe, Header bzw. EXIF und gemessene Werte (Sterne,
+    FWHM, Rundheit, Rauschen, Hintergrund). Ergebnis wird je Dateiversion zwischengespeichert."""
+    row = db.one("SELECT id, path, size, mtime_ns, missing_since FROM assets WHERE id = ?", (aid,))
+    if row is None:
+        raise FileNotFoundError("Bild nicht gefunden.")
+    version = thumb_version(row)
+    cache = os.path.join(ws.previews, "assets", "%d-%s-info%d.json" % (aid, version, INFO_VERSION))
+    try:
+        with open(cache, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        pass
+    if row["missing_since"] or not os.path.isfile(row["path"]):
+        raise FileNotFoundError("Datei fehlt: " + row["path"])
+    a, hdr, fmt = _load_any(row["path"])
+    k, h, w = a.shape
+    out = dict(width=int(w), height=int(h), channels=int(k), megapixel=round(w * h / 1e6, 1), **fmt,
+               header=_hdr_public(hdr))
+    hu = {str(x).upper(): y for x, y in hdr.items()}
+    px, fl = _num(hu.get("XPIXSZ")), _num(hu.get("FOCALLEN"))
+    scale = (206.265 * px / fl) if (px and fl) else pixscale
+    out["pixscale"] = round(scale, 3) if scale else None
+    if scale:
+        out["field"] = "%.0f′ × %.0f′" % (w * scale / 60, h * scale / 60)
+    try:
+        from . import stackqa
+        b = np.nan_to_num(a)
+        hi = float(b.max()) if b.size else 1.0
+        if hi > 1.5:
+            b = b / (65535.0 if hi <= 65535 else hi)
+        q = stackqa.kpis(np.clip(b, 0, 1), scale)
+        out["measured"] = {x: q.get(x) for x in ("stars", "fwhm_px", "fwhm_as", "hfr_px", "ecc", "noise", "bg",
+                                                 "snr_bg", "gradient_pct")}
+        out["linear"] = bool(fmt.get("float") and (q.get("bg") or 0) < 0.25 * 65535)
+    except Exception as e:  # noqa: BLE001 – Messung ist ein Zusatz
+        out["measured"] = None
+        out["measure_error"] = str(e)[:200]
+    from .previews import _atomic_write
+    _atomic_write(cache, json.dumps(out, ensure_ascii=False, default=str).encode("utf-8"))
+    return out

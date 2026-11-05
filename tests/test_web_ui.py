@@ -531,6 +531,7 @@ def test_gallery_add_folder_cover_on_start_tile_and_missing(page, app, tmp_path)
     first.locator(".ph").click()
     expect(page.locator("#gv")).to_be_visible()
     expect(page.locator("#gvLoad")).to_be_hidden(timeout=10000)
+    expect(page.locator("#gvInfo")).to_contain_text("Pixel", timeout=10000)          # Maße, Format, Messwerte
     page.keyboard.press("Escape")
     # Startseite: Kachel mit dem gewählten Bild
     page.goto(app.url + "#/")
