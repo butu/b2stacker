@@ -311,6 +311,16 @@ def test_overview_nights_rig_hints_and_report(page, app):
     assert rows.count() >= 1
     rows.first.locator("td").first.click()                       # aufklappen: Warum / Was tun
     expect(page.locator("#insBox tr.nsub")).to_contain_text("Was tun")
+    fl = page.locator("#insBox tr.nsub [data-nflats]")
+    if fl.count():                                                  # „Flats anzeigen“: genau die verwendeten Flats
+        fl.first.click()
+        expect(page).to_have_url(re.compile(r"#/p/%d/frames" % pid))
+        expect(page.locator("#fType button.on")).to_contain_text("Flats")
+        expect(page.locator(".banner.info")).to_contain_text("Flats für die Nacht")
+        page.click("#fOnlyX")
+        page.goto(app.url + "#/p/%d/overview" % pid)
+        expect(page.locator("#insBox .ntab tr.nrow").first).to_be_visible(timeout=20000)
+        rows = page.locator("#insBox .ntab tr.nrow")
     expect(page.locator("#insBox")).to_contain_text("Rig-Hinweise")
     # sortierbare Spalten: zweiter Klick dreht um
     page.locator("#insBox th[data-ns='night']").click()

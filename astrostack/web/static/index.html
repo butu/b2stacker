@@ -481,6 +481,7 @@ dialog.rep iframe{flex:1;border:0;width:100%;background:#1e1e1e;border-radius:0 
 .ntab tr.nsub td{white-space:normal;background:rgba(255,255,255,.025);font-size:13px}
 .nscroll{overflow-x:auto}
 .tli.link{cursor:pointer;border-radius:8px}.tli.link:hover{background:rgba(255,255,255,.04)}
+.fthumbs{display:flex;gap:4px;flex-wrap:wrap;margin:6px 0}.fthumbs img{width:64px;height:43px;object-fit:cover;border-radius:4px;background:#111}
 .mrow2{margin:2px 0;line-height:1.5}
 .ntab th.sortable{cursor:pointer;user-select:none}.ntab th.sortable:hover,.ntab th.on{color:#fff}
 .rigchips{display:flex;flex-wrap:wrap;gap:6px;padding:12px 16px 4px}
@@ -1479,7 +1480,7 @@ function renderInsights(box,d){
           <td class="num">${n.alt_min!=null?Math.round(n.alt_min)+'–'+Math.round(n.alt_max)+'°':'–'}</td>
           <td><span class="pill ${g[0]}" title="${esc(n.why+' '+n.todo)}">${n.grade||''} · ${g[1]}</span></td>
           <td><button class="btn ghost sm" data-ngo="${esc(k)}" title="Frames dieser Nacht ansehen">Frames</button></td></tr>
-          ${op?`<tr class="nsub"><td colspan="10"><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start"><div style="flex:1 1 260px;min-width:0"><b>Warum:</b> ${esc(n.why)}<br><b>Was tun:</b> ${esc(n.todo)}${n.temp!=null?`<br><span class="muted">Sensor ${String(Math.round(n.temp*10)/10).replace('.',',')} °C · Hintergrund ${n.bg!=null?Math.round(n.bg):'–'} · Sterne ${n.nstars!=null?Math.round(n.nstars):'–'}</span>`:''}</div>
+          ${op?`<tr class="nsub"><td colspan="10"><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start"><div style="flex:1 1 260px;min-width:0"><b>Warum:</b> ${esc(n.why)}<br><b>Was tun:</b> ${esc(n.todo)}${nightFlatsHtml(n)}${n.temp!=null?`<br><span class="muted">Sensor ${String(Math.round(n.temp*10)/10).replace('.',',')} °C · Hintergrund ${n.bg!=null?Math.round(n.bg):'–'} · Sterne ${n.nstars!=null?Math.round(n.nstars):'–'}</span>`:''}</div>
             ${sky[n.night]?`<div style="flex:1 1 360px;max-width:460px">${skySvg(sky[n.night])}<div class="small muted" style="margin-top:4px">Blau: Objekthöhe · gestrichelt: Mond (${sky[n.night].illum} % beleuchtet) · grau: Dämmerung · Punkte: Aufnahmen (grün verwendet, rot aussortiert)</div></div>`:''}</div></td></tr>`:''}`;}).join('')||'<tr><td colspan="10" class="muted">Noch keine vermessenen Lights.</td></tr>'}
       </tbody></table></div>
       ${(d.rec||[]).length?`<div class="clist" style="border-top:1px solid var(--div)">${d.rec.map(r=>`<div class="citem"><span class="ci infoc">${ic('info')}</span><div class="cx">${esc(r)}</div></div>`).join('')}</div>`:''}
@@ -1493,7 +1494,24 @@ function renderInsights(box,d){
   $$('tr.nrow',box).forEach(tr=>tr.onclick=e=>{if(e.target.closest('[data-ngo]'))return;const k=tr.dataset.nk;INS.open.has(k)?INS.open.delete(k):INS.open.add(k);renderInsights(box,d);});
   $$('[data-ngo]',box).forEach(b=>b.onclick=()=>{const [night,filt]=b.dataset.ngo.split('|');FV.type='light';FV.status='all';FV.night=night;FV.filt=filt;location.hash='#/p/'+S.P.id+'/frames';});
   const g=$('#rigGood');if(g)g.onclick=()=>{INS.good=!INS.good;renderInsights(box,d);};
+  $$('[data-nflats]',box).forEach(b=>b.onclick=e=>{e.stopPropagation();const [night,filt]=b.dataset.nflats.split('|');
+    const f=nightFlats({night,filter:filt});FV.type='flat';FV.status='all';FV.filt='';FV.night='';
+    FV.only=f?new Set(f.file_ids):null;FV.onlyLabel='Flats für die Nacht vom '+ymd(night)+' ('+filt+')';location.hash='#/p/'+S.P.id+'/frames';});
   $('#repOpen').onclick=()=>openReport(S.P.id);
+}
+// Flats, die für eine Nacht verwendet werden (aus dem Plan), mit Vorschaubildern
+function nightFlats(n){
+  const runs=((S.P&&S.P.plan)||{}).runs||[];
+  const r=runs.find(x=>(x.filter||'')===(n.filter||''))||runs.find(x=>x.name===n.filter);
+  return r?(r.flats||[]).find(f=>f.night===n.night):null;
+}
+function nightFlatsHtml(n){
+  const f=nightFlats(n);if(!f)return '';
+  const ids=f.file_ids||[];
+  if(!ids.length)return `<div style="margin-top:8px"><b>Flats:</b> <span class="warnc">keine</span> – ${esc(f.reason||'')}</div>`;
+  return `<div style="margin-top:8px"><b>Flats:</b> ${esc(f.reason||'')}
+    <div class="fthumbs">${ids.slice(0,10).map(id=>`<img loading="lazy" alt="" src="/api/thumb/${id}" onerror="this.remove()">`).join('')}${ids.length>10?`<span class="small muted">+${ids.length-10}</span>`:''}</div>
+    <button class="btn sm" data-nflats="${esc(n.night+'|'+n.filter)}">${ic('image','s14')} Flats anzeigen</button></div>`;
 }
 const fmtH=h=>{h=h||0;return h<1?Math.round(h*60)+' min':String(Math.round(h*10)/10).replace('.',',')+' h';};
 function skySvg(s){
@@ -1588,6 +1606,7 @@ async function loadFrames(keep){
   fillFrameFilters();applyFrameView();
 }
 function frameMatches(f){
+  if(FV.only&&!FV.only.has(f.id))return false;
   if(FV.filt&&(f.filter||'')!==FV.filt)return false;
   if(FV.night&&(f.night||'')!==FV.night)return false;
   if(FV.status==='all')return true;
@@ -1635,10 +1654,12 @@ function renderFrames(box){
       <p><b>Warum aussortiert:</b> deutlich weniger Sterne als üblich (Wolken, Dunst), viel hellerer Hintergrund (Dämmerung, Mond, Licht), deutlich unschärfer als der Durchschnitt oder stark ovale Sterne (Wind, Nachführung). Der Grund steht an jedem Frame – in der Großansicht ausführlich.</p>
       <p><b>Was tun:</b> Nichts, wenn die Automatik passt. Sonst Frames auswählen und oben „Verwenden“ oder „Nicht verwenden“ wählen – in der Großansicht geht es mit <span class="kbd">V</span>, <span class="kbd">N</span> und <span class="kbd">A</span> (Automatik) – und so selbst entscheiden – deine Entscheidung gilt dann immer, auch nach neuem Prüfen. „Automatik“ setzt sie zurück. <b>Zum Löschen</b> vormerken entfernt Dateien erst, wenn du es im Banner bestätigst.</p>
       <p><b>Tipp:</b> Nach FWHM oder Sternform sortieren und „nach Nacht gruppieren“ zeigt schnell, welche Nacht schwächelt.</p></div></details>
+    ${FV.only?`<div class="banner info" style="padding:8px 12px">${ic('info','s14')}<div class="grow bx">Gezeigt: ${esc(FV.onlyLabel||'Auswahl')}</div><button class="btn sm" id="fOnlyX">Alle zeigen</button></div>`:''}
     <div id="delBan"></div>
     <div class="vgrid" id="vgrid"></div>
     <div class="keys" id="fKeys">${ic('info','s14')} Doppelklick öffnet die Großansicht · Klick auf das Kästchen, <span class="kbd">Shift</span>+Klick oder <span class="kbd">Strg</span>+Klick wählt mehrere aus</div></div>`;
-  $$('#fType button').forEach(b=>b.onclick=()=>{FV.type=b.dataset.k;FV.sel.clear();FV.filt='';FV.night='';$$('#fType button').forEach(x=>x.classList.toggle('on',x===b));$('#view').scrollTop=0;loadFrames();});
+  const ox=$('#fOnlyX');if(ox)ox.onclick=()=>{FV.only=null;renderTab();};
+  $$('#fType button').forEach(b=>b.onclick=()=>{FV.type=b.dataset.k;FV.sel.clear();FV.filt='';FV.night='';FV.only=null;$$('#fType button').forEach(x=>x.classList.toggle('on',x===b));$('#view').scrollTop=0;loadFrames();});
   $$('#fStat button').forEach(b=>b.onclick=()=>{FV.status=b.dataset.k;$$('#fStat button').forEach(x=>x.classList.toggle('on',x===b));applyFrameView();});
   const sortLabel=()=>{const asc=FV.asc,k=FV.sort;
     $('#fSort').innerHTML=`${ic(asc?'up-arrow':'down-arrow','s14')} `+(k==='time'?(asc?'älteste zuerst':'neueste zuerst'):k==='name'?(asc?'A–Z':'Z–A'):(asc?'kleinste zuerst':'größte zuerst'));};
@@ -2357,20 +2378,31 @@ function renderStacks(box){
   SV.sel=SV.sel.filter(id=>st.some(s=>s.id===id&&s.status==='done'));
   const runSt=stackBlock().st;
   if(!st.length){
-    box.innerHTML=(runSt?'<div class="card" id="stackBox" style="margin-bottom:16px"></div>':'')+`<div class="empty"><div class="t">Noch keine Stacks</div><div class="x">Mit „Neuer Stack“ siehst du den Plan – welche Lights, Flats und Einstellungen verwendet werden – und startest von dort. Jeder Stack bekommt hier seinen Eintrag – mit Vorschau, Qualitätswerten und Platz für Notizen. Alle Stacks bleiben erhalten, bis du sie löschst.</div>
+    box.innerHTML=(runSt?'<div class="card" id="stackBox" style="margin-bottom:16px"></div>':'')+foundStacksHtml(p)+`<div class="empty"><div class="t">Noch keine Stacks</div><div class="x">Mit „Neuer Stack“ siehst du den Plan – welche Lights, Flats und Einstellungen verwendet werden – und startest von dort. Jeder Stack bekommt hier seinen Eintrag – mit Vorschau, Qualitätswerten und Platz für Notizen. Alle Stacks bleiben erhalten, bis du sie löschst.</div>
       <div class="row" style="margin-top:8px;justify-content:center"><a class="btn primary" href="#/p/${p.id}/plan">${ic('plus')} Neuer Stack</a></div></div>`;
-    if(runSt)renderStackBox();return;
+    wireFound(p);if(runSt)renderStackBox();return;
   }
-  box.innerHTML=`<div class="sec" style="gap:16px">${runSt?'<div class="card" id="stackBox"></div>':''}
+  box.innerHTML=`<div class="sec" style="gap:16px">${runSt?'<div class="card" id="stackBox"></div>':''}${foundStacksHtml(p)}
     <div class="cmpbar" id="cmpBar"></div>
     <details class="help"><summary>${ic('info','s14')} Was sagen die Qualitätswerte – und wie vergleiche ich Stacks?</summary><div>
       ${QL.map(([k,l,h])=>`<p><b>${l}:</b> ${esc(h)}</p>`).join('')}
       <p><b>Vergleichen:</b> Zwei Stacks anhaken (oder „Neuesten vergleichen“). Beide werden gleich gestreckt und übereinandergelegt – der Schieber zeigt den Unterschied, die Werte stehen nebeneinander. So siehst du, ob mehr Nächte, andere Flats oder strengeres Aussortieren wirklich besser sind.</p>
       <p><b>Danach:</b> „Spickzettel“ zeigt die Reihenfolge der Bearbeitung in PixInsight, passend zum Ergebnis.</p></div></details>
     <div class="stks">${newStackTile(p)}${st.map(stackCard).join('')}</div></div>`;
-  renderCmpBar();
+  renderCmpBar();wireFound(p);
   if(runSt)renderStackBox();
   wireStacks(box);
+}
+function foundStacksHtml(p){
+  const f=p.found_stacks||[];if(!f.length||document.body.classList.contains('remote'))return '';
+  return `<div class="banner info" id="foundSt">${ic('layers','s18')}<div class="grow"><div class="bt">${plural(f.length,'vorhandener Stack','vorhandene Stacks')} in deinen Ordnern gefunden – übernehmen?</div>
+    <div class="bx">${f.slice(0,4).map(x=>esc(x.name)).join(', ')}${f.length>4?' …':''}. Dann erscheinen sie hier mit Vorschau und Qualität und lassen sich vergleichen. Die Dateien bleiben, wo sie sind.</div></div>
+    <button class="btn primary sm" id="foundYes">Übernehmen</button><button class="btn sm ghost" id="foundNo">Nicht übernehmen</button></div>`;
+}
+function wireFound(p){
+  const y=$('#foundYes'),n=$('#foundNo'),paths=(p.found_stacks||[]).map(x=>x.path);
+  if(y)y.onclick=()=>busy(y,async()=>{const r=await api('/api/projects/'+p.id+'/import-stacks',{paths});toast(plural(r.added.length,'Stack','Stacks')+' übernommen');reloadProject();});
+  if(n)n.onclick=()=>busy(n,async()=>{await api('/api/projects/'+p.id+'/ignore-found-stacks',{paths});reloadProject();});
 }
 function newStackTile(p){
   const plan=p.plan,on=((plan&&plan.runs)||[]).filter(r=>r.enabled),h=on.reduce((a,r)=>a+(r.hours||0),0);

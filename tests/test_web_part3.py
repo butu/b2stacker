@@ -602,3 +602,22 @@ def test_plan_shows_master_reuse(proj):
     ha2 = next(r for r in co.plan(pid)["runs"] if r["filter"] == "HaO3")
     reused = [m for m in ha2["masters"] if m["reused"]]
     assert reused and all("wiederverwendet" in m["why"] and "vdB 131" in m["why"] for m in reused)
+
+
+def test_found_master_lights_are_offered(proj, tmp_path):
+    """Neue Idee: masterLight-Dateien in den Quellordnern werden zum Übernehmen angeboten (bestätigen oder ablehnen)."""
+    import numpy as np
+
+    from astrostack import xisf
+    co, pid, data = proj
+    m = os.path.join(data, "WBPP", "master", "masterLight_BIN-1_FILTER-HaO3_RGB.xisf")
+    os.makedirs(os.path.dirname(m))
+    xisf.write_image(m, (np.random.default_rng(2).random((3, 60, 80)) * 0.05).astype(np.float32),
+                     {"IMAGETYP": "Master Light", "FILTER": "HaO3", "NCOMBINE": 12, "EXPTIME": 600.0})
+    co.refresh(pid, reason="von Hand")
+    assert co.tasks.wait_idle(60)
+    f = co.found_stacks(pid)
+    assert [x["name"] for x in f] == [os.path.basename(m)]
+    co.ignore_found_stacks(pid, [m])
+    assert co.found_stacks(pid) == []
+    assert all(r["light_ids"] for r in co.plan(pid)["runs"])               # Master zählt nicht als Light

@@ -892,6 +892,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(c.refresh(pid, reason="von Hand").as_dict())
             if rest == ["decide"]:
                 return self._json(c.decide(pid, _ids(b, "file_ids"), _text(b, "decision"), _text(b, "reason")))
+            if rest == ["ignore-found-stacks"]:
+                paths = b.get("paths")
+                if not isinstance(paths, list) or not all(isinstance(x, str) for x in paths):
+                    raise ValueError("paths: Liste von Pfaden erforderlich")
+                c.ignore_found_stacks(pid, paths)
+                return self._json({"ok": True})
             if rest == ["import-stacks"]:
                 paths = b.get("paths")
                 if not isinstance(paths, list) or not all(isinstance(x, str) for x in paths):

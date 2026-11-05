@@ -169,7 +169,31 @@ class Core:
         p["stacks"] = self.stacks(pid)
         p["tasks"] = [t.as_dict() for t in self.tasks.active(pid)]
         p["usage"] = self.ws.usage(p["folder"])
+        p["found_stacks"] = self.found_stacks(pid)
         return p
+
+    def found_stacks(self, project) -> list[dict]:
+        """masterLight-Dateien in den Quellordnern, die noch kein Stack in der Liste sind (Vorschlag zum Übernehmen)."""
+        pid = self._pid(project)
+        ignored = set(((fplan.load_edits(self.db, pid).get("options") or {}).get("ignored_stacks") or []))
+        known = {os.path.normcase(r[0]) for r in self.db.query(
+            "SELECT path FROM assets WHERE project_id = ? AND stack_id IS NOT NULL", (pid,))}
+        out = []
+        for r in self.db.query("SELECT f.path, f.filter, f.size FROM files f JOIN project_files pf ON pf.file_id = f.id "
+                               "WHERE pf.project_id = ? AND f.type = 'light' AND f.is_master = 1 "
+                               "AND f.missing_since IS NULL ORDER BY f.path", (pid,)):
+            if os.path.normcase(r["path"]) in known or r["path"] in ignored:
+                continue
+            if "autocrop" in os.path.basename(r["path"]).lower():
+                continue
+            out.append(dict(path=r["path"], name=os.path.basename(r["path"]), filter=r["filter"], size=r["size"]))
+        return out[:50]
+
+    def ignore_found_stacks(self, project, paths: list[str]) -> None:
+        pid = self._pid(project)
+        cur = list(((fplan.load_edits(self.db, pid).get("options") or {}).get("ignored_stacks") or []))
+        fplan.edit_plan(self.db, pid, self.ws.root, options={"ignored_stacks": sorted(set(cur) | set(paths))})
+        self._notify("project", id=pid)
 
     # ------------------------------------------------------------ automatischer Ablauf
     def refresh(self, project, reason: str = "", discover: bool = True) -> tasks.Task:

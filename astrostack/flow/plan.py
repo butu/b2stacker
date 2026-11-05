@@ -326,7 +326,7 @@ def edit_plan(db: dbm.Database, pid: int, workdir: str, options: dict | None = N
               runs: dict | None = None, reset: bool = False) -> dict:
     """Änderungen des Nutzers speichern (``None`` als Wert = zurück zur Automatik) und den Plan neu berechnen."""
     known = set(DEFAULT_OPTIONS) | {"star_detection", "enabled", "top_percent", "reference", "label", "flats",
-                                    "bias", "darks", "flat_ok"}
+                                    "bias", "darks", "flat_ok", "ignored_stacks"}
     edits = {} if reset else load_edits(db, pid)
     for scope, data in (("options", options), ("runs", runs)):
         if not data:
