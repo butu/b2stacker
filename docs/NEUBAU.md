@@ -1,7 +1,7 @@
 # Neubau (Branch `next`)
 
 Verbindlich ist das Konzept „b2stacker – Konzept & Anforderungen“ (Stand 04.11.2026) samt Tab
-„Umsetzungsplan“. Diese Datei hält fest, wie der Code dorthin umgebaut wird. Stand: 04.11.2026.
+„Umsetzungsplan“. Diese Datei hält fest, wie der Code dorthin umgebaut wird. Stand: 05.11.2026.
 
 ## Entscheidungen
 
@@ -33,6 +33,7 @@ Motor: PixInsight + WBPP (JSON-Auftrag, Startskript, Event-Script)
 - Eine Datenbank einer neueren Version wird nicht geöffnet (`DatabaseTooNew`).
 - Sicherung beim Öffnen nach `backup_dir` (letzte 10): immer vor einer Migration, sonst nur bei geändertem
   Inhalt. `db.backup()` für den Menüpunkt, `restore_backup()` zum Zurückspielen.
+- Migration 2 (Teil 2): `assets.hidden`, `assets.mtime_ns`, Index `assets_stack`.
 - Dateien sind global (`files`, kanonischer Pfad), Projekte verweisen über `project_files` darauf, damit ein
   gemeinsamer Flat-Ordner nur einmal gelesen und vermessen wird.
 
@@ -76,10 +77,14 @@ Motor: PixInsight + WBPP (JSON-Auftrag, Startskript, Event-Script)
 | POST | `/api/projects/<id>/stack {run_ids?}` | `stack` |
 | GET | `/api/projects/<id>/stacks` | `stacks` |
 | POST | `/api/projects/<id>/stacks/<sid>/note {text}` · `…/delete` | `note` / `delete_stack` |
-| GET | `/api/history?project=&limit=` · `/api/tasks` | `history` / `tasks.snapshot()` |
+| GET | `/api/history?project=&limit=[&raw=1]` · `/api/tasks` | `timeline` (Klartext, zusammengefasst; `raw=1`: rohe Ereignisse) / `tasks.snapshot()` |
 | POST | `/api/tasks/<id>/cancel` | `tasks.cancel` |
 | GET | `/api/thumb/<file_id>[?v=]` | JPEG aus dem `.npy` (`system/previews/thumbs-jpg`), ETag; mit passendem `v` dauerhaft cachebar |
 | GET | `/api/frame/<file_id>/preview` | große Vorschau aus dem Original (`system/previews/frames`), ETag |
+| GET | `/api/projects/<id>/gallery` · `/api/projects/<id>/compare?a=&b=` | Galerie · Vergleich zweier Stacks (Teil 2) |
+| GET | `/api/stacks/<sid>/preview` · `/api/assets/<aid>/thumb` · `…/view` · `/api/projects/<id>/compare/<a>/<b>/a\|b` | Bilder (JPEG, ETag, mit `?v=` dauerhaft cachebar) |
+| POST | `/api/projects/<id>/gallery {paths[]}` · `…/gallery/<aid>/remove` · `…/cover {asset_id\|null}` | Galerie, Projektbild |
+| GET/POST | `/api/backups` · `/api/backups/restore {name}` · `/api/pick-files {initial}` | Sicherungen, Wiederherstellen, mehrere Bilder wählen |
 | POST | `/api/settings` · `/api/backup` · `/api/clear-temp` · `/api/quit` | Prüfung wie alte App; PixInsight/Analysen gelten sofort. Neues Arbeitsverzeichnis: gilt sofort, solange das alte leer ist (Ersteinrichtung), sonst `restart_needed` |
 | POST | `/api/pick-folder {initial}` · `/api/pick-file {initial, kind}` · `/api/check-pixinsight {path}` | Dialoge und Prüfung der alten App (im Fenster nativ); kein Dialog → 400 mit Klartext |
 | POST | `/api/mcp-info` · `/api/mcp-token` · `/api/focus` | MCP-Adresse, Schlüssel, Schnipsel (nur per POST) · neuer Schlüssel · Fenster nach vorne |
@@ -93,9 +98,8 @@ im Puffer (500 Ereignisse) oder stammt die Nummer aus einem früheren Programmla
 Bootstrap neu laden. Heartbeat (`: ping`) alle 15 s; ein getrennter Client oder das Server-Ende beendet den
 Strom innerhalb ~1 s.
 
-**Offen:** Die MCP-Werkzeuge (`mcp.Tools`) sprechen noch die API der alten App (`appclient`); `/mcp` ist hier
-nur gleich eingehängt, Werkzeugaufrufe scheitern daher am neuen Server. Werkzeuge auf `Core` umstellen ist ein
-eigenes Paket.
+Ab Teil 2 hängt an `/mcp` das Werkzeug-Set auf `Core` (`web/mcp_tools.py`, siehe unten); die alte App behält
+`astrostack/mcp.py`.
 
 ## Neue Oberfläche, Teil 1 – fertig (05.11.2026)
 
@@ -127,10 +131,108 @@ alles wie bisher.
 - Tests: `tests/test_web_ui.py` (Playwright, übersprungen ohne Playwright), Hilfen dort (`App`, `fake_project`)
   auch für Bildschirmfotos nutzbar.
 
-**Haken für Teil 2:** `TABS.stacks` / `TABS.history` (jetzt einfache Platzhalter mit den vorhandenen Daten),
+**Haken für Teil 2 (erledigt, siehe unten):** `TABS.stacks` / `TABS.history` (jetzt einfache Platzhalter mit den vorhandenen Daten),
 `coverUrl(p)` nimmt `cover_url`/`image_url` aus `/api/projects`, sobald der Server sie liefert (Projektbild,
 letzter Stack). Watcher-Ereignisse kommen automatisch als `task`/`project` an. Sternmarkierungen in der
 Großansicht brauchen Sternpositionen vom Server (gibt es noch nicht).
+
+## Neue Oberfläche, Teil 2 – fertig (05.11.2026)
+
+Hash-Routen neu: `#/p/<id>/stacks`, `#/p/<id>/gallery`, `#/p/<id>/history`, `#/verlauf` (allgemeiner Verlauf, Knopf
+„Verlauf“ in der Kopfzeile). Keine Platzhalter mehr.
+
+**Stacks** (`stackview.py`, Tab „Stacks“)
+- Alle Stacks bleiben, neueste zuerst: Vorschau, Lauf, Datum, Lights, Stunden, Nächte, Größe, Status (fehlgeschlagen
+  mit Grund), „Datei fehlt“, Notiz (direkt bearbeiten), „Als Projektbild“, Löschen mit Rückfrage. Löschen entfernt nur
+  Dateien mit `assets.owned = 1` (und `protokoll/`); fremde Dateien im Stack-Ordner und der Ordner bleiben. Ist eine
+  Datei unter Windows geöffnet, bleibt der Stack und es kommt ein Klartext-Fehler.
+- Qualität: nach jedem erfolgreichen Lauf misst `Core.stack` das Light-Master (`stackqa.kpis`: FWHM in ″ wenn
+  Brennweite/Pixelgröße bekannt, sonst px, Rauschen, Sterne, Exzentrizität, Verlauf) → `stacks.quality_json` mit
+  `version`. Dazu `system/previews/stacks/stack-<id>-<hash>.npy` (lineare Kopie, ≤ 1200 px, float16) und `.jpg`
+  (Vorschau). Ältere Stacks ohne (aktuelle) Werte misst `Core.stacks()` einmal im Hintergrund nach (Spur `misc`,
+  `key=quality:<pid>`). Unlesbares Master → `error` in `quality_json`, keine Endlosschleife.
+- Startseite: `cover_url` = gewähltes Projektbild (Galerie-Bild oder Stack), sonst die Vorschau des neuesten Stacks.
+- `Core.rename` zieht gespeicherte Pfade im Projektordner mit (`assets`, `masters`) – vorher zeigten sie nach dem
+  Umbenennen ins Leere.
+
+**Vergleich** (Überlagerung, „Neuesten vergleichen“ oder zwei Stacks ankreuzen)
+- Zwei Vorschauen übereinander mit Schieber (Maus/Touch, ←/→, Shift für feine Schritte), A/B tauschen, Werte
+  nebeneinander mit „besser/schlechter“ (weniger ist besser bei FWHM, Rauschen, Exzentrizität, Verlauf; mehr bei
+  Sternen; unter 2 % gilt als gleich), Notizen beider Stacks direkt bearbeitbar.
+- Ausrichten: Phasenkorrelation (numpy-FFT) auf Sternbild (Hintergrund abgezogen, Hanning-Fenster), Subpixel per
+  Parabel; B wird verschoben und beide werden auf den gemeinsamen Bereich zugeschnitten. **Drehung wird nicht
+  ausgeglichen** (bei gedrehten Sessions liegen die Sterne versetzt) – dafür braucht es später Stern-Matching
+  (Dreiecke) wie in `rotation.py`/`starmap.py`.
+- Gleicher Strich: B wird linear an A angeglichen (Median und 99,5-%-Perzentil je Kanal, das Rauschverhältnis bleibt),
+  dann ein gemeinsamer STF-Strich aus A. Ergebnis in `system/previews/compare/` (Name aus beiden Vorschau-Versionen).
+
+**Galerie** (`gallery.py`, Tab „Galerie“)
+- Mehrere Dateien (`/api/pick-files`: im Fenster nativ, sonst tkinter-Hilfsprozess `_pick-files`) oder ganze Ordner
+  (rekursiv, höchstens 2000 Bilder je Hinzufügen) oder Pfad einfügen. Dateien bleiben, wo sie sind (`owned = 0`).
+- Formate: JPEG, PNG, TIFF (auch 16 bit), PSD (Pillow liest das zusammengesetzte Bild; kaputtes PSD → Symbol
+  „keine Vorschau“), XISF und FITS über die eigenen Leser mit automatischem Strich. Vorschau 640 px, Großansicht
+  1800 px, Cache `system/previews/assets/<id>-<version>.jpg` (Version aus Pfad, Größe, Zeitstempel).
+- In einem Stack-Ordner → gehört zum Stack, sonst zum Projekt. „Aus der Galerie entfernen“ setzt `assets.hidden`
+  (Migration 2); die Datei bleibt und der Watcher nimmt sie nicht wieder auf. Fehlende Dateien: „Datei fehlt“.
+
+**Watcher** (`watcher.py`, im Server-Thread, Einstellung `watch_interval_s`, Standard 45 s)
+- Nur Standardbibliothek: Fingerabdruck je Ordnerbaum aus Ordner-Zeitstempel und Eintragszahl (keine Bilddatei wird
+  geöffnet oder einzeln abgefragt). Quellordner geändert → `core.refresh` (zusammengelegt), Projektordner geändert →
+  `gallery.scan_project_dir` (nicht während gestackt wird; `masters/`, `protokoll/` ausgenommen).
+- Entprellt: erst wenn sich ein Ordner zwei Durchgänge lang nicht mehr ändert (nicht mitten im Kopieren, nicht bei
+  jedem Bild, das NINA schreibt). Erster Durchgang merkt sich nur den Stand (`refresh_all` beim Start prüft ohnehin).
+- Offline-Quellen: jede Prüfung mit 2 s Frist in einem kleinen Thread-Pool; wer hängt, wird 4 Durchgänge
+  übersprungen. Wieder erreichbar → Prüfung. `WebServer.stop()` beendet den Thread sauber.
+- Stacking legt seine Master per Upsert als `owned = 1` an – falls der Watcher sie vorher als fremdes Bild sah.
+
+**Verlauf** (`history.py`, Tab „Verlauf“ und `#/verlauf`)
+- Aus `events`, neueste zuerst, in Klartext mit Symbol und Ton, gruppiert nach Heute/Gestern/Woche/Monat.
+  Zusammengefasst je Projekt: neue Dateien (12 h Lücke → eine Nacht), Frame-Entscheidungen, Planänderungen, die
+  Läufe eines Stack-Klicks, Galerie-Zugänge.
+- `files_discovered` trägt jetzt `groups` (Art, Filter, Nacht, Anzahl, Stunden): `flow.discover` liefert `new_ids`
+  und die Ereignis-ID, `flow.headers.summarize_new` ergänzt nach dem Header-Lesen. Text z. B. „20 neue Lights · Ha ·
+  2,0 h“, Zusatz „Nacht vom 02.11.2026 (vor 2 Nächten) · dazu 4 Flats“. `stack_done` hat Lauf, Lights, Stunden;
+  `stack_deleted` den Namen. Neu: `assets_added`, `cover_set`, `backup_restored`.
+
+**Datenbank-Sicherung** (Einstellungen → Wartung)
+- Zusätzlicher Sicherungsort `backup_dir`: jede Sicherung bleibt in `system/backup` und wird dorthin kopiert (je
+  Ort die letzten 10); nicht erreichbar → nur Protokolleintrag. Liste mit Datum, Größe, Ort, Anlass.
+- Wiederherstellen sofort, ohne Neustart (`core.restore`): während gestackt wird abgelehnt; sonst Aufträge abbrechen,
+  Watcher anhalten, andere Anfragen bekommen kurz 503, gewählte Sicherung an einen sicheren Ort kopieren, jetzigen
+  Stand als `vor-wiederherstellen` sichern, alle Verbindungen schließen, mit der SQLite-Backup-API zurückspielen,
+  neue `Core` öffnen. Beschädigte Sicherung → der bisherige Stand wird wieder geöffnet, Klartext-Fehler.
+  (Ein Neustart mit Marker-Datei wäre die Alternative gewesen; der Wechsel im laufenden Server nutzt denselben Weg
+  wie das neue Arbeitsverzeichnis und ist getestet.)
+
+**MCP auf Core** (`web/mcp_tools.py`, `/mcp` des neuen Servers)
+- Werkzeuge: `status`, `list_projects`, `project`, `frames`, `stacks`, `compare_stacks`, `history`/`logs`, `job`
+  (mit `wait_s`), `create_project`, `add_folders`, `analyze`, `set_frames` (IDs, Pfade oder eindeutige Namen;
+  use/skip/auto), `change_plan`, `stack`, `cancel_job`, `stack_note`, `run_pixinsight_script` (Auftrag in der Spur
+  `stack`, `piscript.check` erzwingt das Arbeitsverzeichnis). `selftest`, `scan_folders`, `settings`,
+  `open_in_pixinsight` gibt es nur in der alten App.
+- Gleiche Regeln: kein Werkzeug löscht oder verändert Bilddateien (es gibt kein Lösch-Werkzeug), Aufträge über MCP
+  heißen „… · per Claude“.
+
+**Kommandozeile** `python -m astrostack neu projects|project|refresh|frames|stack|stacks|history` (mit `--json` vor
+`neu`). Spricht mit dem laufenden neuen Server (Ports 8775–8779, gleiches Arbeitsverzeichnis; `B2_WEB_URL` setzt die
+Adresse fest), sonst mit `Core` direkt und wartet dann auf das Ende des Auftrags. Alte Befehle unverändert.
+
+**Tests:** `tests/test_web_part2.py` (Core/Server/MCP/CLI/Watcher mit kurzem Intervall, echte XISF-Masters über
+einen Stack-Runner-Wrapper), `tests/test_web_ui.py` (Playwright: Stacks, Vergleich, Galerie, Verlauf, Sicherung;
+Hilfe `fake_stack` legt Stacks mit echten Mastern direkt an).
+
+### Was fehlt, bevor die neue Oberfläche Standard werden kann
+
+- Sternmarkierungen in der Großansicht (Sternpositionen vom Server) und Zoom/1:1 im Vergleich.
+- Ausrichten mit Drehung (Stern-Dreiecke) im Vergleich; Vergleich von Mono gegen Farbe nur als Luminanz.
+- Handy-Oberfläche (nur bis ~900 px Breite geprüft; unter 640 px funktioniert es, ist aber nicht gestaltet).
+- Frames löschen bzw. „zum Löschen vormerken“ (Status `delete` ist im Schema, aber ohne Oberfläche und Ablauf).
+- Kalibrier-Bibliothek über Projekte hinweg (Master-Darks/Bias wiederverwenden, Darks mit Temperatur/Gain verwalten).
+- Selbsttest mit echtem PixInsight, „In PixInsight öffnen“, Einstellungen per MCP: nur in der alten App.
+- Update-Hinweis und Installation (alte App) für den neuen Start; `B2_NEW_UI=1` wird dann zum Standard.
+- Anleitung (`docs/ANLEITUNG.md`) beschreibt noch die alte App.
+- Die Galerie zeigt keine Unterordner-Struktur (bewusst: keine Ordneransicht); sehr große Bildmengen (> 2000 je
+  Hinzufügen) werden gekappt.
 
 ## Stand 04.11.2026, Nacht
 
