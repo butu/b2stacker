@@ -270,7 +270,8 @@ h3{margin:0;font-size:16px;font-weight:700}
 .fbar2{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
 .fsel{display:inline-flex;align-items:center;gap:6px}.fsel>svg{opacity:.6}
 .fsize{display:inline-flex;align-items:center;gap:8px;opacity:.85}.fsize input{width:130px;accent-color:#fff}
-.vgh{position:absolute;left:0;right:0;top:0;height:32px;display:flex;align-items:center;gap:12px;padding:0 4px;border-bottom:1px solid var(--div);font-size:14px}
+.vgh{position:absolute;left:0;right:0;top:0;height:32px;display:flex;align-items:center;gap:12px;padding:0 4px;border:0;border-bottom:1px solid var(--div);font-size:14px;background:none;color:#fff;cursor:pointer;text-align:left;width:100%}
+.vgh:hover{background:rgba(255,255,255,.03)}.vgh b{display:inline-flex;align-items:center;gap:6px}
 .vgh span{opacity:.6;font-size:13px}
 .selbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 6px 6px 14px;border-radius:10px;background:var(--info-bg)}
 .selbar b{font-size:14px;margin-right:6px}
@@ -1536,8 +1537,23 @@ const FSTAT=[['all','Alle'],['use','Verwendet'],['skip','Aussortiert'],['delete'
 const fstate=f=>f.status==='use'?'use':f.status==='delete'?'delete':'skip';
 const FCHUNK=5000;
 const FSORT=[['time','Aufnahmezeit','asc'],['fwhm','FWHM (Schärfe)','desc'],['ecc','Sternform (Exzentrizität)','desc'],['nstars','Anzahl Sterne','asc'],['noise','Rauschen','desc'],['bg','Hintergrund','desc'],['exposure','Belichtung','desc'],['name','Dateiname','asc']];
-const FV={type:'light',status:'all',sort:'time',asc:true,filt:'',night:'',group:false,size:170,sel:new Set(),anchor:null,view:[],rows:[],pos:[],geo:null,nodes:new Map(),raf:0};
+const FV={type:'light',status:'all',sort:'time',asc:true,filt:'',night:'',group:'',closed:new Set(),groups:[],size:170,sel:new Set(),anchor:null,view:[],rows:[],pos:[],geo:null,nodes:new Map(),raf:0};
 try{const o=JSON.parse(localStorage.getItem('b2-frames')||'{}');for(const k of ['sort','asc','group','size'])if(o[k]!=null)FV[k]=o[k];}catch(e){}
+if(FV.group===true)FV.group='night';else if(!FV.group)FV.group='';          // frühere Einstellung (an/aus)
+// Gruppieren nach: Schlüssel, Beschriftung der Auswahl, Gruppenschlüssel je Frame, Überschrift
+const FGROUP=[['','keine'],['night','Nacht'],['filter','Filter'],['status','Status'],['reason','Aussortiergrund'],['exposure','Belichtungszeit'],['folder','Quellordner']];
+function groupKey(f){const g=FV.group;
+  if(g==='night')return f.night||'';if(g==='filter')return f.filter||'';
+  if(g==='status')return f.status==='use'?'1use':f.status==='delete'?'3delete':'2skip';
+  if(g==='reason')return f.status==='use'?'0':(f.reason||'aussortiert');
+  if(g==='exposure')return f.exposure!=null?String(f.exposure).padStart(10,'0'):'';
+  if(g==='folder'){const p=String(f.path||'').replace(/\\/g,'/').split('/');p.pop();return p.slice(-2).join('/');}
+  return '';}
+function groupLabel(k){const g=FV.group;
+  if(g==='night')return k?'Nacht vom '+ymd(k):'ohne Datum';if(g==='filter')return k?'Filter '+k:'ohne Filter';
+  if(g==='status')return {'1use':'Verwendet','2skip':'Aussortiert','3delete':'Zum Löschen'}[k]||k;
+  if(g==='reason')return k==='0'?'Verwendet':k;if(g==='exposure')return k?num(+k,+k<10?2:0)+' s':'ohne Belichtungszeit';
+  if(g==='folder')return k||'–';return '';}
 const saveFV=()=>{try{localStorage.setItem('b2-frames',JSON.stringify({sort:FV.sort,asc:FV.asc,group:FV.group,size:FV.size}));}catch(e){}};
 async function loadFrames(keep){
   const p=S.P;if(!p)return;const pid=p.id,type=FV.type;
@@ -1572,11 +1588,14 @@ function applyFrameView(){
   const key=FV.sort,tkey=f=>(f.date_obs||'')+f.path;
   const val=f=>key==='time'?tkey(f):key==='name'?f.name.toLowerCase():f[key];
   v.sort((a,b)=>{
-    if(FV.group){const na=a.night||'',nb=b.night||'';if(na!==nb)return na<nb?-1:1;}
+    if(FV.group){const na=groupKey(a),nb=groupKey(b);if(na!==nb)return na<nb?-1:1;}
     const x=val(a),y=val(b);
     if(x==null&&y==null)return tkey(a)<tkey(b)?-1:1;if(x==null)return 1;if(y==null)return -1;   // ohne Wert ans Ende
     const c=x<y?-1:x>y?1:(tkey(a)<tkey(b)?-1:1);return FV.asc?c:-c;});
-  FV.view=v;
+  // Gruppen (Akkordeon): zugeklappte Gruppen zeigen nur die Überschrift
+  FV.groups=[];
+  if(FV.group){let cur=null;for(const f of v){const k=groupKey(f);if(!cur||cur.key!==k){cur={key:k,label:groupLabel(k),items:[],closed:FV.closed.has(FV.group+'|'+k)};FV.groups.push(cur);}cur.items.push(f);}}
+  FV.view=FV.group?FV.groups.flatMap(g=>g.closed?[]:g.items):v;
   for(const id of [...FV.sel])if(!S.F.list.some(f=>f.id===id))FV.sel.delete(id);
   renderFrameSummary();layoutGrid(true);
 }
@@ -1595,7 +1614,7 @@ function renderFrames(box){
       <button class="btn sm" id="fSort" title="Reihenfolge umdrehen"></button>
       <label class="fsel">${ic('grid','s14')}<select id="fFilt" aria-label="Aufnahmefilter"></select></label>
       <label class="fsel">${ic('clock','s14')}<select id="fNight" aria-label="Nacht"></select></label>
-      <label class="tog small"><span class="switch"><input type="checkbox" id="fGroup" ${FV.group?'checked':''}><span></span></span>nach Nacht gruppieren</label>
+      <label class="fsel">${ic('list','s14')}<select id="fGroup" aria-label="Gruppieren nach">${FGROUP.map(([k,l])=>`<option value="${k}" ${FV.group===k?'selected':''}>${k?'Gruppieren: '+l:'Nicht gruppieren'}</option>`).join('')}</select></label>
       <span class="grow"></span>
       <label class="fsize" title="Größe der Vorschaubilder">${ic('image','s14')}<input type="range" id="fSize" min="100" max="420" step="10" value="${FV.size}" aria-label="Größe der Vorschaubilder">${ic('image','s18')}</label>
     </div>
@@ -1616,7 +1635,7 @@ function renderFrames(box){
   $('#fSortSel').onchange=e=>{FV.sort=e.target.value;FV.asc=(FSORT.find(x=>x[0]===FV.sort)||[])[2]==='asc';sortLabel();saveFV();applyFrameView();};
   $('#fFilt').onchange=e=>{FV.filt=e.target.value;applyFrameView();};
   $('#fNight').onchange=e=>{FV.night=e.target.value;applyFrameView();};
-  $('#fGroup').onchange=e=>{FV.group=e.target.checked;saveFV();applyFrameView();};
+  $('#fGroup').onchange=e=>{FV.group=e.target.value;saveFV();applyFrameView();};
   $('#fSize').oninput=e=>{FV.size=+e.target.value;saveFV();layoutGrid(true);};
   fillFrameFilters();
   setupGrid();
@@ -1705,18 +1724,20 @@ function layoutGrid(reset){
   const cols=Math.max(1,Math.floor((W+gap)/(minW+gap))),tw=(W-(cols-1)*gap)/cols,th=Math.round(tw*2/3)+22,rh=th+gap;
   // Zeilen: Überschrift je Nacht (beim Gruppieren) und Kachelreihen; pos[i] = [x, y] jeder Kachel
   const rows=[],pos=new Array(FV.view.length),HH=40;let y=0,i=0;
-  while(i<FV.view.length){
-    let end=FV.view.length;
-    if(FV.group){const n=FV.view[i].night||'';let j=i;while(j<FV.view.length&&(FV.view[j].night||'')===n)j++;end=j;
-      const sub=FV.view.slice(i,end),hrsN=sub.reduce((a,f)=>a+(f.exposure||0),0)/3600,used=sub.filter(f=>f.status==='use').length;
-      rows.push({h:true,y,label:n?ymd(n):'ohne Datum',n:sub.length,used,hrs:hrsN});y+=HH;}
+  const groups=FV.group?FV.groups:[{items:FV.view}];
+  for(const gr of groups){
+    if(FV.group){const sub=gr.items,hrsN=sub.reduce((a,f)=>a+(f.exposure||0),0)/3600,used=sub.filter(f=>f.status==='use').length;
+      rows.push({h:true,y,label:gr.label,key:gr.key,closed:gr.closed,n:sub.length,used,hrs:hrsN});y+=HH;
+      if(gr.closed){y+=gap;continue;}}
+    const end=i+gr.items.length;
     for(let k=i;k<end;k++){const c=(k-i)%cols;if(c===0&&k>i)y+=rh;pos[k]=[c*(tw+gap),y];}
-    y+=rh;i=end;
+    if(end>i)y+=rh;i=end;
   }
-  const changed=!FV.geo||FV.geo.cols!==cols||Math.abs(FV.geo.tw-tw)>.5||FV.geo.group!==FV.group;
-  FV.geo={cols,tw,th,rh,gap,group:FV.group};FV.rows=rows;FV.pos=pos;
+  const sig=FV.group+'|'+rows.map(r=>r.key+(r.closed?'-':'+')).join(',');      // Gruppen auf/zu → neu aufbauen
+  const changed=!FV.geo||FV.geo.cols!==cols||Math.abs(FV.geo.tw-tw)>.5||FV.geo.sig!==sig;
+  FV.geo={cols,tw,th,rh,gap,group:FV.group,sig};FV.rows=rows;FV.pos=pos;
   g.style.height=(FV.view.length?y-gap:0)+'px';
-  if(!FV.view.length&&S.F&&!S.F.loading){g.innerHTML=`<div class="empty"><div class="t">Keine Frames</div><div class="x">${FV.status==='all'?'In diesem Projekt gibt es (noch) keine Frames dieser Art.':'Keine Frames mit diesem Status.'}</div></div>`;g.style.height='auto';FV.nodes=new Map();return;}
+  if(!FV.view.length&&!rows.length&&S.F&&!S.F.loading){g.innerHTML=`<div class="empty"><div class="t">Keine Frames</div><div class="x">${FV.status==='all'?'In diesem Projekt gibt es (noch) keine Frames dieser Art.':'Keine Frames mit diesem Status.'}</div></div>`;g.style.height='auto';FV.nodes=new Map();return;}
   if(reset||changed){g.innerHTML='';FV.nodes=new Map();}
   renderVisible();
 }
@@ -1739,8 +1760,10 @@ function renderVisible(){
   // Nacht-Überschriften im sichtbaren Bereich
   $$('.vgh',g).forEach(h=>{if(!FV.rows.includes(h._r)||h._r.y<y0-100||h._r.y>y1)h.remove();});
   for(const r of FV.rows){if(r.y<y0-100||r.y>y1||[...g.children].some(c=>c._r===r))continue;
-    const h=document.createElement('div');h._r=r;h.className='vgh';h.style.transform=`translateY(${r.y}px)`;
-    h.innerHTML=`<b>${ic('clock','s14')} Nacht vom ${esc(r.label)}</b><span>${plural(r.n,'Frame','Frames')} · ${int(r.used)} verwendet · ${hrs(r.hrs)} h</span>`;frag.appendChild(h);}
+    const h=document.createElement('button');h.type='button';h._r=r;h.className='vgh'+(r.closed?' closed':'');h.style.transform=`translateY(${r.y}px)`;
+    h.title=r.closed?'Aufklappen':'Zuklappen';h.setAttribute('aria-expanded',String(!r.closed));
+    h.innerHTML=`<b>${chev(!r.closed)} ${esc(r.label)}</b><span>${plural(r.n,'Frame','Frames')} · ${int(r.used)} verwendet · ${hrs(r.hrs)} h</span>`;
+    h.onclick=()=>{const k=FV.group+'|'+r.key;FV.closed.has(k)?FV.closed.delete(k):FV.closed.add(k);applyFrameView();};frag.appendChild(h);}
   g.appendChild(frag);
 }
 function fillTile(el,f){

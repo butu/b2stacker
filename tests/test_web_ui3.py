@@ -272,16 +272,27 @@ def test_frames_sort_filter_group_size_and_click_zoom(page, app):
     page.select_option("#fFilt", "RGB")
     expect(page.locator("#vgrid .vt")).to_have_count(3)
     page.select_option("#fFilt", "")
-    page.locator("label.tog", has_text="nach Nacht gruppieren").click()
+    page.select_option("#fGroup", "night")
     expect(page.locator("#vgrid .vgh")).to_have_count(2)                      # 12.10. und 20.07.
     expect(page.locator("#vgrid .vgh").first).to_contain_text("Nacht vom")
+    # Akkordeon: Gruppe zuklappen → ihre Kacheln verschwinden, Überschrift mit Anzahl bleibt
+    n0 = page.locator("#vgrid .vt").count()
+    page.locator("#vgrid .vgh").first.click()
+    expect(page.locator("#vgrid .vgh.closed")).to_have_count(1)
+    expect(page.locator("#vgrid .vgh.closed")).to_contain_text("Frames")
+    assert page.locator("#vgrid .vt").count() < n0
+    page.locator("#vgrid .vgh.closed").click()
+    expect(page.locator("#vgrid .vt")).to_have_count(n0)
+    page.select_option("#fGroup", "status")
+    expect(page.locator("#vgrid .vgh").first).to_contain_text("Verwendet")
+    page.select_option("#fGroup", "night")
     shot(page, "frames-gruppiert")
     w0 = page.wait_for_function("() => { const t = document.querySelector('#vgrid .vt'); "
                                 "return t && t.getBoundingClientRect().width; }").json_value()
     page.locator("#fSize").fill("400")
     page.wait_for_function("w => { const t = document.querySelector('#vgrid .vt'); "
                            "return t && t.getBoundingClientRect().width > w * 1.5; }", arg=w0)
-    page.locator("label.tog", has_text="nach Nacht gruppieren").click()
+    page.select_option("#fGroup", "")
     # Großansicht: Klick zoomt, Klick passt wieder ein; Metadaten aus dem Header
     page.locator("#vgrid .vt[data-i='0']").click()
     expect(page.locator("#lbMore")).to_contain_text("Gain")
