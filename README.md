@@ -8,96 +8,58 @@ per Klick oder per KI. Originale werden nie verändert.
 | | |
 |---|---|
 | [Anleitung](docs/ANLEITUNG.md) | Bedienung Schritt für Schritt: Projekte, Frames, Stacken, Einstellungen, Selbsttest, NAS |
-| [Architektur](docs/ARCHITEKTUR.md) | Module, PixInsight-Anbindung, Dateibereitstellung, Ordnerstruktur, Tests |
+| [Neubau](docs/NEUBAU.md) | Aufbau der neuen App: Datenbank, Aufträge, Ablauf, Übergabe an PixInsight, Oberfläche |
+| [Architektur](docs/ARCHITEKTUR.md) | Module und PixInsight-Anbindung der alten App (bis 0.10) |
 | [Erkenntnisse](docs/ERKENNTNISSE.md) | Erfahrungen aus echten Aufnahmen und WBPP-Eigenheiten (datiert) |
 | [Änderungen](CHANGELOG.md) | Was sich in welcher Version geändert hat |
 | [Agent guide](AGENTS.md) | Kurzreferenz für KI-Agenten und Entwickler |
 
 ## Starten (Windows)
 
-**Einfach:** Unter [Releases](https://github.com/butu/b2stacker/releases/latest) die Datei
-**`b2stacker.exe`** herunterladen und doppelklicken. Keine Installation, kein Python nötig.
-b2stacker öffnet sich als eigenes Programmfenster (WebView2, in Windows 10/11 enthalten) – kein Browser,
-keine Konsole. Fenster schließen beendet das Programm (bei laufendem Stacking mit Rückfrage).
-Ein zweiter Doppelklick holt das offene Fenster nach vorne.
+Unter [Releases](https://github.com/butu/b2stacker/releases/latest) **`b2stacker.exe`** herunterladen und
+doppelklicken (SmartScreen: „Weitere Informationen“ → „Trotzdem ausführen“). Die Startseite bietet an, b2stacker
+nach `%LOCALAPPDATA%\b2stacker\` zu **installieren** – dann gibt es eine Startmenü-Verknüpfung und Updates
+funktionieren zuverlässig. b2stacker öffnet sich als eigenes Programmfenster (WebView2); ein zweiter Doppelklick holt
+das offene Fenster nach vorne.
 
-**Updates:** Gibt es eine neue Version, erscheint oben rechts ein grüner Knopf „Update x.y.z“. Klick → Änderungen
-ansehen → „Jetzt aktualisieren & neu starten“. b2stacker lädt die neue exe, schließt sich, tauscht die Datei aus und
-startet neu (nicht während eines Stackings). Die exe muss dafür in einem Ordner mit Schreibrechten liegen.
+**Updates:** oben rechts erscheint „Update x.y.z“ → „Jetzt aktualisieren und neu starten“. Ein kleines Fenster zeigt
+den Austausch; schlägt er fehl, startet die bisherige Version.
 
-Windows SmartScreen kann beim ersten Start warnen („Unbekannter Herausgeber“):
-„Weitere Informationen“ → „Trotzdem ausführen“.
-
-Beim ersten Start: in den Einstellungen das **Arbeitsverzeichnis** wählen
-(große, schnelle Platte – nicht OneDrive) und den Pfad zu PixInsight prüfen.
-
-**Aus dem Quellcode:** Python 3.10+ installieren, Repository klonen, `AstroStack starten.cmd` doppelklicken.
+Beim ersten Start fragt b2stacker nach dem **Arbeitsverzeichnis** (große, schnelle Platte – nicht OneDrive) und nach
+PixInsight. Die alte Oberfläche bis 0.10 startet noch mit `B2_OLD_UI=1`.
 
 ## Entwicklung unter Linux ohne PixInsight
-
-Projektverwaltung, Bildanalyse und Browser-Oberfläche funktionieren ohne PixInsight.
-Nur das eigentliche Stacking braucht eine PixInsight-Installation.
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[dev]'
-python -m astrostack gui --no-browser --port 18765
+python -m astrostack web --no-browser        # neue Oberfläche, http://127.0.0.1:8775/
 ```
 
-Danach `http://127.0.0.1:18765/` öffnen und in den Einstellungen ein Arbeitsverzeichnis
-wählen. Der Linux-Ordnerdialog nutzt **Zenity** oder **Kdialog**, ohne diese Programme
-ein vorhandenes Tkinter. Ist keines verfügbar, nennt die Fehlermeldung die benötigten
-Dialogprogramme; Ordnerpfade lassen sich zusätzlich direkt eintippen.
-
-Tests laufen mit `python -m pytest -q`; die JavaScript-Syntaxprüfungen benötigen
-zusätzlich Node.js. Die Tests erzeugen eigene FITS-Dateien. Ein nachgebautes PixInsight
-(`tests/fake_pixinsight.py`) läuft als eigener Prozess mit der echten Kommandozeile und bildet die
-WBPP-Eigenheiten nach (Komma-Trennung, Längengrenze, Flat-Gruppen, Mindestanzahl Kalibrierbilder).
-Auf jedem Branch laufen die Tests zusätzlich unter Windows, auch über eine echte Netzwerkfreigabe
-(`.github/workflows/tests-windows.yml`). Echtes WBPP prüft nur der Selbsttest in der App.
+Tests: `python -m pytest -q` (JavaScript-Syntaxprüfung braucht Node.js, Browser-Tests Playwright). Die Tests
+erzeugen eigene FITS-Dateien und ein nachgebautes PixInsight als echten Prozess. Auf jedem Branch laufen sie
+zusätzlich unter Windows (`.github/workflows/tests-windows.yml`). Echtes WBPP prüft nur der Selbsttest in der App.
 
 ## Ablauf in Kürze
 
-1. **Neues Projekt** – Ordner wählen (NINA, ASIAIR, Ekos, SharpCap, APT …). Lights und Kalibrierdaten werden an
-   den FITS-Daten erkannt, egal wie die Ordner heißen; fertige Master (auch Astro Pixel Processor) werden übernommen.
-2. **Analyse und Bericht** – jeder Frame wird vermessen (FWHM, Sterne, Rauschen, Mond, Höhe …), dazu Rig-Diagnose
-   und Kalibrier-Prüfung.
-3. **Frames sichten** – verwenden oder weglassen, mit Filtern, Sortierung und Tastatur (V/N/A).
-4. **Stacken** – Plan je Filter-Lauf mit Begründung: Kalibrierung, Referenz, **nur die besten X % Frames** per
-   Schieberegler (Stunden werden sofort neu gerechnet), Platz- und RAM-Prüfung. PixInsight läuft unsichtbar im
-   Hintergrund; Aufträge laufen in einer Warteschlange.
-5. **Ergebnisse** – in `<Arbeitsverzeichnis>/projects/<Ziel>/final/`, mit Qualitätskennzahlen, Vorschau und
-   Spickzettel für die Bearbeitung.
+1. **Projekt anlegen** – Ordner wählen (NINA, ASIAIR, Ekos, SharpCap …). Art, Filter und Nacht kommen aus dem Header.
+2. **Automatisch im Hintergrund** – neue Dateien finden, Header lesen, vermessen, bewerten, Kalibrierung zuordnen,
+   Plan mit Begründung je WBPP-Einstellung. Ein Watcher sieht neue Nächte von selbst.
+3. **Frames sichten** – Kachelansicht ohne Blättern, Großansicht mit Sternen und Zoom, Tastatur (V/N/A/Entf).
+4. **Stacken** – ein Klick; PixInsight + WBPP im Hintergrund, ein Ordner je Stack im Projektordner, Master werden
+   projektübergreifend wiederverwendet (Kalibrier-Bibliothek).
+5. **Stacks vergleichen** – Qualitätswerte, Notizen, Überblend-Vergleich mit Ausrichtung (auch gedreht).
+6. **Galerie und Verlauf** – bearbeitete Bilder zum Projekt, Verlauf in Klartext.
 
-Scheitert etwas, nennt b2stacker Schritt und Ursache in Klartext. Mit **Menü → Selbsttest** lässt sich prüfen, ob
-alles auf dem eigenen Rechner (inkl. NAS) funktioniert. Details: [Anleitung](docs/ANLEITUNG.md).
+Rohdaten werden nur gelesen; einzige Ausnahme ist das Löschen vorgemerkter Frames nach Bestätigung. Details:
+[Anleitung](docs/ANLEITUNG.md), Aufbau: [Neubau](docs/NEUBAU.md).
 
-## Protokoll (Fehlersuche, auch für KI-Agenten)
+## Bedienung durch KI (MCP)
 
-Alles Wichtige wird im Hintergrund mitgeschrieben: `<Arbeitsverzeichnis>/logs/` – `events-JJJJ-MM.jsonl`
-(ein Ereignis pro Zeile: Analyse, Stacking-Schritte mit Dauer, PixInsight-Exit-Codes, Fehler mit Traceback) und
-`b2stacker.log`. Je Stacking-Lauf zusätzlich `projects/<Ziel>/runs/<Zeit>/` mit exaktem PixInsight-Aufruf und den
-WBPP-Protokollen. Schnellzugriff: `astrostack logs --kind error --trace`.
-
-Projekte lassen sich umbenennen, beschreiben und jederzeit (auch nach Monaten, mit neuer Programmversion)
-neu analysieren und erneut stacken.
-
-Projekte und Stacks lassen sich aus der Verwaltung entfernen; dabei werden **keine Bilddateien
-gelöscht oder verschoben**. Stack-Namen sind reine Anzeigenamen und ändern keine Dateinamen.
-Die Seitenleiste zeigt die Belichtungsstunden aller Lights, auch der ausgeschlossenen.
-
-Während Scan und Analyse entsteht unter `<Arbeitsverzeichnis>/cache/catalog/` ein gemeinsamer
-Katalog für Dateiheader, Light-Messwerte und Flat-Statistiken. Unveränderte Dateien werden auch
-in anderen Projekten wiederverwendet. Ein schneller Dateistatus-Vergleich vermeidet erneutes
-Hashen; bei neuen oder geänderten Dateien prüft ein SHA256-Hash den Inhalt. Die Bewertung und
-die Zuordnung von Kalibrierbildern werden für jedes Projekt neu berechnet.
-
-## Bedienung durch Claude (MCP)
-
-b2stacker hat einen MCP-Server: Claude kann Projekte ansehen, Frames prüfen, Pläne anpassen und Stacking einreihen –
-sichtbar im b2stacker-Fenster („· per Claude“). Einrichten: **Einstellungen → Mit Claude verbinden**, dann die
-Claude-App neu starten. Details: [Anleitung, Abschnitt 12](docs/ANLEITUNG.md#12-bedienung-durch-claude-ki).
+**Einstellungen → KI-Bedienung (MCP)** zeigt Adresse (`http://127.0.0.1:8775/mcp`) und Schlüssel, dazu fertige
+Einträge für OpenCode, Claude Code und andere Werkzeuge. Für die Claude-Desktop-App leitet `b2stacker.exe mcp` an das
+laufende Programm weiter. Details: [Anleitung, Abschnitt 12](docs/ANLEITUNG.md#12-bedienung-durch-claude-und-andere-ki-werkzeuge).
 
 ## Kommandozeile (auch für KI-Bedienung)
 
@@ -107,7 +69,8 @@ Alle Befehle antworten mit `--json` maschinenlesbar. Die exe nimmt dieselben Bef
 | Befehl | Zweck |
 |---|---|
 | `b2stacker.exe` (ohne Argumente) | Programmfenster |
-| `astrostack gui [--no-browser]` | Oberfläche im Browser bzw. nur Server |
+| `astrostack web [--no-browser]` / `gui` | neue Oberfläche im Browser bzw. nur Server |
+| `astrostack neu projects\|project\|refresh\|frames\|stack\|stacks\|history` | Befehle der neuen App |
 | `astrostack scan <ordner…>` | Frames finden und gruppieren |
 | `astrostack check-calib <ordner…>` | Flats/Bias/Darks prüfen und zuordnen |
 | `astrostack report <ordner…> [--target <ziel>]` | vermessen, Bericht + Plan erzeugen |
@@ -121,6 +84,9 @@ Alle Befehle antworten mit `--json` maschinenlesbar. Die exe nimmt dieselben Bef
 | `astrostack status` | letzte Aufträge und Läufe |
 | `astrostack logs [--kind error] [--project X] [--trace]` | Protokoll-Ereignisse |
 | `astrostack settings [--set schluessel=wert]` | Einstellungen |
+
+`scan`, `check-calib`, `report`, `plan`, `override`, `frames`, `reanalyze`, `stack`, `selftest` und `status` gehören
+noch zur alten App (0.10) und sprechen mit ihr; für die neue App gibt es `astrostack neu …` und MCP.
 
 ## Entwicklung
 

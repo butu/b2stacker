@@ -73,3 +73,14 @@ os.environ["B2_APP_URL"] = "http://127.0.0.1:9/"   # nie mit einer echten, laufe
 def _isolated_preview_cache(tmp_path, monkeypatch):
     # Default cache otherwise lives in the user profile; every test gets a throwaway cache.
     monkeypatch.setenv("ASTROSTACK_PREVIEW_CACHE", str(tmp_path / "preview-cache"))
+
+
+@pytest.fixture(autouse=True)
+def _neutral_stack_options(monkeypatch, request):
+    """Neue App: Stacken liest RAM-Grenze, Wachhalten und „Ergebnis öffnen“ aus den echten Einstellungen. In Tests
+    neutral (kein RAM-Minimum, nichts öffnen) – außer ein Test prüft genau das (Marker ``stack_options``)."""
+    if request.node.get_closest_marker("stack_options"):
+        return
+    from astrostack import core
+    monkeypatch.setattr(core.Core, "_stack_options",
+                        staticmethod(lambda: dict(keep_awake=False, open_results=False, min_free_ram_gb=0.0)))

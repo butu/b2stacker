@@ -57,7 +57,7 @@ Motor: PixInsight + WBPP (JSON-Auftrag, Startskript, Event-Script)
 ## Neuer Server (`astrostack/web`) – fertig, Oberfläche offen
 
 - Start: `python -m astrostack web [--no-browser] [--port N]` (Port ab 8775, läuft neben der alten App auf
-  8765) oder `gui` mit `B2_NEW_UI=1`. Ohne die Variable startet `gui` wie bisher die alte App.
+  8765), `gui` oder Doppelklick. `B2_OLD_UI=1` startet die alte App.
 - Nur Standardbibliothek, `ThreadingHTTPServer` auf 127.0.0.1, eine `Core` je Server; beim Start
   `core.refresh_all()`. Die Datenbank-Verbindung eines Anfrage-Threads wird danach geschlossen (`db.release()`).
 - Sicherheit wie in der alten App: nur `Host` 127.0.0.1/localhost/[::1], jeder POST mit `X-Astrostack: 1`,
@@ -103,9 +103,9 @@ Ab Teil 2 hängt an `/mcp` das Werkzeug-Set auf `Core` (`web/mcp_tools.py`, sieh
 
 ## Neue Oberfläche, Teil 1 – fertig (05.11.2026)
 
-Start: `python -m astrostack web` (Browser) oder mit `B2_NEW_UI=1` der normale Start – Doppelklick auf die exe öffnet
-dann die neue Oberfläche im Programmfenster (`web/window.py`, pywebview wie die alte App). Ohne die Variable bleibt
-alles wie bisher.
+Start: `python -m astrostack web` (Browser) oder der normale Start – Doppelklick auf die exe öffnet die neue
+Oberfläche im Programmfenster (`web/window.py`, pywebview wie die alte App). Seit Teil 3 Standard; `B2_OLD_UI=1`
+startet die alte App.
 
 - Eine Datei `web/static/index.html`, ohne Bibliotheken und ohne Build. Gestaltung, Symbole und Bauteile wie in
   der alten App. Hash-Routen: `#/` Startseite, `#/p/<id>/<tab>` Projekt (`overview`, `frames`, `plan`, `stacks`,
@@ -221,18 +221,47 @@ Adresse fest), sonst mit `Core` direkt und wartet dann auf das Ende des Auftrags
 einen Stack-Runner-Wrapper), `tests/test_web_ui.py` (Playwright: Stacks, Vergleich, Galerie, Verlauf, Sicherung;
 Hilfe `fake_stack` legt Stacks mit echten Mastern direkt an).
 
-### Was fehlt, bevor die neue Oberfläche Standard werden kann
+### Teil 3 (05.11.2026): alles Offene umgesetzt – neue Oberfläche ist Standard
 
-- Sternmarkierungen in der Großansicht (Sternpositionen vom Server) und Zoom/1:1 im Vergleich.
-- Ausrichten mit Drehung (Stern-Dreiecke) im Vergleich; Vergleich von Mono gegen Farbe nur als Luminanz.
-- Handy-Oberfläche (nur bis ~900 px Breite geprüft; unter 640 px funktioniert es, ist aber nicht gestaltet).
-- Frames löschen bzw. „zum Löschen vormerken“ (Status `delete` ist im Schema, aber ohne Oberfläche und Ablauf).
-- Kalibrier-Bibliothek über Projekte hinweg (Master-Darks/Bias wiederverwenden, Darks mit Temperatur/Gain verwalten).
-- Selbsttest mit echtem PixInsight, „In PixInsight öffnen“, Einstellungen per MCP: nur in der alten App.
-- Update-Hinweis und Installation (alte App) für den neuen Start; `B2_NEW_UI=1` wird dann zum Standard.
-- Anleitung (`docs/ANLEITUNG.md`) beschreibt noch die alte App.
-- Die Galerie zeigt keine Unterordner-Struktur (bewusst: keine Ordneransicht); sehr große Bildmengen (> 2000 je
-  Hinzufügen) werden gekappt.
+- **Frames löschen** (`Core.deletion_list`, `Core.delete_frames`, `trash.py`): Status `delete` = vormerken (zählt
+  wie nicht verwendet, auch für Kalibrierframes), gesammelt löschen mit Liste, „behalten“ je Frame und Bestätigung
+  mit Anzahl. `confirm_count` muss zur angezeigten Liste passen. Papierkorb: Windows nur auf `DRIVE_FIXED`
+  (SHFileOperation mit FOF_ALLOWUNDO), sonst freedesktop-Papierkorb im Home-Laufwerk; ohne Papierkorb nur mit
+  `allow_permanent`. Ein Frame, den ein anderes Projekt noch verwendet, ist gesperrt. Gelöschte Dateien bekommen
+  `missing_since`; Verlauf `frames_deleted` mit Namen, Protokoll `frame_deleted` je Datei. MCP kann weder löschen
+  noch vormerken; am Touch-Gerät nur vormerken.
+- **Kalibrier-Bibliothek**: `handover._master` sucht zuerst im eigenen Projekt, dann in allen (gleicher Schlüssel =
+  dieselben Rohframes). Master-Darks werden jetzt auch aufgehoben (nur wenn WBPP genau einen erzeugt).
+  `masters.key_json` trägt Eckdaten aus den Headern (`handover.master_info`). Seite `#/kalibrierung`,
+  `GET /api/library`, `POST /api/library/<id>/delete` (nur Dateien im Arbeitsverzeichnis), MCP
+  `calibration_library`. **Noch mit echtem PixInsight zu prüfen:** ein Master-Dark als Eingabe von WBPP.
+- **Selbsttest der neuen App** (`selftest_neu.py`, `Core.selftest`, Spur `stack`): Testdaten wie bisher, Ablauf
+  Schritte 1–5 in eigenem Arbeitsverzeichnis `selbsttest/neu`, zweimal stacken (zweites Mal mit Mastern), Bericht
+  `selbsttest/bericht-neu-*.json`. Einstellungen → Wartung, MCP `selftest`.
+- **In PixInsight öffnen** je Stack (`Core.open_in_pixinsight`), MCP `open_in_pixinsight`; **Einstellungen per MCP**
+  (`settings`, gleiche Prüfung wie die Oberfläche, Schlüssel nicht änderbar).
+- **Stack-Einstellungen wirken jetzt**: RAM-Grenze vor dem Start, PC wach halten, Ergebnis öffnen. „Zeitzone“ und
+  „Zwischendateien löschen“ sind aus der neuen Oberfläche entfernt (Nacht kommt aus Längengrad bzw. DATE-LOC, temp/
+  wird immer geleert). Tests setzen die Optionen neutral (`conftest._neutral_stack_options`, Marker
+  `stack_options`).
+- **Sterne in der Großansicht** (`GET /api/frame/<id>/stars`, `starmap`), **Zoom** (Mausrad, +/−/0, Doppelklick
+  1:1, zwei Finger) in Großansicht und Vergleich; im Vergleich verschiebt Ziehen neben dem Schieber.
+- **Vergleich mit Drehung**: `stackview.rotation_between` (Sternpaare, ±180° per Phasenkorrelation entschieden,
+  Probe gegen Fehltreffer), B wird zurückgedreht und auf die gemeinsame Fläche beschnitten; `align.rotation`.
+  `COMPARE_VERSION = 3`.
+- **Handy**: Vergleich, Bibliothek, Löschliste und Großansicht angepasst; Wischen (← → blättern, ↑ verwenden,
+  ↓ nicht verwenden). Der Server lauscht weiter nur auf 127.0.0.1 – Bedienung vom Handy braucht noch eine
+  Entscheidung zum Netzwerkzugang (Konzept Abschnitt 13).
+- **Standard**: Doppelklick und `gui` starten die neue Oberfläche, `B2_OLD_UI=1` die alte. Die neue App räumt nach
+  Updates auf, hält den Claude-Eintrag auf die installierte exe, prüft auf Updates (`/api/update…`) und bietet die
+  Installation an (`/api/install`). `/api/ping` lässt `appclient.find` (MCP über stdio) die neue App finden.
+- Anleitung und README beschreiben die neue App. Tests: `tests/test_web_part3.py`, `tests/test_web_ui3.py`.
+
+### Bekannte Grenzen
+
+- Alte CLI-Befehle (`scan`, `report`, `plan`, `stack` …) sprechen nur mit der alten App.
+- Projekte der alten Version werden nicht übernommen (Entscheidung oben).
+- Die Galerie zeigt keine Unterordner-Struktur; mehr als 2000 Bilder je Hinzufügen werden gekappt.
 
 ## Stand 04.11.2026, Nacht
 

@@ -30,6 +30,7 @@ class Core:
         self.stack_runner = stack_runner              # Ersatz für handover.run (Tests)
         self.backup_dir = backup_dir or ""            # zusätzlicher, frei wählbarer Sicherungsort
         self.script_runner = None                     # Ersatz für piscript.run (Tests)
+        self.result_opener = None                     # Ersatz für subprocess.Popen beim Öffnen in PixInsight (Tests)
         self._lock = threading.Lock()
         self._mirror_backups()
 
@@ -43,6 +44,17 @@ class Core:
             return library.find_project(self.db, project)
         except library.LibraryError as e:
             raise ValueError(str(e)) from None
+
+    @staticmethod
+    def _stack_options() -> dict:
+        """Einstellungen fürs Stacken (bei jedem Klick neu gelesen): wach halten, Ergebnis öffnen, RAM-Grenze."""
+        from .settings import Settings
+        try:
+            s = Settings.load()
+            return dict(keep_awake=bool(s.keep_awake), open_results=bool(s.open_results),
+                        min_free_ram_gb=float(s.min_free_ram_gb or 0))
+        except Exception:  # noqa: BLE001
+            return dict(keep_awake=True, open_results=False, min_free_ram_gb=0.0)
 
     def _notify(self, kind: str, **data) -> None:
         self.tasks.hub.publish(kind, data)
@@ -315,11 +327,22 @@ class Core:
         if not plan or not (run_ids or plan.get("ready")):
             raise ValueError("Der Plan hat keinen aktiven Lauf.")
         name = self.db.value("SELECT name FROM projects WHERE id = ?", (pid,))
+        opts = self._stack_options()
+        if opts["min_free_ram_gb"]:
+            from . import system
+            free = system.ram_gb()[0]
+            if free is not None and free < opts["min_free_ram_gb"]:
+                raise ValueError("Nur %.1f GB Arbeitsspeicher frei – zum Stacken mindestens %.0f GB (Einstellungen). "
+                                 "Bitte andere Programme schließen." % (free, opts["min_free_ram_gb"]))
 
         def work(task: tasks.Task):
+            import contextlib
+
+            from . import system
             kw = dict(runner=self.stack_runner) if self.stack_runner else {}
-            res = stacking.stack_project(self.db, self.ws, pid, self.pixinsight, run_ids, progress=task.progress,
-                                         cancel=task.cancel_event, origin=origin, **kw)
+            with (system.KeepAwake() if opts["keep_awake"] else contextlib.nullcontext()):
+                res = stacking.stack_project(self.db, self.ws, pid, self.pixinsight, run_ids, progress=task.progress,
+                                             cancel=task.cancel_event, origin=origin, **kw)
             self._notify("project", id=pid)
             done = [r for r in res if r["status"] == "done"]
             for i, r in enumerate(done):                         # Qualität + Vorschau gleich messen
@@ -329,6 +352,11 @@ class Core:
             if done:
                 self._notify("project", id=pid)
                 self._notify("projects")
+                if opts["open_results"]:
+                    try:
+                        self.open_in_pixinsight(pid, done[0]["stack_id"], popen=self.result_opener)
+                    except (ValueError, OSError) as e:
+                        logbook.event("open_results_failed", error=str(e))
             return res
         title = "%s stacken" % name + (" · per Claude" if origin == "mcp" else "")
         return self.tasks.submit("stack", title, work, lane="stack", project_id=pid, origin=origin).as_dict()

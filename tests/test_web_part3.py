@@ -320,3 +320,23 @@ def test_update_and_install_endpoints(proj, tmp_path, monkeypatch):
         assert st == 200 and r["text"].startswith("Installiert")
     finally:
         _stop(srv)
+
+
+@pytest.mark.stack_options
+def test_stack_options_ram_limit_and_open_results(proj, tmp_path, monkeypatch):
+    co, pid, _ = proj
+    import json as _json
+
+    from astrostack import system
+    sf = tmp_path / "s.json"
+    sf.write_text(_json.dumps({"workdir": co.ws.root, "min_free_ram_gb": 64, "open_results": True,
+                               "keep_awake": False}), encoding="utf-8")
+    monkeypatch.setenv("ASTROSTACK_SETTINGS", str(sf))
+    monkeypatch.setattr(system, "ram_gb", lambda: (3.5, 16.0))
+    with pytest.raises(ValueError, match="3,5|3.5 GB"):
+        co.stack(pid)
+    monkeypatch.setattr(system, "ram_gb", lambda: (70.0, 128.0))
+    opened = []
+    co.result_opener = opened.append
+    _stack_ha(co, pid)
+    assert opened and opened[0][0] == co.pixinsight

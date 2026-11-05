@@ -1,6 +1,6 @@
 """Programmfenster (pywebview) für den neuen Server – wie ``app/window.py`` für die alte App.
 
-Wird beim Doppelklick genutzt, wenn ``B2_NEW_UI=1`` gesetzt ist (siehe ``__main__.py``). Ablauf:
+Wird beim Doppelklick genutzt (Standard; ``B2_OLD_UI=1`` startet die alte App, siehe ``__main__.py``). Ablauf:
   1. Läuft der neue Server schon? → dessen Fenster nach vorne holen, fertig.
   2. Server im Hintergrund starten (127.0.0.1), alle Projekte im Hintergrund prüfen.
   3. Fenster öffnen. Schließen beendet das Programm – bei laufendem Auftrag mit Rückfrage.

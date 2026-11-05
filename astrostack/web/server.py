@@ -1,7 +1,7 @@
 """Neuer HTTP-Server des Neubaus auf der Dienst-Schicht ``Core`` (nur Standardbibliothek).
 
-Start: ``python -m astrostack web`` (Port ab 8775, läuft neben der alten App auf 8765) oder ``gui`` mit
-``B2_NEW_UI=1``. Ein Server hält genau eine ``Core``-Instanz; beim Start werden alle Projekte im Hintergrund
+Start: ``python -m astrostack web`` (Port ab 8775, läuft neben der alten App auf 8765), ``gui`` oder Doppelklick
+(Standard; ``B2_OLD_UI=1`` startet die alte App). Ein Server hält genau eine ``Core``-Instanz; beim Start werden alle Projekte im Hintergrund
 geprüft (Konzept: „App-Start prüft alle Projekte“).
 
 Sicherheit wie bei der alten App:

@@ -2150,10 +2150,8 @@ const SETF=[
   ['analysis_workers','Gleichzeitige Vermessungen','number','Mehr = schneller, braucht aber mehr RAM (je ~1 GB).'],
   ['watch_interval_s','Neue Dateien suchen alle (s)','number','So oft schaut b2stacker in deine Ordner. Offline-Quellen werden übersprungen.'],
   ['min_free_ram_gb','Mind. freier RAM (GB)','number','Darunter startet das Stacken nicht – schützt vor Abstürzen.'],
-  ['timezone','Zeitzone','text','Für die Zuordnung zur Nacht, z. B. Europe/Vienna.'],
   ['keep_awake','PC während des Stackens wach halten','bool','Verhindert den Energiesparmodus.'],
-  ['cleanup_intermediate','Zwischendateien nach jedem Lauf löschen','bool','Spart viel Platz. Masters, Stacks und Protokolle bleiben.'],
-  ['open_results','Ergebnisse am Ende in PixInsight öffnen','bool',''],
+  ['open_results','Ergebnis nach dem Stacken in PixInsight öffnen','bool',''],
 ];
 function openSettings(){
   const s=(S.boot&&S.boot.settings)||{};

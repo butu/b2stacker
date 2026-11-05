@@ -35,3 +35,4 @@ astrostack = ["report/*.html", "report/vendor/*", "pjsr/*.js", "app/*.html", "ap
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["stack_options: echte Stack-Einstellungen (RAM-Grenze, Wachhalten, Ergebnis öffnen) statt neutraler"]

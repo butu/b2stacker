@@ -1,238 +1,228 @@
 # b2stacker – Anleitung
 
-Diese Anleitung erklärt die Bedienung von b2stacker Schritt für Schritt. Technische Details stehen in
-[ARCHITEKTUR.md](ARCHITEKTUR.md), Erfahrungen aus echten Aufnahmen in [ERKENNTNISSE.md](ERKENNTNISSE.md).
+b2stacker sammelt deine Astro-Aufnahmen je Objekt, prüft jeden Frame, ordnet Flats, Bias und Darks zu, schlägt
+die WBPP-Einstellungen vor und stackt mit einem Klick in PixInsight. Alles außer dem Stacken läuft von selbst im
+Hintergrund. Technische Details stehen in [NEUBAU.md](NEUBAU.md), Erfahrungen mit PixInsight in
+[ERKENNTNISSE.md](ERKENNTNISSE.md).
 
 **Inhalt**
 
-1. [Erster Start](#1-erster-start)
-2. [Projekt anlegen](#2-projekt-anlegen)
-3. [Übersicht und Bericht](#3-übersicht-und-bericht)
+1. [Installieren und erster Start](#1-installieren-und-erster-start)
+2. [Projekte](#2-projekte)
+3. [Was automatisch passiert](#3-was-automatisch-passiert)
 4. [Frames sichten](#4-frames-sichten)
-5. [Stacken: Läufe, Kalibrierung, Optionen](#5-stacken-läufe-kalibrierung-optionen)
-6. [Aufträge und Warteschlange](#6-aufträge-und-warteschlange)
-7. [Wenn etwas schiefgeht](#7-wenn-etwas-schiefgeht)
-8. [Einstellungen](#8-einstellungen)
-9. [Selbsttest](#9-selbsttest)
-10. [Netzlaufwerk (NAS) und Windows-Entwicklermodus](#10-netzlaufwerk-nas-und-windows-entwicklermodus)
-11. [Was b2stacker mit deinen Daten macht – und was nicht](#11-was-b2stacker-mit-deinen-daten-macht--und-was-nicht)
-12. [Bedienung durch Claude (KI)](#12-bedienung-durch-claude-ki)
+5. [Frames löschen](#5-frames-löschen)
+6. [Plan und Stacken](#6-plan-und-stacken)
+7. [Stacks vergleichen](#7-stacks-vergleichen)
+8. [Galerie](#8-galerie)
+9. [Verlauf](#9-verlauf)
+10. [Kalibrier-Bibliothek](#10-kalibrier-bibliothek)
+11. [Einstellungen, Sicherung, Selbsttest](#11-einstellungen-sicherung-selbsttest)
+12. [Bedienung durch Claude und andere KI-Werkzeuge](#12-bedienung-durch-claude-und-andere-ki-werkzeuge)
+13. [Was b2stacker mit deinen Daten macht – und was nicht](#13-was-b2stacker-mit-deinen-daten-macht--und-was-nicht)
+14. [Wenn etwas schiefgeht](#14-wenn-etwas-schiefgeht)
 
 ---
 
-## 1. Erster Start
+## 1. Installieren und erster Start
 
 1. Unter [Releases](https://github.com/butu/b2stacker/releases/latest) **`b2stacker.exe`** herunterladen und
-   doppelklicken. Keine Installation nötig. SmartScreen-Warnung: „Weitere Informationen“ → „Trotzdem ausführen“.
-2. Beim ersten Start öffnen sich die **Einstellungen**:
-   - **Arbeitsverzeichnis** – hier landen Zwischendateien, Masters, Stacks und Protokolle. Eine große, schnelle
-     lokale Platte wählen, nicht OneDrive.
-   - **PixInsight-Programm** – meist `C:\Program Files\PixInsight\bin\PixInsight.exe`. Ein grünes Häkchen zeigt,
-     dass PixInsight und das WBPP-Skript gefunden wurden.
-3. Neue Versionen meldet oben rechts ein grüner Knopf „Update x.y.z“.
+   doppelklicken. SmartScreen-Warnung: „Weitere Informationen“ → „Trotzdem ausführen“.
+2. Läuft b2stacker aus dem Download-Ordner, bietet die Startseite **Installieren** an. b2stacker liegt dann immer
+   unter `%LOCALAPPDATA%\b2stacker\b2stacker.exe`, bekommt eine Verknüpfung im Startmenü, und Updates
+   funktionieren zuverlässig. Die heruntergeladene Datei kann danach weg.
+3. Beim ersten Start fragt b2stacker nach dem **Arbeitsverzeichnis** (Datenbank, Vorschauen, Ergebnisse – eine
+   große, schnelle Platte, nicht OneDrive) und nach **PixInsight** (meist
+   `C:\Program Files\PixInsight\bin\PixInsight.exe`; ein Häkchen zeigt, dass auch WBPP gefunden wurde).
+4. Neue Versionen meldet oben rechts ein Knopf **Update x.y.z**. „Jetzt aktualisieren“ lädt die neue Version,
+   ein kleines Fenster zeigt den Austausch, und b2stacker startet neu. Geht etwas schief, bleibt die alte Version.
 
-## 2. Projekt anlegen
+Die alte Oberfläche (bis 0.10) startet noch mit der Umgebungsvariable `B2_OLD_UI=1`. Projekte der alten Version
+werden nicht übernommen; ihre Ordner im Arbeitsverzeichnis bleiben unangetastet.
 
-**Neues Projekt** → einen oder mehrere Ordner wählen. Ein Titel ist optional; ohne Titel heißt das Projekt nach
-dem erkannten Objekt (oder „Neues Projekt“).
+## 2. Projekte
 
-- Lights, Flats, Bias, Darks und Dark-Flats werden **an den FITS-Daten** erkannt, nicht am Ordnernamen.
-  Fertige Master (PixInsight, Astro Pixel Processor `MB-`/`MD-`/`MF-`…) werden als Master übernommen.
-- Das Objekt kommt aus `OBJECT` im Header. Fehlt es, liest b2stacker den Dateinamen (z. B. ASIAIR
-  `Light_IC434_180.0s_…`) und dann die Ordnernamen. Datumsordner (`25.-27.12.2024`), Filterordner (`Dual`, `RGB`)
-  und Typordner (`Lights`) gelten dabei **nicht** als Objekt.
-- Schreibweisen desselben Objekts („Sh2-82“, „Sh 2-82“) gelten als ein Ziel. Findet b2stacker trotzdem mehrere
-  Ziele, fragt es nach: zusammenlegen, getrennt, zu einem bestehenden Projekt oder weglassen. Eine Zusammenlegung
-  bleibt bei jeder späteren Neu-Analyse erhalten.
-- Ordner mit `_rejected`, `_verworfen` oder `_alt` im Namen gelten als aussortiert.
-- Quellordner lassen sich später ergänzen (z. B. ein reiner Bias-Ordner). Danach **Neu analysieren**.
+Die **Startseite** zeigt alle Projekte als Kacheln mit Belichtungsstunden je Filter, letztem Stack und Hinweisen
+(„Quelle offline“, „3 neue Nächte seit dem letzten Stack“). Suchen nach Name oder Objekt, sortieren, nach Monat
+gruppieren.
 
-## 3. Übersicht und Bericht
+**Neues Projekt** → Name, optional eine Beschreibung, und ein oder mehrere Ordner mit Aufnahmen. Lights, Flats,
+Bias und Darks dürfen gemischt in Unterordnern liegen: b2stacker erkennt die Art **am Header**, nie am Ordnernamen.
+Ordner mit `_rejected`, `_verworfen` oder `_alt` im Namen gelten als aussortiert. Ordner lassen sich später in der
+Übersicht ergänzen oder entfernen; die Dateien selbst bleiben, wo sie sind.
 
-Die **Übersicht** zeigt Nächte, Belichtungszeit je Filter, Hinweise zu Fokus, Nachführung, Dithering, Flats
-und Taupunkt, alle bisherigen Stacks mit Qualitätskennzahlen sowie verknüpfte bearbeitete Bilder
-(„Bearbeitete Bilder hinzufügen“). Der **ausführliche Bericht** (Diagramme und Messwerte aller Lights) öffnet sich als Vollbild-Blatt aus der Übersicht.
+Ein Projekt hat die Reiter **Übersicht**, **Frames**, **Plan**, **Stacks**, **Galerie** und **Verlauf**.
+Name und Beschreibung änderst du mit dem Stift neben dem Namen.
+
+## 3. Was automatisch passiert
+
+Beim Programmstart, beim Öffnen eines Projekts, nach dem Hinzufügen eines Ordners und wenn der **Watcher** neue
+Dateien sieht (Einstellung „Neue Dateien suchen alle … s“), läuft im Hintergrund:
+
+1. **Entdecken** – welche Bilddateien liegen in den Ordnern (nur Name, Größe, Datum).
+2. **Header lesen** – Art, Filter, Kamera, Gain, Belichtung, Nacht.
+3. **Vermessen** – Sterne, FWHM, Sternform, Hintergrund, Rauschen, Vorschaubild. Jede Datei wird genau einmal
+   gelesen; unveränderte Dateien nie wieder.
+4. **Bewerten** – unscharfe, verwackelte oder bewölkte Frames werden mit Grund in Klartext aussortiert; Flats,
+   Bias und Darks werden über den Header zugeordnet.
+5. **Plan** – je Filter ein Lauf mit allen WBPP-Einstellungen und einer Begründung für jede.
+
+Oben rechts zeigt ein kleiner Hinweis, was gerade läuft, mit Restzeit; ein Klick zeigt alle Aufträge und lässt
+sie abbrechen. Der Watcher wartet, bis ein Ordner sich zwei Runden lang nicht mehr ändert – er stört also nicht,
+während NINA noch aufnimmt. Ein ausgeschaltetes NAS wird übersprungen („Quelle offline“), nichts geht verloren.
 
 ## 4. Frames sichten
 
-Im Reiter **Frames** steht jedes Bild als Kachel; ein Häkchen heißt „verwenden“. Filter (auffällig, verworfen …)
-und Sortierungen (Nacht, Sterne, HFR, FWHM, Bewertung) helfen beim Aussortieren.
+Der Reiter **Frames** zeigt alle Frames einer Art (Lights, Flats, Bias, Darks) in einer durchgehenden Kachelansicht,
+auch bei tausenden Frames ohne Blättern. Filter: Alle, Verwendet, Aussortiert, Zum Löschen, Manuell. Mehrere
+auswählen: Kästchen anklicken, **Shift**+Klick für einen Bereich, **Strg**+Klick einzeln. Dann unten
+Verwenden / Nicht verwenden / Automatik / Zum Löschen vormerken.
 
-Großansicht: Pfeiltasten blättern, **V** = verwenden, **N** = nicht verwenden (beide springen weiter),
-**A** = zurück auf Automatik, Leertaste schaltet um, **P** = als Projektbild verwenden, Esc schließt.
+**Großansicht** (Klick auf eine Kachel):
 
-**Sterne einblenden** (rechts unter „Einblenden“, nur bei Lights):
+| Taste | Wirkung |
+|---|---|
+| ← → | blättern (bleibt am letzten Bild stehen) |
+| V / N | verwenden / nicht verwenden, dann weiter |
+| A | zurück auf Automatik |
+| Entf | zum Löschen vormerken, dann weiter |
+| S | erkannte Sterne einblenden |
+| Mausrad, + / −, 0 | Zoom, 0 = einpassen; Doppelklick wechselt zwischen eingepasst und 1:1 |
+| Esc | schließen |
 
-- **S – Sterne:** grüne Ellipsen an den Sternen, die b2stacker erkennt (Größe = FWHM, Form und Richtung = Exzentrizität).
-- **X – Würde PixInsight verwerfen:** dieselben Sterne in Orange, wenn sie die StarAlignment-Grenze
-  `maxStarDistortion` nicht schaffen (Näherung). Sind fast alle Sterne orange, richtet PixInsight sich womöglich an
-  Hotpixeln aus.
-- **H – Hotpixel:** rote Punkte.
+**Sterne einblenden** zeigt b2stackers eigene Sternerkennung als Ellipsen: Größe = FWHM, Form und Richtung =
+Exzentrizität; grün = rund, gelb = leicht oval, rot = länglich. Darunter: Anzahl, FWHM, Sternform. Die Erkennung
+dauert beim ersten Mal ein paar Sekunden und wird gemerkt.
 
-Darunter steht eine Zeile wie „137 Sterne · FWHM 7,7 px · 112 würden verworfen · 4 600 Hotpixel“. Die Erkennung
-läuft beim ersten Einblenden (ein paar Sekunden) und wird danach gemerkt. Deine Entscheidungen überleben jede Neu-Analyse.
+Am Handy: wischen nach links/rechts blättert, nach oben = verwenden, nach unten = nicht verwenden, zwei Finger
+zoomen.
 
-**Automatisch aussortiert oder markiert** werden unter anderem:
+Deine Entscheidungen bleiben bei jeder neuen Prüfung erhalten. „Automatik“ gibt einen Frame wieder an die
+Bewertung zurück.
 
-- **Duplikate** – dieselbe Datei liegt in zwei Quellordnern (z. B. Original und Backup-Kopie). Sie wird nur einmal
-  vermessen und nur einmal gestackt; die Kachel nennt den Ordner der anderen Kopie.
-- **Defekte Dateien** – leer, abgeschnitten (abgebrochene Kopie), kein FITS, nur schwarze/weiße Pixel oder viel zu
-  klein. Sie erscheinen mit Grund in Klartext; unveränderte defekte Dateien werden bei der nächsten Analyse nicht
-  erneut gelesen.
+## 5. Frames löschen
 
-**Satelliten- und Flugzeugspuren** zählen nicht als Unschärfe: Die Spur wird aus der Sternmessung herausgerechnet
-und später beim Stacken von der Rejection entfernt – der Frame bleibt drin. Ein echter Nachführfehler (alle Sterne
-länglich) wird weiterhin erkannt.
+Löschen ist die **einzige** Aktion, bei der b2stacker deine Rohdaten verändert – und nur so:
 
-Fehlt die Aufnahmezeit im Header oder ist sie unlesbar, nimmt b2stacker die Nacht aus dem Dateinamen
-(NINA-/ASIAIR-Zeitstempel) oder dem Datumsordner und vermerkt das am Frame.
+1. Frames **zum Löschen vormerken** (Auswahl unten oder **Entf** in der Großansicht). Vorgemerkte Frames werden
+   nicht gestackt, aber noch nicht gelöscht. „Zum Löschen vormerken“ ist etwas anderes als „nicht verwenden“.
+2. Über den roten Hinweis **Liste ansehen und löschen …** siehst du alle vorgemerkten Frames mit Größe. Einzelne
+   kannst du dort noch **behalten**.
+3. Der Knopf nennt Anzahl und Größe („12 Frames, 1,4 GB löschen“). Erst dieser Klick löscht.
 
-## 5. Stacken: Läufe, Kalibrierung, Optionen
+- Auf lokalen Platten landen die Dateien im **Papierkorb**.
+- Auf einem NAS oder USB-Stick gibt es keinen Papierkorb: Diese Dateien sind markiert, und gelöscht wird erst, wenn
+  du „Ja, endgültig löschen“ ankreuzt.
+- Ein Frame, den ein anderes Projekt noch verwendet, wird nicht gelöscht.
+- Jede Löschung steht im Verlauf (mit Dateinamen) und im Protokoll.
+- Claude und andere KI-Werkzeuge können **nie** löschen oder vormerken. Am Handy lässt sich nur vormerken.
 
-Der Reiter **Stacken** zeigt den Plan. b2stacker stackt jeden Filter in einem eigenen **Lauf**.
+## 6. Plan und Stacken
 
-- **Lauf ein/aus** – Schalter rechts. **Umbenennen** – Stift neben dem Namen (z. B. „IR“ → „RGB“);
-  der Name erscheint auch im Dateinamen des Stacks.
-- **Kalibrierung** – zeigt Flats, Bias, Darks, Dark-Flats und lässt sie ändern (auch eigener Ordner oder
-  „keine“). Wurde die Kamera zwischen den Nächten gedreht, bekommt jede Stellung eigene Flats.
-- **Optionen** (je Lauf):
-  - **Nur die besten Frames** – Schieberegler von 100 % bis 5 %. Nach links lässt du schwächere Lights weg.
-    Gereiht wird nach Signal/Rauschen und Sternschärfe aus der Analyse. Während du schiebst, zeigt b2stacker
-    sofort, wie viele Lights und **wie viele Stunden** dann integriert werden (mindestens 3 Lights bleiben).
-    Deine Auswahl im Reiter „Frames“ ändert sich dadurch nicht.
-  - **Referenz** – Frame, auf den ausgerichtet wird. „Master von …“ hält mehrere Filter deckungsgleich.
-  - **Sternerkennung angepasst** – erscheint, wenn die Sterne groß oder leicht oval sind (z. B. lange Brennweite).
-    b2stacker leitet dann aus der Analyse passende Werte für PixInsights StarAlignment ab (`maxStarDistortion`,
-    `minStructureSize`, Hotpixel- und Rauschfilter), damit an echten Sternen statt an Hotpixeln ausgerichtet wird.
-  - Platzbedarf und Light-Ordner des Laufs.
-- **Empfohlene Einstellungen** gelten für alle Läufe (Hotpixel, Local Normalization, Gewichtung …).
-  „Warum diese Einstellungen?“ erklärt jede Wahl.
-- Unten zeigt ein Kasten, ob alles bereit ist (Platz, Arbeitsspeicher, PixInsight) – dann **Stacken**.
+Der Reiter **Plan** zeigt einen **Lauf** je Filter (bei unterschiedlichem Gain oder Binning getrennt), mit Lights,
+Stunden, Nächten und den zugeordneten Flats (je Nacht), Bias und Darks samt Bewertung. Jede WBPP-Einstellung
+(Rejection, Gewichtung, Local Normalization, Drizzle, Hotpixel, Verzerrungskorrektur, Spuren entfernen,
+Zuschneiden …) steht mit Begründung da. Du kannst sie je Lauf oder für alle ändern; deine Änderung ist markiert und
+bleibt, auch wenn neue Frames dazukommen. „Zurück auf Automatik“ hebt sie wieder auf.
 
-Ein Klick auf ein Ergebnis öffnet den **Ergebnis-Betrachter**: blättern mit den Pfeiltasten, rechts Aufnahme,
-Kalibrierung, Qualitätskennzahlen und Hinweise des Stacks, dazu „In PixInsight öffnen“, „Ordner öffnen“,
-„Als Projektbild“ (**P**), „Kennzahlen messen“ und „Umbenennen“. Bearbeitete Bilder sind in derselben Reihe.
+**Stacken** startet PixInsight mit WBPP für alle eingeschalteten Läufe. Der Fortschritt steht oben rechts. Das
+Ergebnis landet im Projektordner, ein Ordner je Stack, z. B. `2026-11-04 Ha 12h30` (Master, WBPP-Protokoll). Weitere
+Läufe werden auf das erste Ergebnis ausgerichtet, damit alle Filter pixelgenau übereinanderliegen. Master-Bias,
+-Darks und -Flats werden aufgehoben und beim nächsten Mal wiederverwendet (siehe Kalibrier-Bibliothek).
 
-Fertige Stacks liegen in `<Arbeitsverzeichnis>/projects/<Projekt>/final/` als
-`Ziel_Filter_Datum_Stunden.xisf`. Dualband an der Farbkamera wird danach in Ha + OIII bzw. SII + OIII geteilt.
+Vor dem Start prüft b2stacker den freien Arbeitsspeicher (Einstellung „Mind. freier RAM“). Während des Stackens
+bleibt der PC wach. Ist „Ergebnis nach dem Stacken in PixInsight öffnen“ an, öffnet PixInsight das Ergebnis.
 
-## 6. Aufträge und Warteschlange
+## 7. Stacks vergleichen
 
-Analyse, Vorschauen und Stacking sind **Aufträge**. Es läuft immer einer; weitere warten in der Warteschlange
-und lassen sich dort abbrechen. Das Symbol oben rechts zeigt den laufenden Auftrag mit Projekt, Schritt und
-Restzeit. Während ein Auftrag läuft, kannst du weiter Frames sichten und andere Projekte bearbeiten.
+Der Reiter **Stacks** zeigt alle Stacks, neueste zuerst, mit Vorschau, Lights, Stunden, Größe, Qualitätswerten
+(Schärfe, Rauschen, Sterne, Sternform, Verlauf) und einer **Notiz**. Je Stack: **In PixInsight öffnen**,
+**Als Projektbild**, **Löschen** (löscht nur, was b2stacker erzeugt hat – eigene Dateien im Ordner bleiben).
 
-Beim Kalibrieren zeigt die Karte die Unterschritte aus dem PixInsight-Protokoll, z. B. „✓ Master-Bias erstellt ·
-✓ Flats kalibriert (60/60) · ▸ Master-Flat erstellen · Lights kalibrieren (0/28)“. Gibt es noch keine
-Schätzgrundlage, steht bei der Restzeit „wird geschätzt …“.
+**Vergleichen:** zwei Stacks anhaken oder „Neuesten vergleichen“. Beide Bilder liegen übereinander, mit gleicher
+Streckung; der Schieber zeigt links A, rechts B. b2stacker richtet B auf A aus – auch wenn die Kamera gedreht wurde.
+Rechts stehen die Werte mit „besser/schlechter“. Mausrad oder Doppelklick zoomt; ziehen neben dem Schieber
+verschiebt das Bild.
 
-Hinweise aus PixInsights Vorab-Prüfung (etwa „lange Pfade“ in Windows aus) erscheinen grau als **Hinweis**, nicht als
-Fehler. b2stacker schätzt selbst, wie lang die Pfade dieses Laufs werden, und stoppt nur dann vor dem Start, wenn sie
-wirklich zu lang wären.
+## 8. Galerie
 
-Jeder Auftrag endet eindeutig mit **Fertig**, **Fehlgeschlagen** oder **Abgebrochen**. Ein Ergebnis, das b2stacker
-selbst als unbrauchbar erkennt (z. B. an Hotpixeln statt an Sternen ausgerichtet), wird **nie** als „Fertig“
-ausgeliefert: b2stacker rechnet einmal mit Hotpixel-Entfernung neu, und scheitert auch das, endet der Lauf als
-fehlgeschlagen mit Erklärung.
+Bearbeitete Bilder (JPEG, PNG, TIFF, PSD, XISF, FITS) gehören zum Projekt: **Bilder hinzufügen …** oder
+**Ordner hinzufügen …**, oder einfach in den Projektordner legen – der Watcher findet sie. Die Dateien bleiben, wo sie
+sind. Ein Bild kann **Projektbild** der Startseiten-Kachel werden. „Aus der Galerie entfernen“ blendet es nur aus.
 
-## 7. Wenn etwas schiefgeht
+## 9. Verlauf
 
-Scheitert ein Stacking, zeigt b2stacker einen roten Kasten mit:
+Der **Verlauf** (je Projekt oder oben rechts für alle Projekte) erzählt in Klartext, was passiert ist: „20 neue
+Lights · Ha · 2,0 h, Nacht vom 02.11.2026“, „Gestackt: Ha 12h30“, Entscheidungen von Hand, Planänderungen,
+Löschungen. Gleichartige Einträge werden zusammengefasst.
 
-- **dem Schritt**, an dem es gescheitert ist (z. B. „Bias integrieren“),
-- **der Ursache** aus dem WBPP-Protokoll in Klartext (z. B. „nur 1 Bias – mindestens 3 nötig“),
-- Knöpfen **Kalibrierdaten ändern**, **WBPP-Protokoll öffnen** und **Erneut versuchen**.
+## 10. Kalibrier-Bibliothek
 
-Offensichtliche Probleme fängt b2stacker schon **vor** dem Start von PixInsight ab, etwa zu wenige
-Roh-Kalibrierbilder ohne Master oder ein Lauf ganz ohne Lights. Läufe mit weniger als 3 Lights sind erlaubt, der
-Plan weist aber darauf hin, dass dann keine Rejection gegen Spuren und Hotpixel möglich ist.
+Oben rechts **Kalibrierung** zeigt alle Master, die b2stacker beim Stacken aufgehoben hat, über alle Projekte: Art,
+Anzahl Frames, Filter, Belichtung, Gain, Offset, Temperatur, Nächte und in welchen Stacks sie verwendet wurden.
 
-Gibt es denselben Filter mit unterschiedlichen Kamera-Einstellungen (z. B. Gain 0 und Gain 100, anderes Binning),
-entstehen getrennte Läufe mit Zusatz im Namen, etwa „RGB (Gain 0)“ – sie werden nie vermischt.
+Braucht ein Stack – in irgendeinem Projekt – **genau dieselben Kalibrier-Rohframes**, nimmt b2stacker den fertigen
+Master, statt ihn neu zu rechnen. Kommt ein Frame dazu oder fällt einer weg, entsteht ein neuer Master. Gespart wird
+das Erzeugen der Master; Kalibrieren und Registrieren der Lights bleibt bei jedem Stack.
 
-Alles wird mitgeschrieben in `<Arbeitsverzeichnis>/logs/` (`events-JJJJ-MM.jsonl`, `b2stacker.log`) und je
-Lauf in `projects/<Projekt>/runs/<Zeit>/` (exakter PixInsight-Aufruf, WBPP-Protokolle). Für Fehlermeldungen
-an Entwickler oder KI-Agenten: `b2stacker.exe logs --kind error --trace`.
+Entfernen löscht nur den gespeicherten Master (eine von b2stacker erzeugte Datei), nie die Rohframes.
 
-## 8. Einstellungen
+## 11. Einstellungen, Sicherung, Selbsttest
 
-Menü (☰) → **Einstellungen**:
+Zahnrad oben rechts:
 
 | Einstellung | Bedeutung |
 |---|---|
-| Arbeitsverzeichnis | Zwischendateien, Berichte, Stacks, Historie. Beim Wechsel bietet b2stacker an, Projekte mitzunehmen. |
+| Arbeitsverzeichnis | Datenbank, Vorschauen, Temp-Ordner, Ergebnisse. |
 | PixInsight-Programm | Pfad zu `PixInsight.exe`. |
-| Gleichzeitige Vermessungen | Mehr = schnellere Analyse, je ~1 GB Arbeitsspeicher. |
-| Mindestens freier Arbeitsspeicher | Darunter startet kein Stacking (schützt vor Abstürzen). |
-| Zeitzone | Für Nächte und Himmelsdiagramme. |
-| **Ersatz-Standort** | Breite, Länge (Grad, Osten positiv) und optional Höhe in m. Wird verwendet, wenn die FITS-Daten **keinen Standort** enthalten – für Mondstand, Objekthöhe und die Zuordnung zur Nacht. Steht ein Standort im Header, gilt immer dieser. Wirkt ab der nächsten Analyse. |
-| PC wach halten | Kein Energiesparmodus während eines Stackings. |
-| Zwischendateien löschen | Spart viel Platz; Masters, Stacks und Protokolle bleiben. |
-| Ergebnisse öffnen | Fertige Stacks am Ende in PixInsight öffnen. |
+| Gleichzeitige Vermessungen | Mehr = schneller, je ~1 GB Arbeitsspeicher. |
+| Neue Dateien suchen alle (s) | So oft schaut der Watcher in deine Ordner. |
+| Mind. freier RAM (GB) | Darunter startet kein Stacken. |
+| Ersatz-Standort | Breite, Länge, Höhe – wenn die Aufnahmen keinen Standort enthalten (Nacht, Mondstand). |
+| PC wach halten | Kein Energiesparmodus während des Stackens. |
+| Ergebnis öffnen | Nach dem Stacken in PixInsight öffnen. |
 
-Ungültige Eingaben (z. B. 0 gleichzeitige Vermessungen) werden mit Hinweis abgelehnt statt gespeichert. Ist die
-Einstellungsdatei beschädigt (etwa nach einem Absturz beim Speichern), startet b2stacker trotzdem: Die Datei wird
-als `settings.json.kaputt-<Zeit>` gesichert, es gelten die Standardwerte, und ein Hinweis erscheint beim Start.
+**Wartung:** Datenbank jetzt sichern, Temp-Dateien löschen, ein **zusätzlicher Sicherungsort** (z. B. NAS) und die
+Liste der Sicherungen. **Wiederherstellen** spielt eine Sicherung sofort zurück (vorher wird der jetzige Stand
+gesichert). Bilddateien und Stacks auf der Platte bleiben dabei, wie sie sind.
 
-## 9. Selbsttest
+**Selbsttest mit PixInsight:** legt in einem Ordner deiner Wahl (für den NAS-Test einen Ordner auf dem NAS) einen
+kleinen Testdatensatz an (`b2stacker-selbsttest, mit Komma`: zwei Nächte, gedrehte Kamera, Flats je Nacht, Bias),
+liest ihn ein und stackt ihn zweimal mit PixInsight – das zweite Mal mit den gespeicherten Mastern. Das Testprojekt
+erscheint nicht in der Projektliste. Der Bericht liegt unter `<Arbeitsverzeichnis>/selbsttest/bericht-neu-*.json`;
+die letzten Ergebnisse stehen in den Einstellungen.
 
-Menü → **Selbsttest …** prüft, ob b2stacker auf **deinem** Rechner mit deinem PixInsight funktioniert.
-Du wählst einen Ordner – am besten auf dem Laufwerk, auf dem auch deine Aufnahmen liegen (z. B. das NAS).
-b2stacker legt dort einen kleinen Testdatensatz an (`b2stacker-selbsttest, mit Komma`: zwei Nächte, gedrehte
-Kamera, Flats je Nacht, Bias), analysiert und stackt ihn mit PixInsight und prüft dabei:
+## 12. Bedienung durch Claude und andere KI-Werkzeuge
 
-- PixInsight und WBPP gefunden, Version,
-- Datei-Verknüpfungen erlaubt (Entwicklermodus), lange Pfade,
-- Netzlaufwerk, Komma im Ordnernamen, Flat-Gruppen, Hotpixel-Korrektur.
+b2stacker lässt sich von KI-Werkzeugen bedienen (MCP), z. B. „Schau dir die neuen M-31-Nächte an, sortier
+unscharfe Frames aus und stack Ha“. Unter **Einstellungen → KI-Bedienung (MCP)** stehen die Adresse
+(`http://127.0.0.1:8775/mcp`) und der Schlüssel, dazu fertige Einträge für **OpenCode**, **Claude Code** und andere
+Werkzeuge zum Kopieren. Die Adresse ist nur auf diesem Rechner erreichbar; den Schlüssel wie ein Passwort behandeln
+(„Neu erzeugen“ macht den alten ungültig). Für die Claude-Desktop-App gibt es weiterhin `b2stacker.exe mcp`, das an
+das laufende Programm weiterleitet.
 
-Das Testprojekt liegt getrennt unter `<Arbeitsverzeichnis>/selbsttest/` und erscheint nicht in der Projektliste.
-Dort liegt auch der Bericht `bericht-<Zeit>.json` – den kannst du bei Problemen mitschicken.
+**Was die KI kann:** Projekte, Frames mit Messwerten und Gründen, Plan, Stacks mit Qualität, Verlauf und
+Kalibrier-Bibliothek ansehen; Projekte anlegen, Ordner hinzufügen, Frames verwenden/weglassen, den Plan ändern,
+stacken, Aufträge verfolgen und abbrechen, Notizen setzen, Stacks vergleichen, Ergebnisse in PixInsight öffnen,
+Einstellungen ändern, den Selbsttest starten und eigene PixInsight-Skripte zur Diagnose ausführen. Aufträge der KI
+tragen „· per Claude“ im Titel.
 
-## 10. Netzlaufwerk (NAS) und Windows-Entwicklermodus
+**Was die KI nicht kann:** Bilddateien löschen, vormerken, verschieben oder verändern.
 
-PixInsight bekommt deine Bilder in der Regel **direkt mit ihren Originalpfaden**. In drei Fällen legt
-b2stacker im Arbeitsverzeichnis stattdessen Verknüpfungen an:
+## 13. Was b2stacker mit deinen Daten macht – und was nicht
 
-1. ein **Komma** im Pfad (z. B. `Bias, Darks, Flats`) – PixInsight trennt seine Argumente am Komma,
-2. sehr viele Dateien – die Windows-Befehlszeile ist auf ca. 32 000 Zeichen begrenzt,
-3. **Flat-Gruppen** bei gedrehter Kamera – WBPP ordnet Flats über ein Kennwort im Pfad (`ASFLAT_1`) zu.
+- Rohdaten werden nur **gelesen**. Einzige Ausnahme: das Löschen vorgemerkter Frames nach deiner Bestätigung
+  (Abschnitt 5).
+- Alles, was b2stacker erzeugt, liegt im Arbeitsverzeichnis: `projects/<Projekt>/` (ein Ordner je Stack,
+  `masters/`), `temp/` (vor und nach jedem Stack geleert, darf jederzeit gelöscht werden) und `system/`
+  (Datenbank, Sicherungen, Vorschauen, Protokolle).
+- Fehlt eine Datei, heißt sie „Datei fehlt“ – Entscheidungen bleiben erhalten, falls sie wiederkommt.
+- Eigene Dateien im Projektordner (z. B. `final_final.tif` in einem Stack-Ordner) bleiben immer unangetastet.
 
-Verknüpfungen brauchen keinen Platz. Auf einer lokalen Platte klappt das immer. Für Dateien auf einem
-**Netzlaufwerk** braucht Windows dafür den **Entwicklermodus** (Einstellungen → System → Für Entwickler →
-Entwicklermodus). Ist er aus, kopiert b2stacker die betroffenen Dateien **einmal** nach
-`<Arbeitsverzeichnis>/cache/staged/` und verwendet die Kopie bei späteren Läufen wieder. Der Selbsttest zeigt,
-ob der Entwicklermodus aktiv ist.
+## 14. Wenn etwas schiefgeht
 
-## 11. Was b2stacker mit deinen Daten macht – und was nicht
-
-- Originale werden **nie verändert, verschoben, umbenannt oder gelöscht**. Auch „Projekt entfernen“ oder
-  „Stack entfernen“ löscht keine Bilddateien.
-- Alles, was b2stacker erzeugt, liegt im Arbeitsverzeichnis: Analyse, Vorschauen, Verknüpfungen, Masters, Stacks.
-- Ein gemeinsamer Katalog (`cache/catalog/`) merkt sich Header und Messwerte unveränderter Dateien, damit eine
-  erneute Analyse schnell geht.
-
-## 12. Bedienung durch Claude (KI)
-
-b2stacker lässt sich von Claude bedienen – du kannst also z. B. schreiben „Schau dir die neuen M-31-Nächte an,
-sortier unscharfe Frames aus und stack RGB“. Claude sieht dieselben Projekte, Frames, Gründe und Pläne wie du und
-reiht Analyse und Stacking in dieselbe Warteschlange ein.
-
-**Einrichten (einmal):** Menü (☰) → **Einstellungen** → „KI-Bedienung (Claude)“ → **Mit Claude verbinden**. Danach
-die Claude-Desktop-App ganz beenden (auch im Infobereich neben der Uhr) und neu starten. b2stacker trägt sich dabei
-in der Konfiguration der Claude-App ein; vorher wird eine Sicherung angelegt, andere Einträge bleiben unverändert.
-„Verbindung entfernen“ macht das rückgängig. Alternativ in einer Konsole: `b2stacker.exe mcp --install`.
-
-**Was Claude kann:** Status und Projekte ansehen, Ordner durchsuchen, Projekte anlegen und analysieren, Frames mit
-Messwerten und Gründen auflisten, Frames verwenden/weglassen, den Plan ändern (Läufe, Optionen, „nur die besten
-X %“), Stacking einreihen und den Fortschritt verfolgen, Protokolle lesen, den Selbsttest starten und Ergebnisse in
-PixInsight öffnen.
-
-**Was du dabei siehst:** Alles läuft über das b2stacker-Fenster. Aufträge, die Claude startet, tragen „· per Claude“
-im Titel und lassen sich wie gewohnt abbrechen. Läuft b2stacker noch nicht, startet Claude es.
-
-**Was Claude nicht kann:** Bilddateien löschen, verschieben oder verändern – das kann b2stacker gar nicht.
-Frame-Entscheidungen und Plan-Änderungen sind jederzeit umkehrbar (Frames: „auf Automatik zurück“).
-
-Technisch ist das ein MCP-Server (Model Context Protocol): `b2stacker.exe mcp` spricht über stdin/stdout mit der
-Claude-App und leitet alles an das laufende Programm weiter. Jeder Aufruf steht im Protokoll (`logs --kind mcp_call`).
-
+- Ein fehlgeschlagener Stack steht mit Grund in der Stack-Liste und im Verlauf; die anderen Läufe laufen weiter.
+  Das WBPP-Protokoll liegt im Stack-Ordner unter `protokoll/`.
+- Der **Selbsttest** zeigt, ob PixInsight, WBPP und das NAS mitspielen.
+- Protokolle: `<Arbeitsverzeichnis>/logs/` (`events-JJJJ-MM.jsonl`). Für Fehlermeldungen an Entwickler oder
+  KI-Werkzeuge: `b2stacker.exe logs --kind error --trace`.
