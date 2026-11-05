@@ -24,7 +24,7 @@ COOKIE = "b2key"
 BLOCKED_POST = {"settings", "backups", "backup", "quit", "install", "update", "pick-folder", "pick-file",
                 "pick-files", "check-pixinsight", "mcp-info", "mcp-token", "lan", "lan-key", "lan-info", "focus",
                 "clear-temp", "selftest", "library"}
-BLOCKED_PROJECT_POST = {"delete-frames"}
+BLOCKED_PROJECT_POST = {"delete-frames", "import-stacks"}   # Pfade am Computer wählen
 BLOCKED_STACK_POST = {"open-folder"}               # öffnet ein Fenster am Computer – vom Handy sinnlos
 
 

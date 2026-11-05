@@ -714,6 +714,15 @@ details>summary{cursor:pointer}
   <button class="btn sm" id="repSave" title="Bericht als HTML-Datei speichern (öffnet sich in jedem Browser)">Als Datei speichern</button>
   <button class="btn ghost icon" data-close aria-label="Schließen"></button></div><iframe id="repFrame" title="Bericht"></iframe></dialog>
 
+<dialog id="impDlg"><div class="hd"><h2>Vorhandene Stacks übernehmen</h2><button class="btn ghost icon" data-close aria-label="Schließen"></button></div>
+  <div class="bd"><div class="small muted">Holt fertige Ergebnisse in die Stack-Liste – mit Vorschau, Qualitätswerten und Vergleich. Die Dateien bleiben, wo sie sind; „Löschen“ entfernt bei übernommenen Stacks nur den Eintrag.</div>
+    <div class="clist card"><div class="citem"><span class="ci infoc">1</span><div class="cx"><b>Projektordner aus b2stacker 0.10</b> – alle Stacks samt Datum, Belichtung und Notiz (aus stacks.json).</div></div>
+      <div class="citem"><span class="ci infoc">2</span><div class="cx"><b>WBPP-Ausgabeordner</b> – alle masterLight-Dateien darin, ohne Autocrop-Variante.</div></div>
+      <div class="citem"><span class="ci infoc">3</span><div class="cx"><b>Einzelne Dateien</b> (XISF, FITS, TIFF) – jede wird ein eigener Stack.</div></div></div>
+    <div class="field"><label for="impIn">Ordner oder Dateien (eine pro Zeile)</label><textarea id="impIn" rows="3" class="mono" style="font-size:13px" placeholder="z. B. D:\Astro\vdB 131\WBPP\master"></textarea></div>
+    <div id="impRes"></div></div>
+  <div class="ft"><button class="btn" id="impPickF">Ordner wählen …</button><button class="btn" id="impPickD">Dateien wählen …</button><span class="grow"></span><button class="btn primary" id="impOk">Übernehmen</button></div></dialog>
+
 <dialog id="cheatDlg" style="width:min(760px,94vw)"><div class="hd"><h2 id="cheatT">Spickzettel</h2><button class="btn ghost icon" data-close aria-label="Schließen"></button></div>
   <div class="bd" id="cheatBody"></div></dialog>
 
@@ -2272,7 +2281,8 @@ function renderStacks(box){
   const runSt=stackBlock().st;
   if(!st.length){
     box.innerHTML=(runSt?'<div class="card" id="stackBox" style="margin-bottom:16px"></div>':'')+`<div class="empty"><div class="t">Noch keine Stacks</div><div class="x">Sobald der Plan bereit ist, startest du das Stacken im Tab „Plan“. Jeder Stack bekommt hier seinen Eintrag – mit Vorschau, Qualitätswerten und Platz für Notizen. Alle Stacks bleiben erhalten, bis du sie löschst.</div>
-      <a class="btn primary" href="#/p/${p.id}/plan" style="margin-top:8px">Zum Plan</a></div>`;if(runSt)renderStackBox();return;
+      <div class="row" style="margin-top:8px;justify-content:center"><a class="btn primary" href="#/p/${p.id}/plan">Zum Plan</a><button class="btn hideremote" data-import>Vorhandene Stacks übernehmen …</button></div></div>`;
+    $$('[data-import]',box).forEach(x=>x.onclick=openImport);if(runSt)renderStackBox();return;
   }
   box.innerHTML=`<div class="sec" style="gap:16px">${runSt?'<div class="card" id="stackBox"></div>':''}
     <div class="cmpbar" id="cmpBar"></div>
@@ -2285,8 +2295,10 @@ function renderCmpBar(){
   const b=$('#cmpBar');if(!b||!S.P)return;
   const st=S.P.stacks||[],dn=doneStacks(),total=st.reduce((a,s)=>a+(s.size_bytes||0),0),n=SV.sel.length;
   b.innerHTML=`<div class="grow"><b>${plural(st.length,'Stack','Stacks')}</b> <span class="muted small">· ${bytes(total)} im Projektordner</span></div>
+    <button class="btn sm ghost hideremote" data-import title="Ergebnisse aus b2stacker 0.10 oder direkt aus PixInsight/WBPP in die Liste holen">Stacks übernehmen …</button>
     ${dn.length>=2?(n===2?`<span class="small">2 ausgewählt</span><button class="btn sm ghost" id="cmpClr">Auswahl aufheben</button><button class="btn sm primary" id="cmpGo">${ic('layers','s14')} Vergleichen</button>`:
       `<span class="small muted">${n?'Noch einen Stack wählen':'Zwei Stacks wählen, um sie zu vergleichen'}</span><button class="btn sm" id="cmpLatest" title="Neuester Stack gegen den vorigen desselben Laufs">${ic('layers','s14')} Neuesten vergleichen</button>`):''}`;
+  $$('[data-import]',b).forEach(x=>x.onclick=openImport);
   const go=$('#cmpGo');if(go)go.onclick=()=>openCompare(SV.sel[1],SV.sel[0]);
   const cl=$('#cmpClr');if(cl)cl.onclick=()=>{SV.sel=[];syncStackSel();};
   // neuester Stack gegen den nächstälteren desselben Laufs (sonst den nächstälteren überhaupt)
@@ -2306,7 +2318,7 @@ function stackCard(s){
       ${s.preview_url?`<img loading="lazy" alt="Vorschau ${esc(s.name)}" src="${esc(s.preview_url)}">`:`<span>${s.status==='done'?(s.missing?'Datei fehlt':(s.quality&&s.quality.error?'keine Vorschau':'Vorschau wird berechnet …')):s.status==='failed'?'kein Ergebnis':''}</span>`}
       <div class="badges">${s.cover?`<span class="pill info">${ic('star','tiny')} Projektbild</span>`:'<span></span>'}${s.missing?`<span class="pill err">Datei fehlt</span>`:''}</div></button>
     <div class="sb">
-      <div class="st"><h3>${esc(s.name)}</h3><span class="pill ${pill[0]}">${pill[1]}</span>${s.settings&&s.settings.origin==='mcp'?'<span class="pill neutral">per Claude</span>':''}</div>
+      <div class="st"><h3>${esc(s.name)}</h3><span class="pill ${pill[0]}">${pill[1]}</span>${s.settings&&s.settings.origin==='mcp'?'<span class="pill neutral">per Claude</span>':''}${s.imported?'<span class="pill neutral" title="Aus 0.10 oder PixInsight übernommen – die Datei bleibt beim Löschen erhalten">übernommen</span>':''}</div>
       <div class="smeta">${meta.map(x=>`<span>${esc(x)}</span>`).join('')}</div>
       ${s.error?`<div class="serr">${ic('warn','s14')} ${esc(s.error)}</div>`:''}
       ${qualityHtml(s)}
@@ -2352,6 +2364,22 @@ function wireStacks(box){
       toast(r.removed&&r.removed.length?plural(r.removed.length,'Datei','Dateien')+' gelöscht':'Stack entfernt');reloadProject();});
   });
 }
+
+// ---------- Vorhandene Stacks übernehmen (0.10-Projektordner, WBPP-Ausgabe, einzelne Master)
+function openImport(){
+  const dlg=$('#impDlg');$('#impIn').value='';$('#impRes').innerHTML='';dlg.showModal();$('#impIn').focus();
+}
+async function runImport(paths){
+  paths=paths.map(x=>x.trim()).filter(Boolean);if(!paths.length)return;
+  const r=await api('/api/projects/'+S.P.id+'/import-stacks',{paths});
+  const sk=r.skipped||[];
+  $('#impRes').innerHTML=`<div class="banner ${r.added.length?'ok':'warn'}">${ic(r.added.length?'check':'info','s18')}<div class="grow"><div class="bt">${r.added.length?plural(r.added.length,'Stack','Stacks')+' übernommen':'Nichts übernommen'}</div>
+    <div class="bx">${r.found?'':'Keine passenden Dateien gefunden – gesucht wird nach masterLight-Dateien (XISF/FITS) bzw. nach stacks.json eines 0.10-Projekts.'}${sk.length?sk.map(x=>esc(x.path.split(/[\\/]/).pop())+': '+esc(x.why)).join('<br>'):''}${r.added.length?' Vorschau und Qualität werden jetzt im Hintergrund berechnet.':''}</div></div></div>`;
+  if(r.added.length){toast(plural(r.added.length,'Stack','Stacks')+' übernommen');reloadProject();}
+}
+$('#impPickF').onclick=e=>busy(e.currentTarget,async()=>{const f=await pickFolder('');if(f){$('#impIn').value=f;await runImport([f]);}});
+$('#impPickD').onclick=e=>busy(e.currentTarget,async()=>{const r=await api('/api/pick-files',{initial:''});if(r.paths&&r.paths.length){$('#impIn').value=r.paths.join('\n');await runImport(r.paths);}});
+$('#impOk').onclick=e=>busy(e.currentTarget,()=>runImport($('#impIn').value.split(/\n/)));
 
 // ---------- Spickzettel: Reihenfolge der Bearbeitung in PixInsight (wie in 0.10)
 async function openCheat(s){

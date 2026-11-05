@@ -235,7 +235,7 @@ def stack_project(db: dbm.Database, ws: Workspace, pid: int, pixinsight: str, ru
 
 def delete_stack(db: dbm.Database, ws: Workspace, pid: int, sid: int) -> list[str]:
     """Stack löschen: nur von b2stacker erzeugte Dateien; fremde Dateien im Stack-Ordner bleiben. → gelöscht"""
-    row = db.one("SELECT folder, name FROM stacks WHERE id = ? AND project_id = ?", (sid, pid))
+    row = db.one("SELECT folder, name, settings_json FROM stacks WHERE id = ? AND project_id = ?", (sid, pid))
     if not row:
         raise ValueError("Stack nicht gefunden.")
     folder = db.value("SELECT folder FROM projects WHERE id = ?", (pid,))
@@ -254,7 +254,8 @@ def delete_stack(db: dbm.Database, ws: Workspace, pid: int, sid: int) -> list[st
                        % ",".join("?" * len(locked)), (sid, *[a["id"] for a in locked]))
         raise ValueError("Die Datei ist gerade geöffnet und kann nicht gelöscht werden – bitte schließen und erneut "
                          "versuchen: %s" % locked[0]["path"])
-    if row["folder"]:
+    imported = bool(json.loads(row["settings_json"] or "{}").get("imported"))
+    if row["folder"] and not imported:                       # übernommene Stacks: fremder Ordner, nie anfassen
         sdir = os.path.join(ws.project_dir(folder), row["folder"])
         log = os.path.join(sdir, "protokoll")
         if os.path.isdir(log):

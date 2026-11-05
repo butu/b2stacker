@@ -440,10 +440,12 @@ class Core:
             d["quality"] = json.loads(d.pop("quality_json") or "null")
             files = self.db.query("SELECT id, path, size, owned FROM assets WHERE stack_id = ? AND hidden = 0 "
                                   "ORDER BY owned DESC, id", (r["id"],))
-            d["files"] = [a["path"] for a in files if a["owned"]]
+            d["imported"] = bool(d["settings"].get("imported"))
+            d["files"] = [a["path"] for a in files if a["owned"] or d["imported"]]
             d["file_info"] = [dict(id=a["id"], path=a["path"], name=os.path.basename(a["path"]), size=a["size"],
                                    owned=bool(a["owned"]), exists=os.path.isfile(a["path"])) for a in files]
-            d["missing"] = bool(d["files"]) and not any(f["exists"] for f in d["file_info"] if f["owned"])
+            d["missing"] = bool(d["files"]) and not any(f["exists"] for f in d["file_info"]
+                                                        if f["owned"] or d["imported"])
             d["hours"] = round((d.get("exposure_s") or 0) / 3600, 2)
             q = d["quality"] or {}
             d["preview_url"] = ("/api/stacks/%d/preview?v=%s" % (r["id"], q["preview"])) if q.get("preview") else None
@@ -473,6 +475,18 @@ class Core:
         name = self.db.value("SELECT name FROM projects WHERE id = ?", (pid,))
         return self.tasks.submit("quality", "%s: Stacks vermessen" % name, work, lane="misc", project_id=pid,
                                  key="quality:%d" % pid)
+
+    def import_stacks(self, project, paths: list[str]) -> dict:
+        """Vorhandene Stacks übernehmen (0.10-Projektordner, WBPP-Ausgabe oder einzelne Master-Dateien).
+        Die Dateien bleiben, wo sie sind; Vorschau und Qualität werden danach im Hintergrund berechnet."""
+        from . import stackimport
+        pid = self._pid(project)
+        res = stackimport.import_stacks(self.db, pid, paths)
+        if res["added"]:
+            self.measure_stacks(pid, res["added"])
+        self._notify("project", id=pid)
+        self._notify("projects")
+        return res
 
     def note(self, project, stack_id: int, text: str) -> None:
         pid = self._pid(project)

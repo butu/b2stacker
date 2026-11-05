@@ -57,7 +57,13 @@ def light_master(db: dbm.Database, sid: int) -> str | None:
     from .stacking import _light_master
     paths = [r[0] for r in db.query("SELECT path FROM assets WHERE stack_id = ? AND owned = 1 ORDER BY id", (sid,))]
     lm = _light_master(paths)
-    return lm[0] if lm else None
+    if lm:
+        return lm[0]
+    # übernommener Stack (0.10/PixInsight): die Datei gehört nicht b2stacker, ist aber das Ergebnis
+    if not paths and json.loads(db.value("SELECT settings_json FROM stacks WHERE id = ?", (sid,)) or "{}").get("imported"):
+        other = [r[0] for r in db.query("SELECT path FROM assets WHERE stack_id = ? ORDER BY id", (sid,))]
+        return other[0] if other else None
+    return None
 
 
 def _pixscale(db: dbm.Database, sid: int) -> float | None:

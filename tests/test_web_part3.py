@@ -455,3 +455,47 @@ def test_insights_nights_rig_and_report(proj):
     assert sum(x["n_used"] for x in co.insights(pid)["nights"]) == 0
     html = co.report_html(pid)
     assert html.startswith("<!") and "vdB 131" in html and "/*__DATA__*/null" not in html
+
+
+# ---------------------------------------------------------------- Stacks übernehmen
+
+def test_import_old_and_pixinsight_stacks(proj, tmp_path):
+    import json as _json
+
+    import numpy as np
+
+    from astrostack import xisf
+    co, pid, _ = proj
+    rng = np.random.default_rng(1)
+
+    def master(path, filt, n=20):
+        img = (rng.random((3, 120, 160)) * 0.02 + 0.05).astype(np.float32)
+        for y, x in ((30, 40), (80, 120), (60, 70), (20, 140)):
+            img[:, y - 2:y + 3, x - 2:x + 3] += 0.6
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        xisf.write_image(path, img, {"FILTER": filt, "NCOMBINE": n, "EXPTIME": 600.0, "DATE": "2026-08-01T22:00:00"})
+        return path
+    # 1) WBPP-Ausgabe: masterLight + Autocrop-Variante (nur eine zählt), Zwischenordner werden ignoriert
+    wb = tmp_path / "WBPP"
+    master(str(wb / "master" / "masterLight_BIN-1_6224x4168_FILTER-Ha_mono.xisf"), "Ha")
+    master(str(wb / "master" / "masterLight_BIN-1_6224x4168_FILTER-Ha_mono_autocrop.xisf"), "Ha")
+    master(str(wb / "registered" / "masterLight_x.xisf"), "Ha")
+    # 2) 0.10-Projektordner mit stacks.json
+    old = tmp_path / "alt"
+    f = master(str(old / "stacks" / "2026-07-01" / "RGB.xisf"), "RGB")
+    (old / "stacks.json").write_text(_json.dumps([dict(id="a", date="2026-07-01T23:00:00Z", hours=4.5, note="erster Versuch",
+                                                       outputs=[dict(name="RGB", file=os.path.relpath(f, old))])]))
+    res = co.import_stacks(pid, [str(wb), str(old)])
+    assert len(res["added"]) == 2 and res["found"] == 2
+    assert co.tasks.wait_idle(60)
+    st = {s["run_label"]: s for s in co.stacks(pid, measure=False)}
+    assert set(st) == {"Ha", "RGB"}
+    ha, rgb = st["Ha"], st["RGB"]
+    assert ha["imported"] and ha["frames"] == 20 and abs(ha["hours"] - 20 * 600 / 3600) < 0.01
+    assert rgb["note"] == "erster Versuch" and rgb["hours"] == 4.5 and rgb["created_at"].startswith("2026-07-01")
+    assert ha["preview_url"] and ha["quality"] and not ha["quality"].get("error")    # Vorschau + Qualität
+    again = co.import_stacks(pid, [str(wb)])                                           # doppelt: übersprungen
+    assert again["added"] == [] and again["skipped"][0]["why"] == "schon übernommen"
+    src = ha["files"][0]
+    co.delete_stack(pid, ha["id"])                                                     # Eintrag weg, Datei bleibt
+    assert os.path.isfile(src) and os.path.isdir(os.path.dirname(src))
