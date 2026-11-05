@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "astrostack"
-version = "0.13.0"
+version = "0.13.1"
 description = "Rohdaten sichten, bewerten und mit PixInsight stacken – automatisch, nachvollziehbar, per Klick oder per KI."
 readme = "README.md"
 requires-python = ">=3.10"

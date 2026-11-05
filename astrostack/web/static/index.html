@@ -1407,7 +1407,24 @@ function problems(plan){
   for(const r of plan.runs||[]){
     for(const x of r.problems||[])out.push({lvl:'warn',t:r.name+': '+x});
     if(!r.enabled&&r.why_off&&!(r.problems||[]).length)out.push({lvl:'info',t:r.name+' ist aus: '+r.why_off});
-    for(const f of r.flats||[])if(f.verdict==='critical'||f.verdict==='warning')out.push({lvl:f.verdict==='critical'?'err':'warn',t:r.name+', Nacht '+ymd(f.night)+': '+f.reason});
+    /* je Flat-Satz eine Zeile: was am Satz nicht passt (z. B. „Flats zu hell“) und für welche Nächte – der Abstand
+       zur Nacht ist nie ein Fehler (Feedback 0.13: rote Zeile je Nacht mit „7 Tage entfernt“ war irreführend) */
+    const sets=new Map();
+    for(const f of r.flats||[]){
+      if(!(f.file_ids||[]).length)continue;
+      const k=f.file_ids.join(','),g=sets.get(k)||{f,nights:[],far:[]};
+      g.nights.push(f.night);
+      if(!f.confirmed&&(f.hints||[]).some(h=>h.kind==='distance'))g.far.push(f.night);
+      sets.set(k,g);
+    }
+    for(const g of sets.values()){
+      const f=g.f,when=(f.flat_night?'Flats vom '+ymd(f.flat_night):'Flats')+' (für '+(g.nights.length>2?g.nights.length+' Nächte':g.nights.map(ymd).join(', '))+')';
+      if(f.verdict==='critical'||f.verdict==='warning'){
+        const t=[...new Set((f.findings||[]).filter(x=>x.level===f.verdict).map(x=>x.title))].join(', ')||'Qualität prüfen';
+        out.push({lvl:f.verdict==='critical'?'err':'warn',t:r.name+': '+when+' – '+t+'. Details im Plan unter Kalibrierung.'});
+      }
+      if(g.far.length)out.push({lvl:'info',t:r.name+': '+when+' – mehr als 14 Tage Abstand bei '+plural(g.far.length,'Nacht','Nächten')+'. Passt, wenn das Setup unverändert ist (im Plan bestätigen).'});
+    }
   }
   if(plan.free_gb!=null&&plan.need_gb>plan.free_gb)out.push({lvl:'err',t:'Zu wenig Speicherplatz: '+num(plan.need_gb)+' GB nötig, '+num(plan.free_gb)+' GB frei.'});
   return out;

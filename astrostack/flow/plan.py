@@ -239,6 +239,7 @@ def build_plan(db: dbm.Database, pid: int, workdir: str, edits: dict | None = No
             reference_choices=[dict(id=x["id"], name=x["name"], night=x["night"], fwhm=x["fwhm"], nstars=x["nstars"])
                                for x in _ref_choices(lights, auto_ref)],
             flats=[dict(night=x["night"], file_ids=x["flats"]["file_ids"], reason=x["flats"]["reason"],
+                        flat_night=x["flats"].get("night"),
                         verdict=(x["flats"].get("quality") or {}).get("verdict"), hints=x["flats"].get("hints") or [],
                         days=x["flats"].get("days"), manual=x["flats"].get("manual"), lights=x.get("lights"),
                         confirmed=bool(x["flats"].get("confirmed")),

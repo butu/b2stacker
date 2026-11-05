@@ -2,6 +2,11 @@
 
 Neueste Version oben. Der Abschnitt der aktuellen Version erscheint auch im Update-Dialog von b2stacker.
 
+## 0.13.1 – 05.11.2026
+
+- **„Was auffällt“ zeigt bei Flats den echten Grund.** Bisher stand dort je Nacht eine rote Zeile „Flats vom … (7 Tage entfernt)“. Rot war aber die Helligkeit der Flats („Flats zu hell“), nicht der Abstand. Jetzt gibt es eine Zeile je Flat-Satz mit dem Grund und den Nächten, für die er gilt. Mehr als 14 Tage Abstand erscheinen nur als Info und verschwinden mit „Passt, Setup unverändert“.
+- Claude sieht im Projektüberblick ebenfalls den Grund (`findings`) statt nur den Abstand.
+
 ## 0.13.0 – 05.11.2026
 
 **Dein Feedback zu 0.12.2 – alles in einem Update.**

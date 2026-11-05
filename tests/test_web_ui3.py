@@ -455,3 +455,25 @@ def test_stacking_tab_tiles_and_new_stack(page, app):
     expect(page.locator("#pTabs a.on")).to_have_text(re.compile("Stacking"))
     expect(page.locator(".back", has_text="Stacking")).to_be_visible()
     shot(page, "neuer-stack-plan")
+
+
+def test_overview_flat_problems_one_line_per_set_with_reason(page, app):
+    """Feedback 0.13: „Was auffällt“ zeigte je Nacht eine rote Zeile „Flats … (7 Tage entfernt)“ – rot war aber die
+    Helligkeit der Flats, nicht der Abstand. Jetzt: eine Zeile je Flat-Satz mit dem Grund; Abstand nur als Info."""
+    page.wait_for_function("typeof problems==='function'")
+    fl = lambda night, days, ok=False: dict(  # noqa: E731
+        night=night, flat_night="2026-10-31", file_ids=[1, 2, 3], verdict="critical", confirmed=ok,
+        reason="Flats vom 2026-10-31 (%d Tage entfernt), 43 Frames" % days,
+        findings=[dict(level="critical", title="Flats zu hell"), dict(level="warning", title="Farbring")],
+        hints=[dict(kind="distance", level="info")] if days > 14 else [])
+    plan = dict(runs=[dict(name="HaO3", enabled=True, problems=[],
+                           flats=[fl("2026-07-28", 95), fl("2026-10-18", 13), fl("2026-10-24", 7)])])
+    out = page.evaluate("p=>problems(p)", plan)
+    errs = [x for x in out if x["lvl"] == "err"]
+    assert len(errs) == 1 and "Flats zu hell" in errs[0]["t"] and "Tage entfernt" not in errs[0]["t"]
+    assert "3 Nächte" in errs[0]["t"] and "Farbring" not in errs[0]["t"]
+    infos = [x for x in out if x["lvl"] == "info"]
+    assert len(infos) == 1 and "1 Nacht" in infos[0]["t"]
+    plan["runs"][0]["flats"] = [fl("2026-07-28", 95, ok=True)]   # bestätigt → kein Abstands-Hinweis
+    plan["runs"][0]["flats"][0]["verdict"] = "good"
+    assert page.evaluate("p=>problems(p)", plan) == []
