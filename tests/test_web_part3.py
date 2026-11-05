@@ -538,7 +538,8 @@ def test_lan_vpn_addresses_and_windows_firewall_diagnosis(monkeypatch):
              dict(name="b2stacker", enabled="True", dir="Inbound", action="Allow", profile="Private", proto="TCP",
                   port="Any")]
     nets = [dict(name="Zuhause", alias="WLAN", category="Public")]
-    monkeypatch.setattr(lan, "_ps", lambda s, timeout=20: _json.dumps(rules if "Firewall" in s else nets))
+    monkeypatch.setattr(lan, "_ps", lambda s, timeout=20: "[]" if ("FirewallProduct" in s or "NetIPAddress" in s)
+                        else _json.dumps(rules if "Firewall" in s else nets))
     st = lan.firewall_status("C:/x/b2stacker.exe", 8875)
     assert not st["ok"] and any("sperrt" in p for p in st["problems"])
     assert any("Öffentlich" in p for p in st["problems"])
@@ -566,3 +567,26 @@ def test_insights_rows_have_fields_of_old_report(proj, monkeypatch):
     assert {"frame", "file", "pier", "status", "night", "t"} <= seen["keys"]
     assert seen["thumb"].endswith(".npy") and d["checks"][0]["title"] == "ok"
     assert not any("nicht berechnet" in r for r in d["rec"])
+
+
+def test_lan_connection_test_page_and_arrivals(proj, tmp_path, monkeypatch):
+    """Eingebauter Verbindungstest: /test geht ohne Koppeln und wird als „angekommen“ vermerkt."""
+    co, pid, _ = proj
+    from astrostack.web import lan
+    from astrostack.web import server as web
+    s = _settings(tmp_path, monkeypatch, co.ws.root, co.pixinsight)
+    s.lan_port = 0
+    s.save()
+    srv = _serve(co, s)
+    try:
+        info = web.set_lan(srv, True)
+        port = srv.lan_server.server_address[1]
+        assert all(u.endswith("/test") for u in info["test_urls"])
+        lan.LanServer.seen.clear()
+        st, body, _ = _lan_call(port, "GET", "/test")
+        assert st == 200 and "klappt" in (body.decode("utf-8") if isinstance(body, bytes) else str(body))
+        assert "127.0.0.1" in lan.LanServer.seen                       # Ankunft vermerkt
+        assert _lan_call(port, "GET", "/api/projects")[0] == 401        # alles andere bleibt gesperrt
+    finally:
+        web.set_lan(srv, False)
+        _stop(srv)

@@ -16,6 +16,7 @@ Alle Antworten sind JSON; Fehler kommen als ``{"error": "<Klartext>"}`` (400 Ein
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import os
 import select
@@ -225,7 +226,7 @@ def save_settings(srv: WebServer, data: dict) -> dict:
     return dict(settings=public_settings(s), restart_needed=moved and not switched, workdir=srv.core.ws.root)
 
 
-def lan_info(srv: WebServer) -> dict:
+def lan_info(srv: WebServer, fresh: bool = False) -> dict:
     """Heimnetz-Zugang für die Einstellungen: an/aus, Adressen, QR-Code zum Koppeln."""
     from . import lan
     s = Settings.load()
@@ -238,15 +239,24 @@ def lan_info(srv: WebServer) -> dict:
     from .. import updater
     fw = None
     if running:
-        try:
-            fw = lan.firewall_status(updater.exe_path(), port)
-        except Exception:  # noqa: BLE001
-            fw = None
+        hit = getattr(srv, "_fw_cache", None)           # PowerShell braucht Sekunden – 30 s merken
+        if hit and time.time() - hit[0] < 30 and not fresh:
+            fw = hit[1]
+        else:
+            try:
+                fw = lan.firewall_status(updater.exe_path(), port)
+            except Exception:  # noqa: BLE001
+                fw = None
+            srv._fw_cache = (time.time(), fw)
     recent = sorted(((ip, t) for ip, t in lan.LanServer.rejected.items() if time.time() - t < 3600),
                     key=lambda x: -x[1])
+    seen = sorted(((ip, t) for ip, t in lan.LanServer.seen.items() if time.time() - t < 3600 and ip != "127.0.0.1"),
+                  key=lambda x: -x[1])
     return dict(enabled=s.lan_access, running=running, port=port, urls=urls, pair_url=pair,
                 qr=lan.qr_svg(pair) if (pair and running) else None, error=srv.lan_error, firewall=fw,
-                rejected=[ip for ip, _ in recent[:5]])
+                rejected=[ip for ip, _ in recent[:5]],
+                seen=[dict(ip=ip, ago_s=int(time.time() - t)) for ip, t in seen[:5]],
+                test_urls=["http://%s:%d/test" % (ip, port) for ip in ips])
 
 
 def fix_firewall(srv: WebServer) -> dict:
@@ -258,7 +268,7 @@ def fix_firewall(srv: WebServer) -> dict:
     port = srv.lan_server.server_address[1] if srv.lan_server is not None else Settings.load().lan_port
     lan.firewall_fix(exe, port)
     logbook.event("lan_firewall_fixed", port=port)
-    return lan_info(srv)
+    return lan_info(srv, fresh=True)
 
 
 def set_lan(srv: WebServer, enabled: bool) -> dict:
@@ -616,6 +626,14 @@ class Handler(BaseHTTPRequestHandler):
         if self.remote:
             if parts == ["pair"]:
                 return self._pair(q)
+            if parts == ["test"]:                    # Verbindungstest: ohne Koppeln, verrät nichts
+                logbook.event("lan_test", client=self.client_address[0])
+                body = ("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
+                        "<body style='background:#0b0b0c;color:#fff;font:17px system-ui;padding:24px'>"
+                        "<h2 style='color:#8ff0a4'>✓ Verbindung zu b2stacker klappt</h2><p>Dieses Gerät (%s) erreicht "
+                        "den Computer. Jetzt am Computer unter Einstellungen → Handy den QR-Code scannen.</p>"
+                        % html.escape(self.client_address[0])).encode("utf-8")
+                return self._send(200, body, "text/html; charset=utf-8")
             if not self._remote_ok():
                 return self._remote_denied()
         elif not self._host_ok():

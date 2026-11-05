@@ -107,8 +107,11 @@ class LanServer(ThreadingHTTPServer):
         return getattr(self.primary, name)
 
     rejected: dict = {}
+    seen: dict = {}                 # jede ankommende Verbindung (für den Verbindungstest in den Einstellungen)
 
     def verify_request(self, request, client_address) -> bool:
+        import time as _t
+        LanServer.seen[client_address[0]] = _t.time()
         ok = private_client(client_address[0])
         if not ok:                                     # sichtbar machen statt still abbrechen
             import time
@@ -171,6 +174,15 @@ def firewall_status(exe: str | None, port: int) -> dict | None:
                   " alias=$_.InterfaceAlias; category=\"$($_.NetworkCategory)\"} } | ConvertTo-Json -Compress")
         nets = json.loads(txt) if txt.strip() else []
         out["networks"] = nets if isinstance(nets, list) else [nets]
+        txt = _ps("Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and "
+                  "$_.IPAddress -notlike '169.254.*' } | ForEach-Object { [pscustomobject]@{alias=$_.InterfaceAlias;"
+                  " ip=$_.IPAddress; prefix=$_.PrefixLength} } | ConvertTo-Json -Compress")
+        ads = json.loads(txt) if txt.strip() else []
+        out["adapters"] = ads if isinstance(ads, list) else [ads]
+        txt = _ps("Get-CimInstance -Namespace root/SecurityCenter2 -ClassName FirewallProduct -ErrorAction "
+                  "SilentlyContinue | ForEach-Object { $_.displayName } | ConvertTo-Json -Compress")
+        prods = json.loads(txt) if txt.strip() else []
+        out["security"] = [p for p in (prods if isinstance(prods, list) else [prods]) if isinstance(p, str) and p]
     except Exception as e:  # noqa: BLE001
         out["error"] = str(e)[:200]
         return out
@@ -186,8 +198,12 @@ def firewall_status(exe: str | None, port: int) -> dict | None:
     if not allows:
         out["problems"].append("Keine Freigabe in der Windows-Firewall für eingehende Verbindungen auf Port %d." % port)
     elif public and not any(("Any" in (r.get("profile") or "") or "Public" in (r.get("profile") or "")) for r in allows):
-        out["problems"].append("Das Netzwerk „%s“ ist in Windows als „Öffentlich“ eingestuft, die Freigabe gilt aber "
-                               "nur für private Netzwerke." % (public[0].get("name") or public[0].get("alias")))
+        out["problems"].append("Der Netzwerkadapter „%s“ ist in Windows als „Öffentlich“ eingestuft, die Freigabe gilt "
+                               "aber nur für private Netzwerke." % (public[0].get("alias") or public[0].get("name")))
+    if out.get("security"):
+        out["problems"].append("Zusätzliche Firewall aktiv: %s. Sie kann das Handy auch dann sperren, wenn die "
+                               "Windows-Firewall aus ist – dort b2stacker.exe bzw. Port %d im Heimnetz erlauben."
+                               % (", ".join(out["security"]), port))
     out["ok"] = not out["problems"]
     return out
 
