@@ -236,3 +236,13 @@ Weitere Befunde:
 - `bool("false")` ist in Python `True`: Plan-Optionen, die als Text ankamen, blieben eingeschaltet. Jetzt werden
   alle Eingaben über API und CLI geprüft und normalisiert, ungültige nie gespeichert.
 - Testbilder für die Sternmessung nicht zu dicht packen: Nachbarsterne im 15×15-Messfenster blähen die FWHM auf.
+
+## Nachtrag 2026-11-05: Weg B – WBPP prüft Parametertypen (vdB 131, RGB)
+
+Beim direkten Setzen der Engine-Eigenschaften (Weg B, `b2launch.js`) akzeptiert WBPP keine Zahlen als Text.
+`hotPixelFilterRadius = "2"` führte bei der Registrierung zu
+`StarAlignment.hotPixelFilterRadius(): Invalid argument type: numeric value expected` – für **jeden** Frame;
+Kalibrieren, Debayern und ImageAnalysis liefen vorher sauber durch (51/51). Ergebnis: kein Light für die Integration,
+also „kein Master“. Ursache waren die Sternerkennungs-Werte im Plan (aus der Oberfläche als Text gespeichert).
+Seit 0.12 wandelt `plan.wbpp_values` sie in Zahlen und `handover._numeric` zusätzlich alles, was nach Zahl
+aussieht (außer `referenceImage`). `wbpplog` erkennt den Fehler und nennt die betroffene Einstellung.

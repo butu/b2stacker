@@ -55,6 +55,17 @@ Ordner mit `_rejected`, `_verworfen` oder `_alt` im Namen gelten als aussortiert
 Ein Projekt hat die Reiter **Übersicht**, **Frames**, **Plan**, **Stacks**, **Galerie** und **Verlauf**.
 Name und Beschreibung änderst du mit dem Stift neben dem Namen.
 
+Die **Übersicht** zeigt neben Belichtung, Bereitschaft und Quellordnern:
+
+- **Nächte:** je Nacht und Filter Frames (verwendet/gesamt), Belichtung, **effektive** Zeit (nach Rauschen
+  gewichtet – so viel ist die Nacht wirklich wert), FWHM, Mond, Objekthöhe und eine Note (Gut/Mittel/Schwach). Ein
+  Klick auf die Zeile zeigt, warum die Nacht so bewertet ist, was zu tun ist, und die **Himmelsbahn** (Objekt,
+  Mond, Dämmerung, einzelne Aufnahmen). „Frames“ öffnet genau diese Nacht im Reiter Frames.
+- **Rig-Hinweise:** aus den Frames gemessen – Schärfe, Nachführung, Fokus (auch ob er der Temperatur folgt),
+  Dithering, Kühlung, Taupunkt, Offset, Belichtung. Auffälliges steht oben mit Begründung und Empfehlung.
+- **Ausführlicher Bericht:** alles auf einer Seite mit Diagrammen und allen Frames, wie der Bericht aus 0.10;
+  „Als Datei speichern“ legt ihn als HTML-Datei ab, die sich in jedem Browser öffnet.
+
 ## 3. Was automatisch passiert
 
 Beim Programmstart, beim Öffnen eines Projekts, nach dem Hinzufügen eines Ordners und wenn der **Watcher** neue
@@ -75,7 +86,10 @@ während NINA noch aufnimmt. Ein ausgeschaltetes NAS wird übersprungen („Quel
 ## 4. Frames sichten
 
 Der Reiter **Frames** zeigt alle Frames einer Art (Lights, Flats, Bias, Darks) in einer durchgehenden Kachelansicht,
-auch bei tausenden Frames ohne Blättern. Filter: Alle, Verwendet, Aussortiert, Zum Löschen, Manuell. Mehrere
+auch bei tausenden Frames ohne Blättern. Filter: Alle, Verwendet, Aussortiert, Zum Löschen, Manuell. Darunter:
+**sortieren** (Aufnahmezeit, FWHM, Sternform, Sterne, Rauschen, Hintergrund, Belichtung, Dateiname), nach
+**Aufnahmefilter** und **Nacht** filtern, **nach Nacht gruppieren** und die **Größe** der Vorschaubilder einstellen
+(wird gemerkt). „Wie bewertet b2stacker die Frames?“ erklärt die Gründe fürs Aussortieren. Mehrere
 auswählen: Kästchen anklicken, **Shift**+Klick für einen Bereich, **Strg**+Klick einzeln. Dann unten
 Verwenden / Nicht verwenden / Automatik / Zum Löschen vormerken.
 
@@ -88,12 +102,17 @@ Verwenden / Nicht verwenden / Automatik / Zum Löschen vormerken.
 | A | zurück auf Automatik |
 | Entf | zum Löschen vormerken, dann weiter |
 | S | erkannte Sterne einblenden |
-| Mausrad, + / −, 0 | Zoom, 0 = einpassen; Doppelklick wechselt zwischen eingepasst und 1:1 |
+| Klick ins Bild | auf 100 % zoomen (volle Auflösung), nochmal Klick = einpassen |
+| Mausrad, + / −, 0 | Zoom, 0 = einpassen |
 | Esc | schließen |
 
+Die Großansicht erscheint sofort in voller Bildschirmgröße (b2stacker bereitet die Bilder beim Vermessen vor und lädt
+die Nachbarn voraus). Rechts stehen Messwerte und Aufnahmedaten: Temperatur, Gain/Offset, Kamera, Teleskop,
+Koordinaten, Objekthöhe, Mond, HFR aus dem Dateinamen und mehr.
+
 **Sterne einblenden** zeigt b2stackers eigene Sternerkennung als Ellipsen: Größe = FWHM, Form und Richtung =
-Exzentrizität; grün = rund, gelb = leicht oval, rot = länglich. Darunter: Anzahl, FWHM, Sternform. Die Erkennung
-dauert beim ersten Mal ein paar Sekunden und wird gemerkt.
+Exzentrizität; grün = rund, gelb = leicht oval, rot = länglich. Darunter: Anzahl, FWHM, Sternform. Die Sterne sind
+ohne Wartezeit da; die Einstellung bleibt für das nächste Bild.
 
 Am Handy: wischen nach links/rechts blättert, nach oben = verwenden, nach unten = nicht verwenden, zwei Finger
 zoomen.
@@ -126,10 +145,28 @@ Stunden, Nächten und den zugeordneten Flats (je Nacht), Bias und Darks samt Bew
 Zuschneiden …) steht mit Begründung da. Du kannst sie je Lauf oder für alle ändern; deine Änderung ist markiert und
 bleibt, auch wenn neue Frames dazukommen. „Zurück auf Automatik“ hebt sie wieder auf.
 
+Je Lauf gibt es zwei aufklappbare Bereiche:
+
+- **Kalibrierung:** welche Flats je Nacht, welche Bias und Darks – mit Bewertung und der Erklärung, wie b2stacker
+  wählt (gleiche Kamera, Filter, Gain/Offset, Binning, Drehung; bei mehreren die zeitlich nächsten). Du kannst je
+  Nacht andere Flats oder „keine“ wählen. Alte Flats sind nur ein Hinweis: Wie gut sie passen, entscheidet die
+  Prüfung (Staub, Vignettierung), nicht das Alter allein.
+- **Optionen:** nur die **besten X %** der Frames verwenden (Schieber), das **Referenzbild** fürs Ausrichten
+  wählen, den Lauf **umbenennen**, jeden Wert der **Sternerkennung** einzeln überschreiben, und der Platzbedarf
+  („braucht etwa 42 GB · frei auf G: 54 GB von 1,8 TB“).
+
 **Stacken** startet PixInsight mit WBPP für alle eingeschalteten Läufe. Der Fortschritt steht oben rechts. Das
 Ergebnis landet im Projektordner, ein Ordner je Stack, z. B. `2026-11-04 Ha 12h30` (Master, WBPP-Protokoll). Weitere
 Läufe werden auf das erste Ergebnis ausgerichtet, damit alle Filter pixelgenau übereinanderliegen. Master-Bias,
 -Darks und -Flats werden aufgehoben und beim nächsten Mal wiederverwendet (siehe Kalibrier-Bibliothek).
+
+**Während des Stackens** zeigt der Plan und der Reiter Stacks den Ablauf: welche Phasen erledigt sind (Kalibrier-Master,
+Lights kalibrieren, Debayern, Vermessen, Ausrichten, Normalisieren, Integrieren), was gerade läuft und was noch kommt,
+jeweils mit Dauer, dazu alle WBPP-Schritte, eine grobe Restzeit und das **Live-Protokoll** von PixInsight zum
+Aufklappen.
+
+Schlägt ein Stack fehl, steht die Ursache in Klartext beim Stack, und „Protokoll öffnen“ zeigt das aufgehobene
+WBPP-Protokoll.
 
 Vor dem Start prüft b2stacker den freien Arbeitsspeicher (Einstellung „Mind. freier RAM“). Während des Stackens
 bleibt der PC wach. Ist „Ergebnis nach dem Stacken in PixInsight öffnen“ an, öffnet PixInsight das Ergebnis.
@@ -137,8 +174,15 @@ bleibt der PC wach. Ist „Ergebnis nach dem Stacken in PixInsight öffnen“ an
 ## 7. Stacks vergleichen
 
 Der Reiter **Stacks** zeigt alle Stacks, neueste zuerst, mit Vorschau, Lights, Stunden, Größe, Qualitätswerten
-(Schärfe, Rauschen, Sterne, Sternform, Verlauf) und einer **Notiz**. Je Stack: **In PixInsight öffnen**,
-**Als Projektbild**, **Löschen** (löscht nur, was b2stacker erzeugt hat – eigene Dateien im Ordner bleiben).
+(Schärfe, Rauschen, Sterne, Sternform, Verlauf – mit der Maus darauf steht, was der Wert bedeutet) und einer
+**Notiz**. Je Stack: **Spickzettel** (Reihenfolge der Bearbeitung in PixInsight, passend zu RGB oder Ha/OIII),
+**In PixInsight öffnen**, **Als Projektbild**, **Löschen** (löscht nur, was b2stacker erzeugt hat – eigene Dateien
+im Ordner bleiben).
+
+**Stacks übernehmen …** holt vorhandene Ergebnisse in die Liste: den Projektordner eines 0.10-Projekts (mit Datum,
+Belichtung und Notiz aus `stacks.json`), einen WBPP-Ausgabeordner (alle `masterLight`-Dateien) oder einzelne
+XISF/FITS/TIFF. Vorschau und Qualität werden berechnet; die Dateien bleiben, wo sie sind, und „Löschen“ entfernt bei
+übernommenen Stacks nur den Eintrag.
 
 **Vergleichen:** zwei Stacks anhaken oder „Neuesten vergleichen“. Beide Bilder liegen übereinander, mit gleicher
 Streckung; der Schieber zeigt links A, rechts B. b2stacker richtet B auf A aus – auch wenn die Kamera gedreht wurde.
@@ -151,6 +195,9 @@ Bearbeitete Bilder (JPEG, PNG, TIFF, PSD, XISF, FITS) gehören zum Projekt: **Bi
 **Ordner hinzufügen …**, oder einfach in den Projektordner legen – der Watcher findet sie. Die Dateien bleiben, wo sie
 sind. Ein Bild kann **Projektbild** der Startseiten-Kachel werden. „Aus der Galerie entfernen“ blendet es nur aus.
 
+Die Großansicht zeigt alles zum Bild: Pixelmaße, Kanäle, Bittiefe, Bildmaßstab und Bildfeld, gemessene Sterne,
+FWHM, Rundheit, Rauschen und Hintergrund sowie den kompletten FITS-Header bzw. die EXIF-Daten.
+
 ## 9. Verlauf
 
 Der **Verlauf** (je Projekt oder oben rechts für alle Projekte) erzählt in Klartext, was passiert ist: „20 neue
@@ -161,6 +208,10 @@ Löschungen. Gleichartige Einträge werden zusammengefasst.
 
 Oben rechts **Kalibrierung** zeigt alle Master, die b2stacker beim Stacken aufgehoben hat, über alle Projekte: Art,
 Anzahl Frames, Filter, Belichtung, Gain, Offset, Temperatur, Nächte und in welchen Stacks sie verwendet wurden.
+
+Unter **Rohframes** stehen alle Flats, Bias und Darks aus allen Projekten, gruppiert danach, wie sie zusammen einen
+Master ergeben (Typ, Kamera, Gain/Offset, Belichtung, Binning; Bias/Darks je Temperatur, Flats je Filter und
+Nacht) – mit Anzahl, Nächten, Projekten, Größe und fehlenden Dateien.
 
 Braucht ein Stack – in irgendeinem Projekt – **genau dieselben Kalibrier-Rohframes**, nimmt b2stacker den fertigen
 Master, statt ihn neu zu rechnen. Kommt ein Frame dazu oder fällt einer weg, entsteht ein neuer Master. Gespart wird
@@ -183,6 +234,9 @@ Zahnrad oben rechts:
 | PC wach halten | Kein Energiesparmodus während des Stackens. |
 | Ergebnis öffnen | Nach dem Stacken in PixInsight öffnen. |
 
+Die ganze Oberfläche lässt sich oben rechts (− 100 % +) oder mit **Strg + Plus/Minus/0** bzw. **Strg + Mausrad**
+vergrößern; die Einstellung wird gemerkt.
+
 **Wartung:** Datenbank jetzt sichern, Temp-Dateien löschen, ein **zusätzlicher Sicherungsort** (z. B. NAS) und die
 Liste der Sicherungen. **Wiederherstellen** spielt eine Sicherung sofort zurück (vorher wird der jetzige Stand
 gesichert). Bilddateien und Stacks auf der Platte bleiben dabei, wie sie sind.
@@ -199,11 +253,11 @@ b2stacker lässt sich von KI-Werkzeugen bedienen (MCP), z. B. „Schau dir die n
 unscharfe Frames aus und stack Ha“. Unter **Einstellungen → KI-Bedienung (MCP)** stehen die Adresse
 (`http://127.0.0.1:8775/mcp`) und der Schlüssel, dazu fertige Einträge für **OpenCode**, **Claude Code** und andere
 Werkzeuge zum Kopieren. Die Adresse ist nur auf diesem Rechner erreichbar; den Schlüssel wie ein Passwort behandeln
-(„Neu erzeugen“ macht den alten ungültig). Für die Claude-Desktop-App gibt es weiterhin `b2stacker.exe mcp`, das an
-das laufende Programm weiterleitet.
+(„Neu erzeugen“ macht den alten ungültig). Für die **Claude-Desktop-App** genügt **Mit Claude verbinden** in
+denselben Einstellungen; danach die Claude-App ganz beenden und neu starten.
 
 **Was die KI kann:** Projekte, Frames mit Messwerten und Gründen, Plan, Stacks mit Qualität, Verlauf und
-Kalibrier-Bibliothek ansehen; Projekte anlegen, Ordner hinzufügen, Frames verwenden/weglassen, den Plan ändern,
+Kalibrier-Bibliothek ansehen, Nachtübersicht und Rig-Hinweise abfragen; Projekte anlegen, vorhandene Stacks übernehmen, Ordner hinzufügen, Frames verwenden/weglassen, den Plan ändern,
 stacken, Aufträge verfolgen und abbrechen, Notizen setzen, Stacks vergleichen, Ergebnisse in PixInsight öffnen,
 Einstellungen ändern, den Selbsttest starten und eigene PixInsight-Skripte zur Diagnose ausführen. Aufträge der KI
 tragen „· per Claude“ im Titel.

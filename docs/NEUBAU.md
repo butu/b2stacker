@@ -267,6 +267,28 @@ Hilfe `fake_stack` legt Stacks mit echten Mastern direkt an).
   `bootstrap.remote` blendet das in der Oberfläche aus.
 - Einstellungen `lan_access`, `lan_port`, `lan_key` (nie in `public_settings`). QR-Code mit `segno` als SVG.
 
+### 0.12 (05.11.2026): Rückmeldungen zu 0.11 umgesetzt
+
+- **Auswertungen** (`flow/insights.py`): Nachtübersicht, Rig-Hinweise, Himmelsbahnen und Kennzahlen aus
+  `frame_metrics` mit den Bausteinen des alten Berichts (`report/assess.py`, `report/diag.py`, `report/sky.py`);
+  Entscheidungen aus `file_status` gehen als Overrides ein. Zwischengespeichert je Projekt, Schlüssel aus Anzahl und
+  Zeit der Messungen und einer Prüfsumme der Entscheidungen. `report_html` rendert `report/template.html` mit
+  Thumbnails aus `previews/thumbs/<sha20>.npy`. Routen: `GET /api/projects/<p>/insights`, `…/report`.
+- **Ablauf beim Stacken:** Das Event-Script schreibt zusätzlich `ops` (Name, Start, Ende, Status je WBPP-Operation)
+  in `b2-status.json`; `handover.run` gibt sie als `task.detail` weiter (neues Feld an `Task`, per
+  `progress(detail=…)` gemischt). `GET /api/tasks/<id>/log` liefert das Ende des laufenden WBPP-Protokolls.
+- **WBPP-Parameter immer als Zahlen** (`handover._numeric`): WBPP prüft Typen beim Setzen von Eigenschaften;
+  `"2"` statt `2` ließ die Registrierung aller Frames scheitern (vdB 131 RGB, Protokoll in ERKENNTNISSE).
+- **Stacks übernehmen** (`stackimport.py`): 0.10-`stacks.json`, `masterLight*` bis 3 Ebenen tief oder einzelne
+  Dateien → `stacks`-Zeile mit `settings_json.imported`, Datei als `assets`-Zeile mit `owned = 0`.
+  `stackview.light_master` nimmt bei übernommenen Stacks die fremde Datei; `delete_stack` fasst deren Ordner nie an.
+- **Galerie-Infos** (`gallery.info`): Maße, Bittiefe, Header/EXIF, `stackqa.kpis` – je Dateiversion als JSON neben
+  den Vorschauen.
+- **Kalibrier-Rohframes** (`Core.calibration_frames`, `GET /api/library/frames`): Gruppen wie für einen Master.
+- **Updater:** belegte `b2stacker.old.exe` (läuft noch als MCP-Prozess der Vorversion) → ausweichender Name
+  `…old-<zeit>.exe`; Grund eines gescheiterten Austauschs landet in `%TEMP%\b2stacker_update_failed.txt` und beim
+  nächsten Start im Protokoll und als Meldung.
+
 ### Bekannte Grenzen
 
 - Alte CLI-Befehle (`scan`, `report`, `plan`, `stack` …) sprechen nur mit der alten App.

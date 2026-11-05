@@ -2,6 +2,58 @@
 
 Neueste Version oben. Der Abschnitt der aktuellen Version erscheint auch im Update-Dialog von b2stacker.
 
+## 0.12.0 – 05.11.2026
+
+**Was in 0.11 gefehlt hat, ist zurück – und mehr.**
+
+**Behoben**
+- **RGB-Stack schlug fehl („WBPP hat kein Master erzeugt“):** b2stacker hat die Werte der Sternerkennung als Text
+  statt als Zahl an PixInsight übergeben, deshalb hat das Ausrichten jeden Frame abgelehnt. Jetzt gehen alle
+  Einstellungen als Zahlen an WBPP, und bei so einem Fehler steht die richtige Ursache dabei.
+- **Update blieb bei der alten Version:** Lief noch ein Prozess der vorletzten Version (z. B. die Claude-Verbindung),
+  konnte die alte Datei nicht ersetzt werden. Das Update weicht jetzt aus, räumt Altversionen beim Start auf und
+  sagt, falls doch etwas schiefgeht, warum.
+
+**Übersicht**
+- **Nachtübersicht:** je Nacht und Filter Frames, Belichtung, effektive Zeit, FWHM, Mond, Objekthöhe und eine Note
+  mit Begründung und Empfehlung. Klick zeigt die Himmelsbahn (Objekt, Mond, Dämmerung, Aufnahmen), „Frames“ springt
+  genau zu dieser Nacht.
+- **Rig-Hinweise:** Schärfe, Nachführung, Fokus (auch Temperatur-Zusammenhang), Dithering, Kühlung, Taupunkt,
+  Offset und Belichtung – jeweils was auffällt, warum und was zu tun ist.
+- **Ausführlicher Bericht** wie in 0.10, auch als HTML-Datei speicherbar.
+
+**Stacks**
+- **Ablauf beim Stacken:** welche Phasen erledigt sind, was gerade läuft und was als Nächstes kommt, alle
+  WBPP-Schritte mit Dauer, grobe Restzeit und das Live-Protokoll von PixInsight.
+- **Spickzettel** je Ergebnis: Reihenfolge der Bearbeitung in PixInsight, passend zu RGB oder Ha/OIII.
+- **Vorhandene Stacks übernehmen:** Projektordner aus 0.10, WBPP-Ausgabe oder einzelne Master – mit Vorschau,
+  Qualität und Vergleich. Die Dateien bleiben, wo sie sind.
+- Erklärungen zu den Qualitätswerten (mit Richtwerten) direkt an jedem Wert.
+
+**Frames und Großansicht**
+- Großansicht sofort in voller Größe (vorbereitet und vorausgeladen), Sterne ohne Wartezeit, Klick zoomt auf
+  100 %, viel mehr Infos (Temperatur, Koordinaten, Gain/Offset, Kamera, Teleskop, Höhe, Mond, HFR).
+- Sortieren nach Aufnahmezeit, FWHM, Sternform, Sternen, Rauschen, Hintergrund, Belichtung; filtern nach Filter und
+  Nacht; nach Nacht gruppieren; Größenregler für die Vorschaubilder (wird gemerkt).
+- Hilfe: wie die Frames bewertet werden und was du tun kannst.
+
+**Plan**
+- Je Lauf aufklappbar: **Kalibrierung** (Flats je Nacht, Bias/Darks – auch von Hand) mit Erklärung, wie b2stacker
+  wählt, und **Optionen**: beste X %, Referenzbild, Lauf umbenennen, jeder Wert der Sternerkennung einzeln.
+- Alte Flats sind nur noch ein Hinweis mit Begründung, kein Ausschluss.
+- Platzanzeige verständlich: „braucht etwa 42 GB · frei auf G: 54 GB von 1,8 TB“.
+
+**Galerie und Kalibrierung**
+- Galerie: alle Bild-Infos – Pixelmaße, Bittiefe, Bildmaßstab und -feld, Sterne, FWHM, Rundheit, Rauschen,
+  Hintergrund und der komplette FITS-Header bzw. EXIF.
+- Kalibrier-Bibliothek: neben den Mastern auch alle Rohframes (Flats, Bias, Darks) aus allen Projekten, gruppiert
+  danach, wie sie zusammenpassen.
+
+**Sonst**
+- Auswahlboxen im Stil der App, Zoom der ganzen Oberfläche (Strg + Plus/Minus/0 oder Mausrad).
+- Einstellungen: „Mit Claude verbinden“ ist zurück.
+- Für Claude (MCP): neue Werkzeuge `insights` (Nächte, Rig-Hinweise) und `import_stacks`.
+
 ## 0.11.2 – 05.11.2026
 
 - Schlägt ein Stack fehl, steht die Ursache in Klartext dabei (aus dem WBPP-Protokoll), und das Protokoll bleibt im
