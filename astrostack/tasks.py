@@ -103,6 +103,7 @@ class Task:
         self.done = 0
         self.total = 0
         self.message = ""
+        self.detail: dict = {}          # Zusatzinfos für die Anzeige (z. B. WBPP-Schritte beim Stacken)
         self.eta_s: int | None = None
         self.result: Any = None
         self.error = ""
@@ -117,7 +118,7 @@ class Task:
 
     # ------------------------------------------------------------ für die Arbeitsfunktion
     def progress(self, step: str | None = None, done: int | None = None, total: int | None = None,
-                 message: str | None = None) -> None:
+                 message: str | None = None, detail: dict | None = None) -> None:
         """Fortschritt melden. Ein neuer ``step`` setzt Zähler und Restzeit-Schätzung zurück."""
         now = time.monotonic()
         if step is not None and step != self.step:
@@ -131,6 +132,8 @@ class Task:
             self.done = int(done)
         if message is not None:
             self.message = message
+        if detail is not None:
+            self.detail = dict(self.detail, **detail)
         # Höchstens etwa 5 Meldungen je Sekunde; Schrittwechsel und Ende immer sofort.
         if step is not None or self.done >= self.total or now - self._last_pub >= 0.2:
             self._last_pub = now
@@ -161,7 +164,7 @@ class Task:
     def as_dict(self) -> dict:
         return dict(id=self.id, kind=self.kind, title=self.title, lane=self.lane, project_id=self.project_id,
                     key=self.key, origin=self.origin, state=self.state, step=self.step, done=self.done,
-                    total=self.total, message=self.message, eta_s=self.eta_s, error=self.error,
+                    total=self.total, message=self.message, eta_s=self.eta_s, error=self.error, detail=self.detail,
                     created=_iso(self.created), started=_iso(self.started), finished=_iso(self.finished))
 
 

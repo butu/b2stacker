@@ -258,6 +258,27 @@ class Core:
         return dict(id=r["id"], size=r["size"], **{k: meta.get(k) for k in keep_m if meta.get(k) not in (None, "")},
                     measured={k: data.get(k) for k in keep_d if data.get(k) is not None})
 
+    def task_log(self, task_id: str, lines: int = 120) -> dict:
+        """Die letzten Zeilen des WBPP-Protokolls eines laufenden Stack-Auftrags (Live-Protokoll)."""
+        t = self.tasks.get(task_id)
+        if t is None:
+            raise ValueError("Auftrag nicht gefunden.")
+        d = (t.detail or {}).get("logdir")
+        if not d or not os.path.isdir(d):
+            return dict(lines=[], file=None)
+        from . import wbpplog
+        log = wbpplog.newest_log(d)
+        if not log:
+            return dict(lines=[], file=None)
+        n = max(10, min(int(lines), 1000))
+        with open(log, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            fh.seek(max(0, size - 200_000))
+            text = fh.read().decode("utf-8", "replace")
+        out = [ln.rstrip("\r") for ln in text.split("\n") if ln.strip()][-n:]
+        return dict(lines=out, file=os.path.basename(log), size=size)
+
     def insights(self, project) -> dict:
         """Nachtübersicht, Rig-Hinweise (Fokus, Nachführung, Dithering, Taupunkt …), Himmelsbahnen und Kennzahlen –
         dieselben Auswertungen wie der Bericht aus 0.10, aus den gespeicherten Messwerten."""

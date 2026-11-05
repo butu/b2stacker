@@ -151,7 +151,9 @@ def stack_project(db: dbm.Database, ws: Workspace, pid: int, pixinsight: str, ru
         if cancel is not None and cancel.is_set():
             break
         if progress:
-            progress(step="Stacken: %s (%d von %d)" % (run["name"], i + 1, len(runs)), done=0, total=0)
+            progress(step="Stacken: %s (%d von %d)" % (run["name"], i + 1, len(runs)), done=0, total=0,
+                     detail=dict(run=run["name"], run_index=i + 1, runs=len(runs), ops=[], current="",
+                                 lights=run["lights"], logdir=os.path.join(ws.temp, "wbpp", "logs")))
         ws.clear_temp()
         out = os.path.join(ws.temp, "wbpp")
         ref_path = align_master

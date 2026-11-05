@@ -29,19 +29,28 @@ var B2_STATUS = "__STATUS__";
 function b2write( state ) { try { File.writeTextFile( B2_STATUS, JSON.stringify( state.b2 ) ); } catch ( x ) {} }
 function onPipelineStart( env, state )
 {
-   state.b2 = { started: ( new Date ).toISOString(), total: env.operationsCount, index: -1, name: "", done: 0, failed: [] };
+   state.b2 = { started: ( new Date ).toISOString(), total: env.operationsCount, index: -1, name: "", done: 0, failed: [],
+                ops: [] };
    b2write( state );
 }
 function onOperationStart( env, state )
 {
    state.b2.index = env.operationIndex; state.b2.name = String( env.name ); state.b2.t = ( new Date ).toISOString();
+   if ( state.b2.ops.length < 300 )
+      state.b2.ops.push( { n: String( env.name ), s: state.b2.t } );
    b2write( state );
 }
 function onOperationDone( env, state )
 {
    state.b2.done = env.operationIndex + 1;
-   if ( String( env.status ).toLowerCase().indexOf( "fail" ) >= 0 )
+   var st = String( env.status ).toLowerCase();
+   if ( st.indexOf( "fail" ) >= 0 )
       state.b2.failed.push( { name: String( env.name ), message: String( env.statusMessage ?? "" ) } );
+   if ( state.b2.ops.length > 0 )
+   {
+      var o = state.b2.ops[state.b2.ops.length - 1];
+      o.e = ( new Date ).toISOString(); o.st = st.indexOf( "fail" ) >= 0 ? "failed" : "done";
+   }
    b2write( state );
 }
 function onPipelineEnd( env, state )
@@ -263,7 +272,8 @@ def run(exe: str, launcher: str, job_path: str, progress=None, cancel: threading
         if st and progress and st != last:
             last = st
             progress(step="Stacken mit PixInsight", done=int(st.get("done") or 0), total=int(st.get("total") or 0),
-                     message=st.get("name") or "")
+                     message=st.get("name") or "",
+                     detail=dict(ops=st.get("ops") or [], started=st.get("started"), current=st.get("name") or ""))
         time.sleep(poll_s)
     proc.wait()
     res = _read_json(job.get("result", "")) or {}

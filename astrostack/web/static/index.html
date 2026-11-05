@@ -451,6 +451,19 @@ dialog .ft{padding:4px 20px 20px;display:flex;justify-content:flex-end;gap:8px;f
 dialog input[type=text],dialog input[type=number],dialog input[type=password],dialog textarea,dialog select{background:var(--bg);box-shadow:inset 0 0 0 1px var(--ring);height:38px;border-radius:8px;padding:0 12px;font-size:14.5px}
 dialog textarea{height:auto;padding:10px 12px;font-size:14px}
 dialog input:focus,dialog textarea:focus,dialog select:focus{box-shadow:inset 0 0 0 1px rgba(255,255,255,.6)}
+.flow{border-top:1px solid var(--div);padding:12px 16px 14px;display:flex;flex-direction:column;gap:10px}
+.fsteps{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px}
+.fstep{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;background:rgba(255,255,255,.04);font-size:13px}
+.fstep .fdot{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;flex:none;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.25)}
+.fstep.done .fdot{background:var(--ok);box-shadow:none;color:#000}.fstep.now{background:var(--info-bg)}.fstep.now .fdot{box-shadow:none;color:var(--info-2)}
+.fstep.fail .fdot{background:var(--err);box-shadow:none;color:#fff}.fstep.next{opacity:.55}
+.fstep .fl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fstep .ft{font-size:11.5px;opacity:.6;font-variant-numeric:tabular-nums}
+.fops summary{cursor:pointer;opacity:.75}.fop{display:flex;justify-content:space-between;gap:12px;font-size:12.5px;padding:3px 0;opacity:.85}
+.fop.failed{color:var(--err)}.fop span:last-child{flex:none;opacity:.65;font-variant-numeric:tabular-nums}
+.flog{max-height:260px;overflow:auto;background:#0d0d0d;border-radius:8px;padding:10px;font-size:11.5px;line-height:1.45;white-space:pre-wrap;word-break:break-all;margin:6px 0 0}
+.phase{padding:12px 16px 4px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;opacity:.6;border-top:1px solid var(--div)}
+.phase:first-child{border-top:0}
+.cnum{flex:none;width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.1);display:grid;place-items:center;font-size:12px;font-weight:700}
 dialog.rep{width:min(1280px,96vw);height:92vh;display:none;flex-direction:column}
 dialog.rep[open]{display:flex}
 dialog.rep iframe{flex:1;border:0;width:100%;background:#1e1e1e;border-radius:0 0 14px 14px}
@@ -700,6 +713,9 @@ details>summary{cursor:pointer}
 <dialog id="repDlg" class="rep"><div class="hd"><h2>Ausführlicher Bericht</h2><span class="grow"></span>
   <button class="btn sm" id="repSave" title="Bericht als HTML-Datei speichern (öffnet sich in jedem Browser)">Als Datei speichern</button>
   <button class="btn ghost icon" data-close aria-label="Schließen"></button></div><iframe id="repFrame" title="Bericht"></iframe></dialog>
+
+<dialog id="cheatDlg" style="width:min(760px,94vw)"><div class="hd"><h2 id="cheatT">Spickzettel</h2><button class="btn ghost icon" data-close aria-label="Schließen"></button></div>
+  <div class="bd" id="cheatBody"></div></dialog>
 
 <dialog id="askDlg" class="ask"><div class="at"><b id="askT"></b><div id="askX"></div></div>
   <div class="af"><button class="btn" id="askNo">Abbrechen</button><button class="btn" id="askOk">OK</button></div></dialog>
@@ -2137,11 +2153,17 @@ function renderStackBox(){
   const box=$('#stackBox');if(!box||!S.P||!S.P.plan)return;
   const {st,why,on,otherStack}=stackBlock();
   if(st){
-    box.innerHTML=`<div class="stackbox"><div class="sx" style="flex:1 1 420px"><b>${st.state==='queued'?'Wartet auf PixInsight …':'Wird gestackt'}</b>
-      <div class="prog"><div class="pt"><span>${esc(st.step||st.title)}</span><span>${st.total?int(st.done)+' von '+int(st.total)+' · ':''}${esc(eta(st.eta_s)||'')}</span></div>${bar(st)}</div></div>
-      <button class="btn" data-cancel-stack="${esc(st.id)}">Abbrechen</button></div>`;
+    const d=st.detail||{},title=st.state==='queued'?'Wartet auf PixInsight …':'Wird gestackt'+(d.run?': '+d.run+(d.runs>1?' ('+d.run_index+' von '+d.runs+')':''):'');
+    box.innerHTML=`<div class="stackbox"><div class="sx" style="flex:1 1 420px"><b>${esc(title)}</b>
+      <div class="prog"><div class="pt"><span>${esc(st.message||st.step||st.title)}</span><span>${st.total?int(st.done)+' von '+int(st.total)+' Schritten · ':''}${esc(wbppEta(st)||eta(st.eta_s)||'')}</span></div>${bar(st)}</div></div>
+      <button class="btn" data-cancel-stack="${esc(st.id)}">Abbrechen</button></div>
+      ${st.state==='running'?flowHtml(st):''}`;
     const c=$('[data-cancel-stack]',box);
     c.onclick=async()=>{if(await ask('Stacken abbrechen?','PixInsight wird beendet. Bereits fertige Masters bleiben erhalten.','Abbrechen',true))busy(c,async()=>onTask(await api('/api/tasks/'+encodeURIComponent(st.id)+'/cancel',{})));};
+    const lg=$('#flowLog',box);if(lg)lg.ontoggle=()=>{FLOW.open=lg.open;if(lg.open)pollFlowLog(st.id);};
+    const fo=$('#flowOps',box);if(fo)fo.ontoggle=()=>{FLOW.ops=fo.open;};
+    const pre=$('#flowPre',box);if(pre)pre.scrollTop=pre.scrollHeight;
+    if(FLOW.open)pollFlowLog(st.id);
     return;
   }
   const hours=on.reduce((s,r)=>s+(r.hours||0),0);
@@ -2150,6 +2172,58 @@ function renderStackBox(){
     <button class="btn primary big" id="stackGo" ${why?'disabled':''} title="${esc(why||'Jetzt stacken')}">${ic('play')} Stacken</button></div>`;
   const b=$('#stackGo');
   b.onclick=()=>busy(b,async()=>{const t=await api('/api/projects/'+S.P.id+'/stack',{});onTask(t);toast('Stacken gestartet');});
+}
+
+/* ---- Ablauf beim Stacken: Phasen (erledigt / jetzt / als Nächstes), WBPP-Schritte mit Dauer, Live-Protokoll ---- */
+const PHASES=[['masters','Kalibrier-Master','Bias, Darks und Flats zu Mastern zusammenfassen (oder vorhandene wiederverwenden)'],
+  ['calib','Lights kalibrieren','Master-Bias/Dark abziehen, durch das Master-Flat teilen'],
+  ['cc','Hotpixel entfernen','CosmeticCorrection – ersetzt heiße und kalte Pixel'],
+  ['debayer','Debayern','Farbmatrix der Kamera in Farbbilder umrechnen'],
+  ['measure','Vermessen und gewichten','Sterne, Rauschen und Schärfe je Frame – daraus Gewichte und das Referenzbild'],
+  ['register','Ausrichten','Alle Lights per Sternmuster auf das Referenzbild legen'],
+  ['ln','Normalisieren','Helligkeit und Verläufe der Frames angleichen (Local Normalization)'],
+  ['integrate','Integrieren','Das eigentliche Stacken: Mittelwert mit Ausreißer-Entfernung'],
+  ['finish','Abschluss','Drizzle, Rand beschneiden, Kanäle trennen']];
+function phaseOf(n){n=String(n||'');
+  if(/drizzle|crop|split|recombin/i.test(n))return 'finish';
+  if(/\b(bias|dark|flat)/i.test(n)&&!/light/i.test(n))return 'masters';
+  if(/cosmetic/i.test(n))return 'cc';if(/calibrat/i.test(n))return 'calib';if(/debayer|demosaic/i.test(n))return 'debayer';
+  if(/analys|measur|weight|reference|subframe/i.test(n)&&!/LN /.test(n))return 'measure';
+  if(/registr|align/i.test(n))return 'register';if(/normaliz|^LN /i.test(n))return 'ln';if(/integrat/i.test(n))return 'integrate';
+  return 'measure';}
+const FLOW={open:false,ops:false,timer:0,id:null,lines:null};
+const tsec=a=>a?Date.parse(a)/1000:0;
+const durS=s=>s<60?Math.max(1,Math.round(s))+' s':s<3600?Math.round(s/60)+' min':Math.floor(s/3600)+' h '+String(Math.round(s%3600/60)).padStart(2,'0')+' min';
+function wbppEta(st){
+  const d=st.detail||{},ops=d.ops||[],fin=ops.filter(o=>o.e);if(!st.total||fin.length<2||!d.started)return '';
+  const el=Date.now()/1000-tsec(d.started),left=Math.max(0,st.total-st.done);
+  if(!left)return 'gleich fertig';
+  return eta(el/Math.max(1,st.done)*left).replace('noch etwa','grob noch');
+}
+function flowHtml(st){
+  const d=st.detail||{},ops=d.ops||[],cur=ops.length&&!ops[ops.length-1].e?phaseOf(ops[ops.length-1].n):null;
+  const seen=new Set(ops.map(o=>phaseOf(o.n))),curI=cur?PHASES.findIndex(p=>p[0]===cur):-1;
+  const now=Date.now()/1000;
+  const stepper=PHASES.filter(p=>p[0]!=='cc'||seen.has('cc')).map((p,i)=>{
+    const idx=PHASES.findIndex(x=>x[0]===p[0]),done=seen.has(p[0])&&p[0]!==cur&&(curI<0||idx<curI),now_=p[0]===cur;
+    const t=ops.filter(o=>phaseOf(o.n)===p[0]).reduce((a,o)=>a+((o.e?tsec(o.e):now)-tsec(o.s)),0);
+    const failed=ops.some(o=>phaseOf(o.n)===p[0]&&o.st==='failed');
+    return `<div class="fstep ${failed?'fail':done?'done':now_?'now':'next'}" title="${esc(p[2])}"><span class="fdot">${failed?ic('warn','s14'):done?ic('check','s14'):now_?ic('spinner','s14 spin'):''}</span>
+      <span class="fl">${esc(p[1])}</span><span class="ft">${t>0?durS(t):''}</span></div>`;}).join('');
+  const list=ops.slice(-8).map(o=>`<div class="fop ${o.st||'run'}"><span class="ell">${esc(o.n)}</span><span>${o.e?durS(tsec(o.e)-tsec(o.s)):'läuft seit '+durS(now-tsec(o.s))}</span></div>`).join('');
+  return `<div class="flow"><div class="fsteps">${stepper}</div>
+    ${ops.length?`<details class="fops" id="flowOps" ${FLOW.ops?'open':''}><summary class="small">WBPP-Schritte (${ops.length} von ${int(st.total||0)})</summary>${list}</details>`:''}
+    <details id="flowLog" class="fops" ${FLOW.open?'open':''}><summary class="small">Live-Protokoll von PixInsight</summary><pre class="flog" id="flowPre">${esc(FLOW.lines?FLOW.lines.join('\n')||'Noch kein Protokoll – PixInsight startet …':'wird geladen …')}</pre></details></div>`;
+}
+function pollFlowLog(id){
+  if(FLOW.id===id&&FLOW.timer)return;                       // läuft schon
+  clearTimeout(FLOW.timer);FLOW.id=id;FLOW.lines=null;
+  const tick=async()=>{FLOW.timer=0;if(FLOW.id!==id||!FLOW.open||!S.tasks.has(id))return;
+    try{const r=await api('/api/tasks/'+encodeURIComponent(id)+'/log?lines=80');FLOW.lines=r.lines;
+      const pre=$('#flowPre');if(pre){const atEnd=pre.scrollTop+pre.clientHeight>=pre.scrollHeight-20;
+        pre.textContent=r.lines.length?r.lines.join('\n'):'Noch kein Protokoll – PixInsight startet …';if(atEnd)pre.scrollTop=pre.scrollHeight;}}catch(e){}
+    FLOW.timer=setTimeout(tick,2000);};
+  tick();
 }
 
 /* =====================================================================================================
@@ -2195,14 +2269,16 @@ function renderStacks(box){
   const p=S.P,st=p.stacks||[];
   if(p._partial){box.innerHTML=`<div class="live">${ic('spinner','s14 spin')} Stacks werden geladen …</div>`;return;}
   SV.sel=SV.sel.filter(id=>st.some(s=>s.id===id&&s.status==='done'));
+  const runSt=stackBlock().st;
   if(!st.length){
-    box.innerHTML=`<div class="empty"><div class="t">Noch keine Stacks</div><div class="x">Sobald der Plan bereit ist, startest du das Stacken im Tab „Plan“. Jeder Stack bekommt hier seinen Eintrag – mit Vorschau, Qualitätswerten und Platz für Notizen. Alle Stacks bleiben erhalten, bis du sie löschst.</div>
-      <a class="btn primary" href="#/p/${p.id}/plan" style="margin-top:8px">Zum Plan</a></div>`;return;
+    box.innerHTML=(runSt?'<div class="card" id="stackBox" style="margin-bottom:16px"></div>':'')+`<div class="empty"><div class="t">Noch keine Stacks</div><div class="x">Sobald der Plan bereit ist, startest du das Stacken im Tab „Plan“. Jeder Stack bekommt hier seinen Eintrag – mit Vorschau, Qualitätswerten und Platz für Notizen. Alle Stacks bleiben erhalten, bis du sie löschst.</div>
+      <a class="btn primary" href="#/p/${p.id}/plan" style="margin-top:8px">Zum Plan</a></div>`;if(runSt)renderStackBox();return;
   }
-  box.innerHTML=`<div class="sec" style="gap:16px">
+  box.innerHTML=`<div class="sec" style="gap:16px">${runSt?'<div class="card" id="stackBox"></div>':''}
     <div class="cmpbar" id="cmpBar"></div>
     <div class="stks">${st.map(stackCard).join('')}</div></div>`;
   renderCmpBar();
+  if(runSt)renderStackBox();
   wireStacks(box);
 }
 function renderCmpBar(){
@@ -2241,6 +2317,7 @@ function stackCard(s){
         ${s.status==='done'?`<label class="tog small"><input type="checkbox" data-pick="${s.id}" ${SV.sel.includes(s.id)?'checked':''}> zum Vergleich</label>`:''}
         <span class="grow"></span>
         ${s.status==='done'&&s.master_asset_id&&s.preview_url?`<button class="btn sm${s.cover?' ghost':''}" data-cover="${s.cover?'':s.master_asset_id}">${ic('star','s14')} ${s.cover?'Projektbild zurücksetzen':'Als Projektbild'}</button>`:''}
+        ${s.status==='done'?`<button class="btn sm" data-cheat="${s.id}" title="Reihenfolge der Bearbeitung in PixInsight – passend zu diesem Ergebnis">${ic('list','s14')} Spickzettel</button>`:''}
         ${s.status==='done'&&!s.missing?`<button class="btn sm" data-pi="${s.id}" title="Ergebnis in PixInsight öffnen">In PixInsight öffnen</button>`:''}
         ${s.status==='failed'&&s.folder?`<button class="btn sm hideremote" data-sfold="${s.id}" title="Ordner mit dem WBPP-Protokoll öffnen">Protokoll öffnen</button>`:''}
         <button class="btn sm ghost danger" data-del="${s.id}" ${['running','queued'].includes(s.status)?'disabled':''}>Löschen</button></div>
@@ -2265,6 +2342,7 @@ function wireStacks(box){
   $$('[data-cover]',box).forEach(b=>b.onclick=()=>busy(b,async()=>{const aid=b.dataset.cover?+b.dataset.cover:null;
     await api('/api/projects/'+p.id+'/cover',{asset_id:aid});toast(aid?'Projektbild gesetzt':'Projektbild zurückgesetzt – die Kachel zeigt den neuesten Stack.');reloadProject();}));
   $$('[data-sfold]',box).forEach(b=>b.onclick=()=>busy(b,async()=>{await api('/api/projects/'+p.id+'/stacks/'+b.dataset.sfold+'/open-folder',{});}));
+  $$('[data-cheat]',box).forEach(b=>b.onclick=()=>busy(b,()=>openCheat((S.P.stacks||[]).find(x=>x.id===+b.dataset.cheat))));
   $$('[data-pi]',box).forEach(b=>b.onclick=()=>busy(b,async()=>{const r=await api('/api/projects/'+p.id+'/stacks/'+b.dataset.pi+'/open-pixinsight',{});
     toast('PixInsight öffnet '+plural(r.opened.length,'Datei','Dateien'));}));
   $$('[data-del]',box).forEach(b=>b.onclick=async()=>{
@@ -2273,6 +2351,20 @@ function wireStacks(box){
     busy(b,async()=>{const r=await api('/api/projects/'+p.id+'/stacks/'+s.id+'/delete',{});SV.sel=SV.sel.filter(x=>x!==s.id);
       toast(r.removed&&r.removed.length?plural(r.removed.length,'Datei','Dateien')+' gelöscht':'Stack entfernt');reloadProject();});
   });
+}
+
+// ---------- Spickzettel: Reihenfolge der Bearbeitung in PixInsight (wie in 0.10)
+async function openCheat(s){
+  if(!s)return;
+  const r=await api('/api/checklist?run='+encodeURIComponent(s.run_label||s.name||''));
+  let n=0;const grp=ph=>r.items.filter(x=>x.phase===ph).map(x=>`<div class="citem"><span class="cnum">${++n}</span><div class="cx"><div><b>${esc(x.title)}</b> <span class="muted">· ${esc(x.tool)}</span></div><div class="small" style="opacity:.8;margin-top:2px">${esc(x.why)}</div></div></div>`).join('');
+  $('#cheatT').textContent='Spickzettel · '+(s.run_label||s.name);
+  $('#cheatBody').innerHTML=`<div class="small muted">Faustregel: Alles, was misst (Verläufe, Farbe, Schärfe, Rauschen), passiert <b>linear</b> – vor dem Strecken. Danach wird gestaltet. Passend zu ${esc(r.outputs.join(' + '))}.</div>
+    <div class="card"><div class="phase">1 · Linear (vor dem Strecken)</div><div class="clist">${grp('linear')}</div>
+    <div class="phase">2 · Nach dem Strecken</div><div class="clist">${grp('nonlinear')}</div></div>
+    ${!s.missing?`<div class="row"><span class="grow"></span><button class="btn primary hideremote" id="cheatPi">In PixInsight öffnen</button></div>`:''}`;
+  const pi=$('#cheatPi');if(pi)pi.onclick=()=>busy(pi,async()=>{const x=await api('/api/projects/'+S.P.id+'/stacks/'+s.id+'/open-pixinsight',{});toast('PixInsight öffnet '+plural(x.opened.length,'Datei','Dateien'));});
+  $('#cheatDlg').showModal();
 }
 
 // ---------- Vergleich: zwei Stacks übereinander, Schieber, gleiche Streckung, Werte nebeneinander

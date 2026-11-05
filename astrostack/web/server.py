@@ -628,6 +628,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(c.timeline(project, limit=_int(q, "limit", 100)))
         if api == ["backups"]:
             return self._json(c.backups())
+        if api == ["checklist"]:
+            from .. import checklist
+            outs = checklist.outputs_for(_str(q, "run") or "")
+            return self._json(dict(outputs=outs, items=checklist.items(outs)))
         if api == ["library"]:
             return self._json(c.calibration_library())
         if api == ["selftest"]:
@@ -640,6 +644,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._image(path, version, immutable=_str(q, "v") == version)
         if api == ["tasks"]:
             return self._json(c.tasks.snapshot())
+        if len(api) == 3 and api[0] == "tasks" and api[2] == "log":
+            return self._json(c.task_log(api[1], _int(q, "lines", 120)))
         if len(api) == 2 and api[0] == "thumb":
             path, version = media.thumb(c.ws, c.db, self._fid(api[1]))
             return self._image(path, version, immutable=_str(q, "v") == version)

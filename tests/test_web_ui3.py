@@ -302,3 +302,50 @@ def test_overview_nights_rig_hints_and_report(page, app):
     expect(page).to_have_url(re.compile(r"#/p/%d/frames" % pid))
     night = first.split("|")[0]
     expect(page.locator("#fNight")).to_have_value(night)
+
+
+def test_stacking_flow_shows_phases_steps_and_live_log(page, app, tmp_path):
+    pid = pid_of(app, "vdB 131")
+    logdir = tmp_path / "wbpp-logs"
+    logdir.mkdir()
+    (logdir / "20261105.log").write_text("[x] * Begin calibration of Light frames\n[x] ImageCalibration: 3 von 51\n")
+    # echter Auftrag mit Zusatzinfos, damit /api/tasks/<id>/log das Protokoll findet
+    import threading
+    gate = threading.Event()
+
+    def fn(task):
+        task.progress(step="Stacken mit PixInsight", done=3, total=10, message="Calibration [Light frames]",
+                      detail=dict(run="RGB", run_index=1, runs=1, logdir=str(logdir), started="2026-11-05T10:00:00Z",
+                                  ops=[dict(n="Integration [Bias frames]", s="2026-11-05T10:00:00Z",
+                                            e="2026-11-05T10:01:00Z", st="done"),
+                                       dict(n="Integration [Flat frames]", s="2026-11-05T10:01:00Z",
+                                            e="2026-11-05T10:02:00Z", st="done"),
+                                       dict(n="Calibration [Light frames]", s="2026-11-05T10:02:00Z")]))
+        gate.wait(30)
+    t = app.core.tasks.submit("stack", "vdB 131 stacken", fn, lane="stack", project_id=pid)
+    try:
+        page.goto(app.url + "#/p/%d/stacks" % pid)
+        box = page.locator("#stackBox")
+        expect(box).to_contain_text("Wird gestackt: RGB")
+        expect(box.locator(".fstep.done")).to_contain_text("Kalibrier-Master")
+        expect(box.locator(".fstep.now")).to_contain_text("Lights kalibrieren")
+        expect(box.locator(".fstep.next").first).to_be_visible()
+        box.locator("#flowLog summary").click()
+        expect(page.locator("#flowPre")).to_contain_text("ImageCalibration: 3 von 51", timeout=10000)
+        shot(page, "stack-flow")
+    finally:
+        gate.set()
+        app.core.tasks.wait_idle(30)
+    assert t is not None
+
+
+def test_cheat_sheet_for_finished_stack(page, app):
+    pid = pid_of(app, "vdB 131")
+    _stack(app, pid)
+    page.goto(app.url + "#/p/%d/stacks" % pid)
+    page.locator("[data-cheat]").first.click()
+    dlg = page.locator("#cheatDlg")
+    expect(dlg).to_be_visible()
+    expect(dlg).to_contain_text("Linear (vor dem Strecken)")
+    expect(dlg).to_contain_text("Ha + OIII")                     # HaO3 → Dualband-Schritte
+    expect(dlg.locator(".cnum").first).to_have_text("1")

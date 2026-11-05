@@ -70,3 +70,23 @@ def items(outputs: list[str]) -> list[dict]:
         lst += _DUAL + _MIX
     lst += _NONLINEAR
     return lst
+
+
+def outputs_for(label: str) -> list[str]:
+    """Lauf-Name → Ergebnisse für die Checkliste: „HaO3“ (Dualband) → Ha + OIII, „RGB“ → RGB, „L“ → L …"""
+    u = (label or "").upper().replace(" ", "")
+    if u in ("SHO", "HSO", "HOO", "OHS"):
+        return ["Ha", "OIII"] + (["SII"] if "S" in u else [])
+    out = []
+    if "HA" in u:
+        out.append("Ha")
+    if "O3" in u or "OIII" in u:
+        out.append("OIII")
+    if "S2" in u or "SII" in u:
+        out.append("SII")
+    rest = u
+    for k in ("HAO3", "HA", "OIII", "O3", "SII", "S2"):
+        rest = rest.replace(k, "")
+    if not out or rest in ("RGB", "L", "R", "G", "B", "LRGB"):
+        out.append(rest or "RGB")
+    return out
