@@ -234,8 +234,31 @@ def lan_info(srv: WebServer) -> dict:
     ips = lan.lan_ips()
     urls = ["http://%s:%d/" % (ip, port) for ip in ips]
     pair = (urls[0] + "pair?k=" + s.lan_key) if (urls and s.lan_key) else None
+    import time
+    from .. import updater
+    fw = None
+    if running:
+        try:
+            fw = lan.firewall_status(updater.exe_path(), port)
+        except Exception:  # noqa: BLE001
+            fw = None
+    recent = sorted(((ip, t) for ip, t in lan.LanServer.rejected.items() if time.time() - t < 3600),
+                    key=lambda x: -x[1])
     return dict(enabled=s.lan_access, running=running, port=port, urls=urls, pair_url=pair,
-                qr=lan.qr_svg(pair) if (pair and running) else None, error=srv.lan_error)
+                qr=lan.qr_svg(pair) if (pair and running) else None, error=srv.lan_error, firewall=fw,
+                rejected=[ip for ip, _ in recent[:5]])
+
+
+def fix_firewall(srv: WebServer) -> dict:
+    from . import lan
+    from .. import updater
+    exe = updater.exe_path()
+    if not exe:
+        raise ValueError("Nur in der installierten b2stacker.exe möglich.")
+    port = srv.lan_server.server_address[1] if srv.lan_server is not None else Settings.load().lan_port
+    lan.firewall_fix(exe, port)
+    logbook.event("lan_firewall_fixed", port=port)
+    return lan_info(srv)
 
 
 def set_lan(srv: WebServer, enabled: bool) -> dict:
@@ -810,6 +833,8 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(en, bool):
                 raise ValueError("enabled: true oder false")
             return self._json(set_lan(self.server, en))
+        if api == ["lan-firewall"]:
+            return self._json(fix_firewall(self.server))
         if api == ["lan-key"]:
             return self._json(new_lan_key(self.server))
         if api == ["mcp-info"]:

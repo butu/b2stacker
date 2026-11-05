@@ -2849,10 +2849,23 @@ async function lanInfo(r){
   box.innerHTML=`<div class="lanqr">${r.qr?`<div class="qr" aria-label="QR-Code zum Koppeln">${r.qr}</div>`:''}
     <div class="sec" style="gap:8px;flex:1;min-width:220px"><div class="d" style="margin:0">Mit der Kamera des Handys scannen – das Handy ist danach gekoppelt und kann b2stacker unter dieser Adresse öffnen (Tipp: zum Startbildschirm hinzufügen):</div>
       <div class="mono small">${r.urls.map(esc).join('<br>')}</div>
-      <div class="d" style="margin:0">Fragt Windows beim ersten Mal nach der Firewall, „Private Netzwerke“ erlauben.</div>
+      ${fwHtml(r)}
       <div class="row"><button class="btn sm" type="button" id="lanKey" title="Alle gekoppelten Geräte müssen den QR-Code neu scannen">Alle Handys abmelden</button></div></div></div>`;
+  const fb=$('#lanFw');if(fb)fb.onclick=()=>busy(fb,async()=>{const x=await api('/api/lan-firewall',{});lanInfo(x);
+    toast(x.firewall&&x.firewall.ok?'Firewall freigegeben – jetzt am Handy neu laden':'Freigabe eingerichtet – bitte am Handy testen');});
   $('#lanKey').onclick=async()=>{if(!await ask('Alle Handys abmelden?','Jedes Gerät muss danach den neuen QR-Code scannen.','Abmelden',true))return;
     try{lanInfo(await api('/api/lan-key',{}));toast('Neuer QR-Code – alle Handys sind abgemeldet');}catch(e){toast(e.message,true);}};
+}
+function fwHtml(r){
+  const f=r.firewall,rej=(r.rejected||[]);
+  let h='';
+  if(f&&f.problems&&f.problems.length)h+=`<div class="banner warn" style="padding:10px 12px">${ic('warn','s18')}<div class="grow"><div class="bt">Das Handy kommt nicht durch die Windows-Firewall</div>
+    <div class="bx">${f.problems.map(esc).join('<br>')}</div><div class="bx" style="margin-top:4px">„Freigeben“ entfernt die Sperre und erlaubt nur Geräte aus dem Heimnetz und aus dem VPN. Windows fragt einmal nach Administratorrechten.</div></div>
+    <button class="btn primary sm" type="button" id="lanFw">Freigeben</button></div>`;
+  else if(f&&f.ok)h+=`<div class="d okc" style="margin:0">${ic('check','s14')} Windows-Firewall lässt das Handy durch${(f.networks||[]).length?' · Netzwerk: '+f.networks.map(n=>esc(n.name||n.alias)+' ('+(n.category==='Private'?'privat':n.category==='Public'?'öffentlich':esc(n.category))+')').join(', '):''}</div>`;
+  else h+=`<div class="d" style="margin:0">Fragt Windows beim ersten Mal nach der Firewall, „Private Netzwerke“ erlauben.</div>`;
+  if(rej.length)h+=`<div class="d warnc" style="margin:0">${ic('warn','s14')} Abgewiesen (keine Heimnetz-Adresse): ${rej.map(esc).join(', ')}</div>`;
+  return h;
 }
 async function claudeStatus(r){
   const t=$('#claudeTxt'),b=$('#claudeBtn');if(!t)return;

@@ -2,6 +2,15 @@
 
 Neueste Version oben. Der Abschnitt der aktuellen Version erscheint auch im Update-Dialog von b2stacker.
 
+## 0.12.1 – 05.11.2026
+
+- **Handy kam nicht durch:** b2stacker prüft jetzt die Windows-Firewall. Sperrt sie (z. B. weil der Hinweis beim
+  ersten Start weggeklickt wurde) oder ist das WLAN als „Öffentlich“ eingestuft, steht das unter Einstellungen →
+  Handy, und **„Freigeben“** richtet die Freigabe ein – nur für Geräte aus dem Heimnetz und aus dem VPN. Windows
+  fragt dabei einmal nach Administratorrechten.
+- Handy über VPN: Auch Adressen von Tailscale & Co. (100.64.x–100.127.x) werden angenommen; gekoppelt werden muss
+  das Handy weiterhin. Abgewiesene Adressen stehen in den Einstellungen, statt dass die Verbindung still abbricht.
+
 ## 0.12.0 – 05.11.2026
 
 **Was in 0.11 gefehlt hat, ist zurück – und mehr.**

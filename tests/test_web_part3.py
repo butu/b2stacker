@@ -521,3 +521,28 @@ def test_claude_desktop_link_endpoints(proj, tmp_path, monkeypatch):
         assert st == 200 and not r["installed"]
     finally:
         _stop(srv)
+
+
+def test_lan_vpn_addresses_and_windows_firewall_diagnosis(monkeypatch):
+    import json as _json
+    import sys as _sys
+
+    from astrostack.web import lan
+    assert lan.private_client("100.101.5.7")                      # Tailscale/CGNAT
+    assert lan.private_client("10.8.0.2") and lan.private_client("fd00::5")
+    assert not lan.private_client("8.8.8.8") and not lan.private_client("100.128.0.1")
+    monkeypatch.setattr(_sys, "platform", "win32")
+    rules = [dict(name="b2stacker", enabled="True", dir="Inbound", action="Block", profile="Public", proto="TCP",
+                  port="Any"),
+             dict(name="b2stacker", enabled="True", dir="Inbound", action="Allow", profile="Private", proto="TCP",
+                  port="Any")]
+    nets = [dict(name="Zuhause", alias="WLAN", category="Public")]
+    monkeypatch.setattr(lan, "_ps", lambda s, timeout=20: _json.dumps(rules if "Firewall" in s else nets))
+    st = lan.firewall_status("C:/x/b2stacker.exe", 8875)
+    assert not st["ok"] and any("sperrt" in p for p in st["problems"])
+    assert any("Öffentlich" in p for p in st["problems"])
+    rules[:] = [dict(name=lan.FW_RULE, enabled="True", dir="Inbound", action="Allow", profile="Any", proto="TCP",
+                     port="8875")]
+    assert lan.firewall_status("C:/x/b2stacker.exe", 8875)["ok"]
+    monkeypatch.setattr(_sys, "platform", "linux")
+    assert lan.firewall_status("x", 8875) is None

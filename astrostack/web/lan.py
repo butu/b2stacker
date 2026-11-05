@@ -22,10 +22,13 @@ COOKIE = "b2key"
 
 # POST-Ziele unter /api/…, die vom Handy aus abgelehnt werden (erstes bzw. letztes Pfadstück)
 BLOCKED_POST = {"settings", "backups", "backup", "quit", "install", "update", "pick-folder", "pick-file",
-                "pick-files", "check-pixinsight", "mcp-info", "mcp-token", "lan", "lan-key", "lan-info", "focus",
+                "pick-files", "check-pixinsight", "mcp-info", "mcp-token", "lan", "lan-key", "lan-info", "lan-firewall", "focus",
                 "clear-temp", "selftest", "library", "claude"}
 BLOCKED_PROJECT_POST = {"delete-frames", "import-stacks"}   # Pfade am Computer wählen
 BLOCKED_STACK_POST = {"open-folder"}               # öffnet ein Fenster am Computer – vom Handy sinnlos
+
+
+CGNAT = ipaddress.ip_network("100.64.0.0/10")         # Tailscale und andere VPNs (nie im Internet geroutet)
 
 
 def private_client(addr: str) -> bool:
@@ -35,7 +38,7 @@ def private_client(addr: str) -> bool:
         return False
     if ip.version == 6 and ip.ipv4_mapped:
         ip = ip.ipv4_mapped
-    return ip.is_private or ip.is_loopback or ip.is_link_local
+    return ip.is_private or ip.is_loopback or ip.is_link_local or (ip.version == 4 and ip in CGNAT)
 
 
 def lan_ips() -> list[str]:
@@ -103,8 +106,21 @@ class LanServer(ThreadingHTTPServer):
             raise AttributeError(name)
         return getattr(self.primary, name)
 
+    rejected: dict = {}
+
     def verify_request(self, request, client_address) -> bool:
-        return private_client(client_address[0])
+        ok = private_client(client_address[0])
+        if not ok:                                     # sichtbar machen statt still abbrechen
+            import time
+            first = client_address[0] not in LanServer.rejected
+            LanServer.rejected[client_address[0]] = time.time()
+            if first:
+                try:
+                    from .. import logbook
+                    logbook.event("lan_rejected", client=client_address[0])
+                except Exception:  # noqa: BLE001
+                    pass
+        return ok
 
     def process_request_thread(self, request, client_address):
         try:
@@ -116,3 +132,91 @@ class LanServer(ThreadingHTTPServer):
     def url(self) -> str:
         ips = lan_ips()
         return "http://%s:%d/" % (ips[0] if ips else "127.0.0.1", self.server_address[1])
+
+
+# ------------------------------------------------------------------ Windows-Firewall
+
+FW_RULE = "b2stacker (Handy im Heimnetz)"
+FW_REMOTE = "LocalSubnet,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,fc00::/7,fe80::/10"
+
+
+def _ps(script: str, timeout: float = 20) -> str:
+    import subprocess
+    r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True,
+                       timeout=timeout, creationflags=0x08000000)
+    return (r.stdout or b"").decode("utf-8", "replace")
+
+
+def firewall_status(exe: str | None, port: int) -> dict | None:
+    """Windows: Netzwerk-Profil (Privat/Öffentlich) und Firewall-Regeln für b2stacker. Ohne Windows: None.
+    Häufigste Ursache, wenn das Handy nichts erreicht: Der Firewall-Hinweis beim ersten Start wurde weggeklickt
+    (dann legt Windows eine Sperr-Regel an) oder das WLAN ist als „Öffentlich“ eingestuft."""
+    import json
+    import sys
+    if sys.platform != "win32":
+        return None
+    out: dict = dict(exe=exe, port=port, rules=[], networks=[], problems=[])
+    esc = (exe or "").replace("'", "''")
+    try:
+        txt = _ps("$ErrorActionPreference='SilentlyContinue';"
+                  "$r=@(); $r+=Get-NetFirewallApplicationFilter -Program '%s' | Get-NetFirewallRule;"
+                  "$r+=Get-NetFirewallRule -DisplayName '%s';"
+                  "$r | Where-Object {$_} | Sort-Object Name -Unique | ForEach-Object { $p=$_ | Get-NetFirewallPortFilter;"
+                  " [pscustomobject]@{name=$_.DisplayName; enabled=\"$($_.Enabled)\"; dir=\"$($_.Direction)\";"
+                  " action=\"$($_.Action)\"; profile=\"$($_.Profile)\"; proto=\"$($p.Protocol)\";"
+                  " port=\"$($p.LocalPort)\"} } | ConvertTo-Json -Compress" % (esc, FW_RULE))
+        rules = json.loads(txt) if txt.strip() else []
+        out["rules"] = rules if isinstance(rules, list) else [rules]
+        txt = _ps("Get-NetConnectionProfile | ForEach-Object { [pscustomobject]@{name=$_.Name;"
+                  " alias=$_.InterfaceAlias; category=\"$($_.NetworkCategory)\"} } | ConvertTo-Json -Compress")
+        nets = json.loads(txt) if txt.strip() else []
+        out["networks"] = nets if isinstance(nets, list) else [nets]
+    except Exception as e:  # noqa: BLE001
+        out["error"] = str(e)[:200]
+        return out
+    inbound = [r for r in out["rules"] if r.get("dir") == "Inbound" and r.get("enabled") == "True"]
+    blocks = [r for r in inbound if r.get("action") == "Block"]
+    allows = [r for r in inbound if r.get("action") == "Allow"
+              and r.get("proto") in ("TCP", "Any", "") and r.get("port") in (str(port), "Any", "")]
+    public = [n for n in out["networks"] if n.get("category") == "Public"]
+    if blocks:
+        out["problems"].append("Die Windows-Firewall sperrt b2stacker (%d Sperr-Regel%s – entsteht, wenn der "
+                               "Firewall-Hinweis beim ersten Start abgelehnt oder weggeklickt wurde)."
+                               % (len(blocks), "" if len(blocks) == 1 else "n"))
+    if not allows:
+        out["problems"].append("Keine Freigabe in der Windows-Firewall für eingehende Verbindungen auf Port %d." % port)
+    elif public and not any(("Any" in (r.get("profile") or "") or "Public" in (r.get("profile") or "")) for r in allows):
+        out["problems"].append("Das Netzwerk „%s“ ist in Windows als „Öffentlich“ eingestuft, die Freigabe gilt aber "
+                               "nur für private Netzwerke." % (public[0].get("name") or public[0].get("alias")))
+    out["ok"] = not out["problems"]
+    return out
+
+
+def firewall_fix(exe: str, port: int) -> None:
+    """Sperr-Regeln für b2stacker entfernen und eine Freigabe nur für Heimnetz-/VPN-Adressen anlegen.
+    Braucht Administratorrechte: Windows fragt einmal nach (UAC)."""
+    import os
+    import subprocess
+    import tempfile
+    esc = exe.replace("'", "''")
+    script = ("$ErrorActionPreference='SilentlyContinue'\n"
+              "Get-NetFirewallApplicationFilter -Program '%s' | Get-NetFirewallRule | "
+              "Where-Object { $_.Direction -eq 'Inbound' -and $_.Action -eq 'Block' } | Remove-NetFirewallRule\n"
+              "Remove-NetFirewallRule -DisplayName '%s'\n"
+              "New-NetFirewallRule -DisplayName '%s' -Direction Inbound -Action Allow -Program '%s' -Protocol TCP "
+              "-LocalPort %d -Profile Any -RemoteAddress %s | Out-Null\n"
+              % (esc, FW_RULE, FW_RULE, esc, int(port), FW_REMOTE))
+    path = os.path.join(tempfile.gettempdir(), "b2stacker_firewall.ps1")
+    with open(path, "w", encoding="utf-8-sig") as fh:
+        fh.write(script)
+    r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                        "Start-Process powershell -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList "
+                        "'-NoProfile','-ExecutionPolicy','Bypass','-File','%s'" % path.replace("'", "''")],
+                       capture_output=True, timeout=180, creationflags=0x08000000)
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    if r.returncode != 0:
+        raise ValueError("Freigabe nicht eingerichtet – die Windows-Nachfrage wurde abgelehnt oder ist "
+                         "fehlgeschlagen.")
