@@ -79,6 +79,7 @@ def test_update_script_targets_fixed_location(fake_win, monkeypatch):
     assert 'if not exist "%EXE%" goto place' in text                 # erste Installation über das Update
     assert 'start "" "%CUR%"' in text and str(dl) in text            # Fehler: alte Version startet wieder
     assert text.count("(") == text.count(")")
+    assert updater.SWAP_CMD.isascii()                                # cmd.exe liest OEM-Codepage: nur ASCII
 
 
 def test_claude_link_command_override(tmp_path, monkeypatch):

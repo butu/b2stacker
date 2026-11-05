@@ -126,7 +126,7 @@ goto wait
 :swap
 ping -n 2 127.0.0.1 >nul
 if exist "%OLD%" del /f /q "%OLD%" >nul 2>&1
-rem alte exe noch in Benutzung (z. B. MCP-Server einer früheren Version) - dann eigener Name
+rem alte exe noch in Benutzung (z. B. MCP-Server einer frueheren Version) - dann eigener Name
 if exist "%OLD%" set "OLD={old_alt}"
 if not exist "%EXE%" goto place
 set "WHY=b2stacker.exe liess sich nicht umbenennen"
