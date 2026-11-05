@@ -439,3 +439,19 @@ def test_selected_frame_keeps_image_and_checkbox(page, app):
     assert "rgba(255, 255, 255, 0.08)" not in bg                    # nicht mehr das Grau der Auswahlbox
     t.locator(".cb").click()
     expect(t).not_to_have_class(re.compile(r"\bsel\b"))
+
+
+def test_stacking_tab_tiles_and_new_stack(page, app):
+    pid = pid_of(app, "vdB 131")
+    _stack(app, pid)
+    page.goto(app.url + "#/p/%d/stacks" % pid)
+    expect(page.locator("#pTabs a.on")).to_have_text(re.compile("Stacking"))
+    expect(page.locator(".stks .newstk")).to_be_visible()
+    expect(page.locator(".stks .stk[data-sid]")).to_have_count(1)
+    expect(page.locator(".stks .stk[data-sid] h3")).to_contain_text(re.compile(r"\d{4}-\d\d-\d\d HaO3 \d+h\d\d"))
+    shot(page, "stacking-tab")
+    page.click(".stks .newstk")
+    expect(page).to_have_url(re.compile(r"#/p/%d/plan$" % pid))
+    expect(page.locator("#pTabs a.on")).to_have_text(re.compile("Stacking"))
+    expect(page.locator(".back", has_text="Stacking")).to_be_visible()
+    shot(page, "neuer-stack-plan")

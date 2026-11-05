@@ -52,7 +52,10 @@ Bias und Darks dürfen gemischt in Unterordnern liegen: b2stacker erkennt die Ar
 Ordner mit `_rejected`, `_verworfen` oder `_alt` im Namen gelten als aussortiert. Ordner lassen sich später in der
 Übersicht ergänzen oder entfernen; die Dateien selbst bleiben, wo sie sind.
 
-Ein Projekt hat die Reiter **Übersicht**, **Frames**, **Plan**, **Stacks**, **Galerie** und **Verlauf**.
+Ein Projekt hat die Reiter **Übersicht**, **Frames**, **Stacking**, **Galerie** und **Verlauf**. Im Menü **⋯**
+neben „Neu prüfen“ stehen seltene Aktionen wie „Vorhandene Stacks übernehmen …“ und der ausführliche Bericht.
+**Neu prüfen** sucht neue Dateien und holt fehlende Messwerte und Vorschaubilder nach; danach steht kurz, was es
+getan hat.
 Name und Beschreibung änderst du mit dem Stift neben dem Namen.
 
 Die **Übersicht** zeigt neben Belichtung, Bereitschaft und Quellordnern:
@@ -88,7 +91,9 @@ während NINA noch aufnimmt. Ein ausgeschaltetes NAS wird übersprungen („Quel
 Der Reiter **Frames** zeigt alle Frames einer Art (Lights, Flats, Bias, Darks) in einer durchgehenden Kachelansicht,
 auch bei tausenden Frames ohne Blättern. Filter: Alle, Verwendet, Aussortiert, Zum Löschen, Manuell. Darunter:
 **sortieren** (Aufnahmezeit, FWHM, Sternform, Sterne, Rauschen, Hintergrund, Belichtung, Dateiname), nach
-**Aufnahmefilter** und **Nacht** filtern, **nach Nacht gruppieren** und die **Größe** der Vorschaubilder einstellen
+**Aufnahmefilter** und **Nacht** filtern, **gruppieren** nach Nacht, Filter, Status, Aussortiergrund,
+Belichtungszeit oder Quellordner (Gruppen lassen sich per Klick auf die Überschrift auf- und zuklappen) und die
+**Größe** der Vorschaubilder einstellen
 (wird gemerkt). „Wie bewertet b2stacker die Frames?“ erklärt die Gründe fürs Aussortieren. Mehrere
 auswählen: Kästchen anklicken, **Shift**+Klick für einen Bereich, **Strg**+Klick einzeln. Dann unten
 Verwenden / Nicht verwenden / Automatik / Zum Löschen vormerken.
@@ -137,20 +142,28 @@ Löschen ist die **einzige** Aktion, bei der b2stacker deine Rohdaten verändert
 - Jede Löschung steht im Verlauf (mit Dateinamen) und im Protokoll.
 - Claude und andere KI-Werkzeuge können **nie** löschen oder vormerken. Am Handy lässt sich nur vormerken.
 
-## 6. Plan und Stacken
+## 6. Stacking
 
-Der Reiter **Plan** zeigt einen **Lauf** je Filter (bei unterschiedlichem Gain oder Binning getrennt), mit Lights,
+Der Reiter **Stacking** zeigt alle Stacks als Kacheln – auch fehlgeschlagene. Vorne steht **Neuer Stack**: Er führt
+zum Plan, und von dort wird gestackt. Liegen in deinen Ordnern schon fertige `masterLight`-Dateien, bietet b2stacker
+oben an, sie zu übernehmen.
+
+Der **Plan** zeigt einen **Lauf** je Filter (bei unterschiedlichem Gain oder Binning getrennt), mit Lights,
 Stunden, Nächten und den zugeordneten Flats (je Nacht), Bias und Darks samt Bewertung. Jede WBPP-Einstellung
 (Rejection, Gewichtung, Local Normalization, Drizzle, Hotpixel, Verzerrungskorrektur, Spuren entfernen,
-Zuschneiden …) steht mit Begründung da. Du kannst sie je Lauf oder für alle ändern; deine Änderung ist markiert und
-bleibt, auch wenn neue Frames dazukommen. „Zurück auf Automatik“ hebt sie wieder auf.
+Zuschneiden …) steht mit Begründung da. Rechts wählst du **„Automatisch (an)“** – folgt der Empfehlung, die in
+Klammern steht – oder einen **festen Wert**. Feste Werte sind markiert und bleiben, auch wenn sich die Empfehlung
+ändert (z. B. weil du mit „nur die besten Frames“ weniger Lights nimmst).
 
 Je Lauf gibt es zwei aufklappbare Bereiche:
 
 - **Kalibrierung:** welche Flats je Nacht, welche Bias und Darks – mit Bewertung und der Erklärung, wie b2stacker
   wählt (gleiche Kamera, Filter, Gain/Offset, Binning, Drehung; bei mehreren die zeitlich nächsten). Du kannst je
-  Nacht andere Flats oder „keine“ wählen. Alte Flats sind nur ein Hinweis: Wie gut sie passen, entscheidet die
-  Prüfung (Staub, Vignettierung), nicht das Alter allein.
+  Nacht andere Flats oder „keine“ wählen. Abstand: bis 14 Tage kein Thema, darüber ein Hinweis – egal ob die Flats
+  vor oder nach der Nacht liegen. Ist am Aufbau nichts verändert, bestätige „Passt, Setup unverändert“; der Hinweis
+  verschwindet fürs ganze Projekt. Rot sind Flats nur bei echten Problemen, und das Kästchen nennt sie (z. B. „Flats zu
+  hell“). Darunter steht, welche **Master** (Bias, Darks, Flats) aus der Kalibrier-Bibliothek wiederverwendet werden –
+  oder warum nicht.
 - **Optionen:** nur die **besten X %** der Frames verwenden (Schieber), das **Referenzbild** fürs Ausrichten
   wählen, den Lauf **umbenennen**, jeden Wert der **Sternerkennung** einzeln überschreiben, und der Platzbedarf
   („braucht etwa 42 GB · frei auf G: 54 GB von 1,8 TB“).
@@ -160,7 +173,7 @@ Ergebnis landet im Projektordner, ein Ordner je Stack, z. B. `2026-11-04 Ha 12h3
 Läufe werden auf das erste Ergebnis ausgerichtet, damit alle Filter pixelgenau übereinanderliegen. Master-Bias,
 -Darks und -Flats werden aufgehoben und beim nächsten Mal wiederverwendet (siehe Kalibrier-Bibliothek).
 
-**Während des Stackens** zeigt der Plan und der Reiter Stacks den Ablauf: welche Phasen erledigt sind (Kalibrier-Master,
+**Während des Stackens** zeigen der Plan und der Reiter Stacking den Ablauf: welche Phasen erledigt sind (Kalibrier-Master,
 Lights kalibrieren, Debayern, Vermessen, Ausrichten, Normalisieren, Integrieren), was gerade läuft und was noch kommt,
 jeweils mit Dauer, dazu alle WBPP-Schritte, eine grobe Restzeit und das **Live-Protokoll** von PixInsight zum
 Aufklappen.
@@ -171,20 +184,23 @@ WBPP-Protokoll.
 Vor dem Start prüft b2stacker den freien Arbeitsspeicher (Einstellung „Mind. freier RAM“). Während des Stackens
 bleibt der PC wach. Ist „Ergebnis nach dem Stacken in PixInsight öffnen“ an, öffnet PixInsight das Ergebnis.
 
-## 7. Stacks vergleichen
+## 7. Stacks ansehen und vergleichen
 
-Der Reiter **Stacks** zeigt alle Stacks, neueste zuerst, mit Vorschau, Lights, Stunden, Größe, Qualitätswerten
+Jede Stack-Kachel zeigt Vorschau, Lights, Stunden, Größe, Qualitätswerten
 (Schärfe, Rauschen, Sterne, Sternform, Verlauf – mit der Maus darauf steht, was der Wert bedeutet) und einer
 **Notiz**. Je Stack: **Spickzettel** (Reihenfolge der Bearbeitung in PixInsight, passend zu RGB oder Ha/OIII),
 **In PixInsight öffnen**, **Als Projektbild**, **Löschen** (löscht nur, was b2stacker erzeugt hat – eigene Dateien
 im Ordner bleiben).
 
-**Stacks übernehmen …** holt vorhandene Ergebnisse in die Liste: den Projektordner eines 0.10-Projekts (mit Datum,
+**Stacks übernehmen …** (Projekt-Menü ⋯) holt vorhandene Ergebnisse in die Liste: den Projektordner eines 0.10-Projekts (mit Datum,
 Belichtung und Notiz aus `stacks.json`), einen WBPP-Ausgabeordner (alle `masterLight`-Dateien) oder einzelne
 XISF/FITS/TIFF. Vorschau und Qualität werden berechnet; die Dateien bleiben, wo sie sind, und „Löschen“ entfernt bei
 übernommenen Stacks nur den Eintrag.
 
-**Vergleichen:** zwei Stacks anhaken oder „Neuesten vergleichen“. Beide Bilder liegen übereinander, mit gleicher
+Stacks heißen wie ihr Ergebnisordner, z. B. „2026-11-05 RGB 8h30 · beste 50 %“. Ein Klick aufs Vorschaubild öffnet
+den Stack **groß**; dort führt **Vergleichen …** zu einem zweiten Stack oder einem Bild aus der Galerie.
+
+**Vergleichen:** zwei Stacks anhaken, „Neuesten vergleichen“ oder aus der Großansicht. Beide Bilder liegen übereinander, mit gleicher
 Streckung; der Schieber zeigt links A, rechts B. b2stacker richtet B auf A aus – auch wenn die Kamera gedreht wurde.
 Rechts stehen die Werte mit „besser/schlechter“. Mausrad oder Doppelklick zoomt; ziehen neben dem Schieber
 verschiebt das Bild.
@@ -196,13 +212,16 @@ Bearbeitete Bilder (JPEG, PNG, TIFF, PSD, XISF, FITS) gehören zum Projekt: **Bi
 sind. Ein Bild kann **Projektbild** der Startseiten-Kachel werden. „Aus der Galerie entfernen“ blendet es nur aus.
 
 Die Großansicht zeigt alles zum Bild: Pixelmaße, Kanäle, Bittiefe, Bildmaßstab und Bildfeld, gemessene Sterne,
-FWHM, Rundheit, Rauschen und Hintergrund sowie den kompletten FITS-Header bzw. die EXIF-Daten.
+FWHM, Rundheit, Rauschen und Hintergrund sowie den kompletten FITS-Header bzw. die EXIF-Daten. Fertige Stacks stehen
+ebenfalls in der Galerie (als „Stack“ gekennzeichnet). **Vergleichen …** legt zwei beliebige Bilder übereinander –
+etwa den Stack und dein bearbeitetes Ergebnis – mit Schieber und den gemessenen Werten nebeneinander.
 
 ## 9. Verlauf
 
 Der **Verlauf** (je Projekt oder oben rechts für alle Projekte) erzählt in Klartext, was passiert ist: „20 neue
 Lights · Ha · 2,0 h, Nacht vom 02.11.2026“, „Gestackt: Ha 12h30“, Entscheidungen von Hand, Planänderungen,
-Löschungen. Gleichartige Einträge werden zusammengefasst.
+Löschungen. Gleichartige Einträge werden zusammengefasst. Ein Klick führt direkt zum Inhalt: zum Stack, zu den neuen
+Frames, zur Galerie oder zum Plan.
 
 ## 10. Kalibrier-Bibliothek
 
@@ -275,6 +294,12 @@ nach der Firewall, „Private Netzwerke“ erlauben. Der Computer muss laufen un
 - Am Handy geht: Projekte und Frames ansehen, wischen zum Aussortieren, Plan ändern, Stacken, Stacks vergleichen,
   Galerie, Verlauf. Frames zum Löschen vormerken geht, **gelöscht wird nur am Computer**. Einstellungen, Sicherung,
   Update und Beenden gibt es am Handy nicht.
+- **Klappt es nicht?** Unter **Verbindung testen** steht eine Adresse (`http://<IP>:8875/test`). Am Handy öffnen:
+  Kommt „Verbindung zu b2stacker klappt“, fehlt nur das Koppeln. Kommt „nicht erreichbar“, erreicht die Anfrage den
+  Computer nicht – in den Einstellungen siehst du live, ob etwas angekommen ist. Ursachen sind dann die
+  Windows-Firewall (**Freigeben** richtet sie ein), eine zusätzliche Firewall vom Virenschutz, ein Gäste-WLAN, das
+  Geräte voneinander trennt, oder eine Adresse, die zu einem anderen Netzwerkadapter gehört. Über VPN (z. B.
+  WireGuard) geht es genauso.
 
 ## 13. Was b2stacker mit deinen Daten macht – und was nicht
 

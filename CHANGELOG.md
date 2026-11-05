@@ -2,6 +2,53 @@
 
 Neueste Version oben. Der Abschnitt der aktuellen Version erscheint auch im Update-Dialog von b2stacker.
 
+## 0.13.0 – 05.11.2026
+
+**Dein Feedback zu 0.12.2 – alles in einem Update.**
+
+**Behoben**
+- **Auswahlfelder** übernehmen wieder jede Auswahl (die Liste lag unter einer unsichtbaren Fläche). Ein Test klickt
+  jetzt jedes Auswahlfeld einmal durch.
+- **Frame- und Stack-Auswahl** sehen wieder richtig aus: dezenter Rahmen, Vorschaubild und Haken bleiben sichtbar;
+  die Stack-Karte schrumpft nicht mehr.
+- **Stacks groß ansehen und vergleichen:** Ein Klick aufs Vorschaubild öffnet den Stack groß; dort „Vergleichen …“
+  und ein zweites Bild wählen – Stacks, bearbeitete Bilder aus der Galerie oder beides gemischt.
+- **„Neu prüfen“** holt fehlende Messwerte und Vorschaubilder wirklich nach und sagt danach, was es getan hat. Nach
+  einem Update mit neuen Messwerten passiert das beim Start von selbst.
+- **Vorschaubilder für Flats, Bias, Darks und Dark-Flats.**
+- **Rig-Hinweise** sagen genau, was fehlt und was zu tun ist, statt „zu wenige Messwerte“.
+- **Flat-Bewertung:** Abstand bis 14 Tage ist kein Thema; darüber nur ein Hinweis (egal ob davor oder danach), den
+  du mit „Passt, Setup unverändert“ fürs Projekt bestätigen kannst. Rot sind Flats nur noch bei echten Problemen –
+  und das Kästchen sagt, welches (bei vdB 131: „Flats zu hell“, 48k ADU).
+- **Nach dem Update** laufen keine Prozesse der alten Version mehr weiter. Wer Claude verbunden hat: die Claude-App
+  danach einmal neu starten.
+- **Handy:** eingebauter Verbindungstest (Einstellungen → Handy → „Verbindung testen“): Adresse am Handy öffnen, und
+  b2stacker zeigt live, ob die Anfrage ankommt. Statt des Netzwerknamens stehen Adapter und IP da; eine zusätzliche
+  Firewall (z. B. vom Virenschutz) wird erkannt.
+
+**Bedienung**
+- **Neuer Reiter „Stacking“** statt „Plan“ und „Stacks“: alle Stacks als Kacheln (auch fehlgeschlagene), vorne
+  „Neuer Stack“ – führt zum Plan und von dort zum Start.
+- **Stack-Einstellungen:** je Zeile „Automatisch (an)“ oder ein fester Wert. Feste Werte sind markiert und bleiben,
+  auch wenn sich die Automatik (z. B. durch „nur die besten Frames“) ändert.
+- **Gruppieren nach** Nacht, Filter, Status, Aussortiergrund, Belichtungszeit oder Quellordner; Gruppen lassen sich
+  auf- und zuklappen (auch die Monate auf der Startseite).
+- **Stack-Namen** wie der Ergebnisordner, z. B. „2026-11-05 RGB 8h30 · beste 50 %“.
+- **„Stacks übernehmen …“** ist ins Projekt-Menü (⋯) gewandert.
+- **Nächte:** sortierbare Spalten (zweiter Klick dreht um), klare Beschriftung „verwendet / aufgenommen“ mit
+  Erklärung, größere Punkte im Diagramm, Kamera und Bildmaßstab bei den Rig-Hinweisen.
+- **Tipps** nur noch, wenn sie konkret sind (z. B. eine unscharfe Nacht aussortieren, wie viele Stunden ein Filter
+  noch braucht).
+- **Plan zeigt die Master-Wiederverwendung:** welcher Master-Bias/-Flat/-Dark wiederverwendet wird – oder warum nicht.
+- Kurze Prüfungen blitzen nicht mehr auf; der Hinweis erscheint erst nach einer Sekunde.
+
+**Neu**
+- **Stacks in der Galerie** (als Stack gekennzeichnet) – zum direkten Vergleich mit dem fertigen Bild.
+- **Verlauf verlinkt:** „Gestackt …“ öffnet die Stacks, „neue Lights“ die Frames, neue Bilder die Galerie.
+- **„Flats anzeigen“** je Nacht in der Nachtübersicht – mit Vorschaubildern und Sprung zu genau diesen Flats.
+- **Vorhandene Stacks erkennen:** Liegen masterLight-Dateien in deinen Ordnern, bietet „Stacking“ an, sie zu
+  übernehmen.
+
 ## 0.12.3 – 05.11.2026
 
 - **Rig-Hinweise** in der Übersicht erscheinen jetzt auch mit echten Daten (statt „konnten nicht berechnet
