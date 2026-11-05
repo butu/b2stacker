@@ -258,6 +258,17 @@ class Core:
         return dict(id=r["id"], size=r["size"], **{k: meta.get(k) for k in keep_m if meta.get(k) not in (None, "")},
                     measured={k: data.get(k) for k in keep_d if data.get(k) is not None})
 
+    def insights(self, project) -> dict:
+        """Nachtübersicht, Rig-Hinweise (Fokus, Nachführung, Dithering, Taupunkt …), Himmelsbahnen und Kennzahlen –
+        dieselben Auswertungen wie der Bericht aus 0.10, aus den gespeicherten Messwerten."""
+        from .flow import insights as fins
+        return fins.build(self.db, self._pid(project), self.ws)
+
+    def report_html(self, project) -> str:
+        """Ausführlicher Bericht (eigene HTML-Seite, wie in 0.10) mit Nächten, Mond, Qualität und Diagrammen."""
+        from .flow import insights as fins
+        return fins.report_html(self.db, self._pid(project), self.ws)
+
     def decide(self, project, file_ids: list[int], decision: str, reason: str = "") -> dict:
         pid = self._pid(project)
         n = flow.decide(self.db, pid, [int(x) for x in file_ids], decision, reason)

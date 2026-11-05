@@ -281,3 +281,24 @@ def test_frames_sort_filter_group_size_and_click_zoom(page, app):
     expect(page.locator("#lbZoomI")).to_be_visible()
     page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
     expect(page.locator("#lbZoomI")).to_be_hidden()
+
+
+def test_overview_nights_rig_hints_and_report(page, app):
+    pid = pid_of(app, "vdB 131")
+    page.goto(app.url + "#/p/%d/overview" % pid)
+    expect(page.locator("#insBox .ntab tr.nrow").first).to_be_visible(timeout=20000)
+    rows = page.locator("#insBox .ntab tr.nrow")
+    assert rows.count() >= 1
+    rows.first.locator("td").first.click()                       # aufklappen: Warum / Was tun
+    expect(page.locator("#insBox tr.nsub")).to_contain_text("Was tun")
+    expect(page.locator("#insBox")).to_contain_text("Rig-Hinweise")
+    shot(page, "overview-insights")
+    page.click("#repOpen")
+    expect(page.locator("#repDlg")).to_be_visible()
+    expect(page.frame_locator("#repFrame").locator("body")).to_contain_text("vdB 131", timeout=20000)
+    page.locator("#repDlg [data-close]").click()
+    first = rows.first.get_attribute("data-nk")
+    rows.first.locator("[data-ngo]").click()                      # Frames genau dieser Nacht
+    expect(page).to_have_url(re.compile(r"#/p/%d/frames" % pid))
+    night = first.split("|")[0]
+    expect(page.locator("#fNight")).to_have_value(night)

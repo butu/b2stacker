@@ -68,8 +68,8 @@ def stretch(t: np.ndarray) -> np.ndarray:
     return np.clip(((b - 1) * x) / ((2 * b - 1) * x - b), 0, 1)
 
 
-def thumb_b64(analysis_dir: str, path: str, width: int = 440) -> str:
-    p = os.path.join(analysis_dir, "thumbs", thumb_name(path))
+def thumb_b64(analysis_dir: str, path: str, width: int = 440, npy: str | None = None) -> str:
+    p = npy or os.path.join(analysis_dir, "thumbs", thumb_name(path))
     if not os.path.exists(p):
         return ""
     im = Image.fromarray((stretch(np.load(p)) * 255).astype(np.uint8))

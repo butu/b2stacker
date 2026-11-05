@@ -668,6 +668,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(c.plan(pid))
             if rest == ["deletion"]:
                 return self._json(c.deletion_list(pid))
+            if rest == ["insights"]:
+                return self._json(c.insights(pid))
+            if rest == ["report"]:
+                return self._send(200, c.report_html(pid).encode("utf-8"), "text/html; charset=utf-8")
             if rest == ["stacks"]:
                 return self._json(c.stacks(pid))
             if rest == ["gallery"]:

@@ -435,3 +435,23 @@ def test_failed_stack_explains_cause_and_keeps_log(proj, monkeypatch):
     assert opened
     co.delete_stack(pid, st["id"])                                     # Protokoll-Ordner verschwindet mit
     assert not os.path.exists(os.path.join(pdir, st["folder"]))
+
+
+# ---------------------------------------------------------------- Nachtübersicht, Rig-Hinweise, Bericht
+
+def test_insights_nights_rig_and_report(proj):
+    co, pid, _ = proj
+    ins = co.insights(pid)
+    assert ins["frames"] > 0 and ins["nights"] and ins["kpi"]
+    n = ins["nights"][0]
+    assert {"night", "filter", "hours", "used_h", "grade", "why", "todo", "moon"} <= set(n)
+    assert isinstance(ins["checks"], list)
+    for chk in ins["checks"]:
+        assert chk["level"] in ("good", "warning", "critical", "info") and chk["title"] and chk["text"]
+    again = co.insights(pid)                                      # zwischengespeichert
+    assert again["nights"] == ins["nights"]
+    used = [f for f in _lights(co, pid) if f["status"] == "use"]
+    co.decide(pid, [f["id"] for f in used], "skip")               # Entscheidung → neu gerechnet
+    assert sum(x["n_used"] for x in co.insights(pid)["nights"]) == 0
+    html = co.report_html(pid)
+    assert html.startswith("<!") and "vdB 131" in html and "/*__DATA__*/null" not in html

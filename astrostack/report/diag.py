@@ -157,8 +157,11 @@ def rig_diagnostics(rows, scale, analysis_dir):
         v = [r for r in v if r['status'] != 'rejected']; sh = []
         for a, b in zip(v, v[1:]):
             if a['pier'] != b['pier']: continue
-            pa = os.path.join(analysis_dir, 'thumbs', thumb_name(a['path']))
-            pb = os.path.join(analysis_dir, 'thumbs', thumb_name(b['path']))
+            if callable(analysis_dir):          # neue Arbeitsweise: Thumbnails nach Prüfsumme
+                pa, pb = analysis_dir(a), analysis_dir(b)
+            else:
+                pa = os.path.join(analysis_dir, 'thumbs', thumb_name(a['path']))
+                pb = os.path.join(analysis_dir, 'thumbs', thumb_name(b['path']))
             if not (os.path.exists(pa) and os.path.exists(pb)): continue
             d = _shift(np.load(pb), np.load(pa))
             if d < 200: sh.append(round(d, 1))

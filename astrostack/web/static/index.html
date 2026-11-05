@@ -451,6 +451,20 @@ dialog .ft{padding:4px 20px 20px;display:flex;justify-content:flex-end;gap:8px;f
 dialog input[type=text],dialog input[type=number],dialog input[type=password],dialog textarea,dialog select{background:var(--bg);box-shadow:inset 0 0 0 1px var(--ring);height:38px;border-radius:8px;padding:0 12px;font-size:14.5px}
 dialog textarea{height:auto;padding:10px 12px;font-size:14px}
 dialog input:focus,dialog textarea:focus,dialog select:focus{box-shadow:inset 0 0 0 1px rgba(255,255,255,.6)}
+dialog.rep{width:min(1280px,96vw);height:92vh;display:none;flex-direction:column}
+dialog.rep[open]{display:flex}
+dialog.rep iframe{flex:1;border:0;width:100%;background:#1e1e1e;border-radius:0 0 14px 14px}
+.ntab{width:100%;border-collapse:collapse;font-size:13.5px}
+.ntab th{font-weight:600;text-align:left;padding:8px 10px;color:var(--muted,rgba(255,255,255,.6));font-size:12px;border-bottom:1px solid var(--div)}
+.ntab td{padding:8px 10px;border-top:1px solid var(--div);vertical-align:middle;white-space:nowrap}
+.ntab tr.nrow{cursor:pointer}.ntab tr.nrow:hover td{background:rgba(255,255,255,.04)}
+.ntab td.num,.ntab th.num{text-align:right;font-variant-numeric:tabular-nums}
+.ntab .hb{display:inline-block;height:6px;border-radius:3px;background:var(--accent,#3584e4);vertical-align:middle;margin-right:6px}
+.ntab tr.nsub td{white-space:normal;background:rgba(255,255,255,.025);font-size:13px}
+.nscroll{overflow-x:auto}
+.rigchips{display:flex;flex-wrap:wrap;gap:6px;padding:12px 16px 4px}
+.rcheck .ct{font-weight:600}.rcheck .cx2{opacity:.8;margin-top:2px;line-height:1.45}
+.rcheck .ca{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;opacity:.55}
 dialog.ask{width:min(360px,92vw);background:#262626;border-radius:16px}
 dialog.ask .at{padding:24px 22px 18px;text-align:center;display:flex;flex-direction:column;gap:8px}
 dialog.ask .at b{font-size:18px}
@@ -682,6 +696,10 @@ details>summary{cursor:pointer}
 <dialog id="txtDlg"><div class="hd"><h2 id="txtT"></h2></div>
   <div class="bd"><div class="field"><label for="txtIn" id="txtL"></label><input type="text" id="txtIn" autocomplete="off"><div class="d" id="txtH"></div></div></div>
   <div class="ft"><button class="btn outline" id="txtNo">Abbrechen</button><button class="btn primary" id="txtOk">Speichern</button></div></dialog>
+
+<dialog id="repDlg" class="rep"><div class="hd"><h2>Ausführlicher Bericht</h2><span class="grow"></span>
+  <button class="btn sm" id="repSave" title="Bericht als HTML-Datei speichern (öffnet sich in jedem Browser)">Als Datei speichern</button>
+  <button class="btn ghost icon" data-close aria-label="Schließen"></button></div><iframe id="repFrame" title="Bericht"></iframe></dialog>
 
 <dialog id="askDlg" class="ask"><div class="at"><b id="askT"></b><div id="askX"></div></div>
   <div class="af"><button class="btn" id="askNo">Abbrechen</button><button class="btn" id="askOk">OK</button></div></dialog>
@@ -1364,9 +1382,85 @@ function renderOverview(box){
         </div></div>
       </div>
       <div class="card" id="srcCard"></div>
-    </div></div>`;
+    </div>
+    <div id="insBox"></div></div>`;
   renderSources();
+  if(c.light&&!p._partial)loadInsights(p.id);
 }
+/* ---- Nachtübersicht, Rig-Hinweise und ausführlicher Bericht (wie in 0.10) ---- */
+const INS={pid:null,data:null,open:new Set(),good:false};
+const LVL={critical:['err','Kritisch','warn'],warning:['warn','Hinweis','warn'],info:['info','Info','info'],good:['ok','Gut','check']};
+async function loadInsights(pid){
+  const box=$('#insBox');if(!box)return;
+  if(INS.pid===pid&&INS.data)renderInsights(box,INS.data);
+  else box.innerHTML=`<div class="card"><div class="citem"><span class="ci">${ic('spinner','spin')}</span><div class="cx">Nächte und Rig-Hinweise werden berechnet …</div></div></div>`;
+  try{const d=await api('/api/projects/'+pid+'/insights');INS.pid=pid;INS.data=d;
+    const b=$('#insBox');if(b&&S.P&&S.P.id===pid)renderInsights(b,d);}
+  catch(e){const b=$('#insBox');if(b)b.innerHTML=`<div class="card"><div class="citem"><span class="ci warnc">${ic('warn')}</span><div class="cx">Auswertung nicht möglich: ${esc(e.message||e)}</div></div></div>`;}
+}
+const nd=n=>n?n.slice(8,10)+'.'+n.slice(5,7)+'.'+n.slice(2,4):'–';
+function renderInsights(box,d){
+  const N=(d.nights||[]).slice().sort((a,b)=>String(a.night).localeCompare(String(b.night))||String(a.filter).localeCompare(String(b.filter)));
+  const maxH=Math.max(.01,...N.map(n=>n.hours||0));
+  const G={A:['ok','Gut'],B:['info','Mittel'],C:['warn','Schwach']};
+  const checks=d.checks||[],issues=checks.filter(c=>c.level==='warning'||c.level==='critical'),rest=checks.filter(c=>!(c.level==='warning'||c.level==='critical'));
+  const areas=[];checks.forEach(c=>{let a=areas.find(x=>x.area===c.area);const r={critical:3,warning:2,info:1,good:0};if(!a){a={area:c.area,level:c.level};areas.push(a);}else if(r[c.level]>r[a.level])a.level=c.level;});
+  const m=d.meta||{},sky=Object.fromEntries((d.sky||[]).map(s=>[s.night,s]));
+  const chk=c=>{const L=LVL[c.level]||LVL.info;return `<div class="citem rcheck"><span class="ci ${L[0]}c">${ic(L[2])}</span><div class="cx"><div class="ca">${esc(c.area)}</div><div class="ct">${esc(c.title)}</div><div class="cx2">${esc(c.text)}</div></div></div>`;};
+  box.innerHTML=`<div class="sec" style="gap:20px">
+    <div class="card"><div class="cardhd"><h3>Nächte</h3><span class="small muted">${esc([m.camera,m.scale?String(m.scale).replace('.',',')+'″/px':''].filter(Boolean).join(' · '))}</span><span class="grow"></span>
+      <button class="btn sm" id="repOpen" title="Alle Nächte, Mond, Qualität, Himmelsbahnen und Diagramme auf einer Seite – wie der Bericht aus 0.10">${ic('report')}Ausführlicher Bericht</button></div>
+      <div class="small muted" style="padding:0 16px 10px">Je Nacht und Filter: wie viel belichtet wurde, wie viel davon verwendet wird und wie gut die Nacht war. <b>Effektiv</b> = verwendete Zeit, gewichtet nach Rauschen – so viel ist die Nacht wirklich wert. Klick auf eine Zeile zeigt Begründung und Himmelsbahn; „Frames“ öffnet genau diese Nacht.</div>
+      <div class="nscroll"><table class="ntab"><thead><tr><th>Nacht</th><th>Filter</th><th class="num">Frames</th><th>Belichtung</th><th class="num">Effektiv</th><th class="num">FWHM</th><th class="num">Mond</th><th class="num">Höhe</th><th>Qualität</th><th></th></tr></thead><tbody>
+      ${N.map((n,i)=>{const k=n.night+'|'+n.filter,op=INS.open.has(k),g=G[n.grade]||['info','–'];
+        return `<tr class="nrow" data-nk="${esc(k)}"><td>${esc(nd(n.night))}</td><td>${esc(n.filter||'–')}</td><td class="num">${n.n_used}/${n.n}</td>
+          <td><span class="hb" style="width:${Math.max(2,Math.round(70*(n.used_h||0)/maxH))}px"></span>${fmtH(n.used_h)}${n.hours-n.used_h>=.05?` <span class="muted small">von ${fmtH(n.hours)}</span>`:''}</td>
+          <td class="num">${fmtH(n.eff_h)}</td><td class="num">${n.fwhm_as?String(n.fwhm_as.toFixed(1)).replace('.',',')+'″':'–'}</td>
+          <td class="num" title="${n.moon?'Mond über dem Horizont und mehr als halb beleuchtet':''}">${n.moon_illum!=null?Math.round(n.moon_illum)+' %'+(n.moon?' '+ic('moon','s14'):''):'–'}</td>
+          <td class="num">${n.alt_min!=null?Math.round(n.alt_min)+'–'+Math.round(n.alt_max)+'°':'–'}</td>
+          <td><span class="pill ${g[0]}" title="${esc(n.why+' '+n.todo)}">${n.grade||''} · ${g[1]}</span></td>
+          <td><button class="btn ghost sm" data-ngo="${esc(k)}" title="Frames dieser Nacht ansehen">Frames</button></td></tr>
+          ${op?`<tr class="nsub"><td colspan="10"><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start"><div style="flex:1 1 260px;min-width:0"><b>Warum:</b> ${esc(n.why)}<br><b>Was tun:</b> ${esc(n.todo)}${n.temp!=null?`<br><span class="muted">Sensor ${String(Math.round(n.temp*10)/10).replace('.',',')} °C · Hintergrund ${n.bg!=null?Math.round(n.bg):'–'} · Sterne ${n.nstars!=null?Math.round(n.nstars):'–'}</span>`:''}</div>
+            ${sky[n.night]?`<div style="flex:1 1 360px;max-width:460px">${skySvg(sky[n.night])}<div class="small muted" style="margin-top:4px">Blau: Objekthöhe · gestrichelt: Mond (${sky[n.night].illum} % beleuchtet) · grau: Dämmerung · Punkte: Aufnahmen</div></div>`:''}</div></td></tr>`:''}`;}).join('')||'<tr><td colspan="10" class="muted">Noch keine vermessenen Lights.</td></tr>'}
+      </tbody></table></div>
+      ${(d.rec||[]).length?`<div class="clist" style="border-top:1px solid var(--div)">${d.rec.map(r=>`<div class="citem"><span class="ci infoc">${ic('info')}</span><div class="cx">${esc(r)}</div></div>`).join('')}</div>`:''}
+    </div>
+    <div class="card"><div class="cardhd"><h3>Rig-Hinweise</h3><span class="small muted">Schärfe, Nachführung, Fokus, Dithering, Kühlung, Taupunkt – aus den Frames gemessen</span></div>
+      ${areas.length?`<div class="rigchips">${areas.map(a=>{const L=LVL[a.level]||LVL.info;return `<span class="pill ${L[0]}">${ic(L[2],'s14')}${esc(a.area)}</span>`;}).join('')}</div>`:''}
+      <div class="clist">${issues.map(chk).join('')||`<div class="citem"><span class="ci okc">${ic('check')}</span><div class="cx">${checks.length?'Keine Auffälligkeiten – das Rig hat in allen Nächten sauber gearbeitet.':'Zu wenige Messwerte für Rig-Hinweise (z. B. fehlt die Nacht-Zuordnung).'}</div></div>`}
+        ${rest.length?`<button class="lnk" id="rigGood" style="padding:10px 16px;text-align:left">${INS.good?'Unauffällige Prüfungen ausblenden':plural(rest.length,'unauffällige Prüfung','unauffällige Prüfungen')+' anzeigen'}</button>${INS.good?rest.map(chk).join(''):''}`:''}</div></div>
+  </div>`;
+  $$('tr.nrow',box).forEach(tr=>tr.onclick=e=>{if(e.target.closest('[data-ngo]'))return;const k=tr.dataset.nk;INS.open.has(k)?INS.open.delete(k):INS.open.add(k);renderInsights(box,d);});
+  $$('[data-ngo]',box).forEach(b=>b.onclick=()=>{const [night,filt]=b.dataset.ngo.split('|');FV.type='light';FV.status='all';FV.night=night;FV.filt=filt;location.hash='#/p/'+S.P.id+'/frames';});
+  const g=$('#rigGood');if(g)g.onclick=()=>{INS.good=!INS.good;renderInsights(box,d);};
+  $('#repOpen').onclick=()=>openReport(S.P.id);
+}
+const fmtH=h=>{h=h||0;return h<1?Math.round(h*60)+' min':String(Math.round(h*10)/10).replace('.',',')+' h';};
+function skySvg(s){
+  if(!s||!s.x||!s.x.length)return '';
+  const x0=s.x[0],x1=s.x[s.x.length-1],W=440,H=150,X=x=>(x-x0)/(x1-x0||1)*W,Y=a=>H-Math.max(0,a)*H/90;
+  const pts=arr=>s.x.map((x,i)=>X(x).toFixed(1)+','+Y(arr[i]).toFixed(1)).join(' ');
+  const dark=(s.sun||[]).map(v=>v<-18),i0=dark.indexOf(true),i1=dark.lastIndexOf(true);
+  const dl=i0>0?X(s.x[i0]):0,dr=i1>=0&&i1<s.x.length-1?X(s.x[i1]):W;
+  const ticks=[];for(let h=Math.ceil(x0/2)*2;h<=x1;h+=2)ticks.push(`<text x="${X(h).toFixed(1)}" y="${H+12}" fill="rgba(255,255,255,.45)" font-size="9" text-anchor="middle">${String(Math.floor(h)%24).padStart(2,'0')}</text>`);
+  const fr=(s.frames||[]).map(f=>`<circle cx="${X(f.x).toFixed(1)}" cy="${Y(f.alt).toFixed(1)}" r="1.6" fill="${f.status==='rejected'||f.status==='suggest'?'#e66100':'#8ff0a4'}"/>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H+16}" style="width:100%;height:auto;display:block;background:#0f0f0f;border-radius:8px">
+    <rect x="0" y="0" width="${dl.toFixed(1)}" height="${H}" fill="rgba(255,255,255,.08)"/><rect x="${dr.toFixed(1)}" y="0" width="${Math.max(0,W-dr).toFixed(1)}" height="${H}" fill="rgba(255,255,255,.08)"/>
+    <line x1="0" y1="${H}" x2="${W}" y2="${H}" stroke="rgba(255,255,255,.25)"/><line x1="0" y1="${Y(30)}" x2="${W}" y2="${Y(30)}" stroke="rgba(255,255,255,.07)"/><line x1="0" y1="${Y(60)}" x2="${W}" y2="${Y(60)}" stroke="rgba(255,255,255,.07)"/>
+    <text x="4" y="${Y(30)-3}" fill="rgba(255,255,255,.4)" font-size="9">30°</text><text x="4" y="${Y(60)-3}" fill="rgba(255,255,255,.4)" font-size="9">60°</text>
+    ${s.moon?`<polyline points="${pts(s.moon)}" fill="none" stroke="#f6f5f4" stroke-width="1.4" stroke-dasharray="4 3" opacity=".75"/>`:''}
+    ${s.obj?`<polyline points="${pts(s.obj)}" fill="none" stroke="#78aeed" stroke-width="2"/>`:''}${fr}${ticks.join('')}</svg>`;
+}
+let repHtml='';
+async function openReport(pid){
+  const dlg=$('#repDlg'),f=$('#repFrame');
+  f.srcdoc='<body style="background:#1e1e1e;color:#ccc;font:14px system-ui;padding:24px">Bericht wird erstellt …</body>';
+  dlg.showModal();
+  try{const r=await fetch('/api/projects/'+pid+'/report');if(!r.ok)throw new Error('HTTP '+r.status);repHtml=await r.text();f.srcdoc=repHtml;}
+  catch(e){f.srcdoc='<body style="background:#1e1e1e;color:#f66;font:14px system-ui;padding:24px">Bericht nicht möglich: '+esc(e.message||e)+'</body>';}
+}
+$('#repSave').onclick=()=>{if(!repHtml)return;const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([repHtml],{type:'text/html'}));
+  a.download=((S.P&&S.P.name)||'bericht').replace(/[^\w\- ]+/g,'_')+' – Bericht.html';document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},2000);};
 function renderSources(){
   const box=$('#srcCard'),p=S.P;if(!box)return;
   const fs=p.folders||[];
