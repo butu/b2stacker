@@ -462,6 +462,10 @@ def test_mcp_tools_on_core(srv2, tmp_path):
     assert r[0]["name"] == "vdB 131" and r[0]["lights"] == 6
     p, _ = mcp_call(srv, "project", {"name": "vdB 131"})
     assert p["ready"] and p["runs"][0]["settings"]
+    ins, err = mcp_call(srv, "insights", {"project": "vdB 131"})
+    assert not err and ins["nights"] and ins["nights"][0]["why"] and isinstance(ins["rig"], list)
+    r, err = mcp_call(srv, "import_stacks", {"project": "vdB 131", "paths": [str(tmp_path / "gibt-es-nicht")]})
+    assert not err and r["added"] == [] and r["found"] == 0
     fr, _ = mcp_call(srv, "frames", {"project": "vdB 131", "sort": "fwhm", "limit": 3})
     assert fr["total"] == 7 and len(fr["frames"]) == 3 and fr["more"] == 4
     r, _ = mcp_call(srv, "set_frames", {"project": "vdB 131", "frames": [fr["frames"][0]["name"]], "decision": "out"})

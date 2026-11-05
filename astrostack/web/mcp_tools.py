@@ -238,6 +238,22 @@ class CoreTools:
         self.c.note(pid, sid, str(a.get("text") or ""))
         return dict(ok=True, stack_id=sid)
 
+    def insights(self, a):
+        pid = self._pid(a.get("project"))
+        d = self.c.insights(pid)
+        keep = ("night", "filter", "n", "n_used", "hours", "used_h", "eff_h", "fwhm_as", "moon_illum", "moon",
+                "alt_min", "alt_max", "grade", "why", "todo")
+        return dict(meta=d["meta"], kpi=d["kpi"], nights=[{k: n.get(k) for k in keep} for n in d["nights"]],
+                    rig=[dict(level=c["level"], area=c["area"], title=c["title"], text=c["text"]) for c in d["checks"]],
+                    recommendations=d["rec"])
+
+    def import_stacks(self, a):
+        pid = self._pid(a.get("project"))
+        paths = a.get("paths")
+        if not isinstance(paths, list) or not paths:
+            raise ToolError("paths: Liste von Ordnern oder Dateien")
+        return self.c.import_stacks(pid, [str(x) for x in paths])
+
     def compare_stacks(self, a):
         pid = self._pid(a.get("project"))
         r = self.c.compare(pid, int(a.get("a")), int(a.get("b")))
@@ -349,6 +365,13 @@ TOOLS = [
     ("settings", "Einstellungen anzeigen oder mit changes ändern (z. B. {\"analysis_workers\": 4, "
      "\"pixinsight\": \"C:/…/PixInsight.exe\"}). Der MCP-Schlüssel ist nicht änderbar.",
      {"changes": {"type": "object"}}, [], RW),
+    ("insights", "Nachtübersicht und Rig-Hinweise eines Projekts: je Nacht und Filter Stunden (gesamt/verwendet/"
+     "effektiv), FWHM, Mond, Objekthöhe, Note A/B/C mit Begründung und Empfehlung; dazu Prüfungen zu Schärfe, "
+     "Nachführung, Fokus, Dithering, Kühlung, Taupunkt, Offset und Belichtung.", {"project": S_PROJECT}, ["project"], RO),
+    ("import_stacks", "Vorhandene Stacks übernehmen: Ordner eines 0.10-Projekts (stacks.json), WBPP-Ausgabeordner "
+     "(masterLight-Dateien) oder einzelne XISF/FITS/TIFF. Dateien bleiben, wo sie sind; Vorschau und Qualität "
+     "werden danach berechnet.", {"project": S_PROJECT, "paths": {"type": "array", "items": {"type": "string"}}},
+     ["project", "paths"], RW),
     ("calibration_library", "Kalibrier-Bibliothek: gespeicherte Master-Bias/-Darks/-Flats aller Projekte mit "
      "Eckdaten (Frames, Filter, Belichtung, Gain, Temperatur, Nächte) und wo sie verwendet wurden. Ein Master wird "
      "automatisch wiederverwendet, wenn ein Stack genau dieselben Kalibrier-Rohframes braucht.", {}, [], RO),
