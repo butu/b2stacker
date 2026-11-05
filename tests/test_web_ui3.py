@@ -253,7 +253,7 @@ def test_phone_pairs_over_lan_and_sees_projects(browser, app, monkeypatch):  # n
         expect(ph.locator("#setBtn")).to_be_hidden()
         pid = pid_of(app, "vdB 131")
         ph.goto("http://127.0.0.1:%d/#/p/%d/frames" % (port, pid))
-        expect(ph.locator("#vgrid .vt")).to_have_count(7)
+        ph.wait_for_function("() => document.querySelectorAll('#vgrid .vt').length >= 4")   # virtualisiert: sichtbare
         ph.wait_for_function("() => [...document.querySelectorAll('#vgrid img')].some(i => i.naturalWidth > 0)")
         shot(ph, "handy-gekoppelt-frames")
     finally:
@@ -276,10 +276,11 @@ def test_frames_sort_filter_group_size_and_click_zoom(page, app):
     expect(page.locator("#vgrid .vgh")).to_have_count(2)                      # 12.10. und 20.07.
     expect(page.locator("#vgrid .vgh").first).to_contain_text("Nacht vom")
     shot(page, "frames-gruppiert")
-    w0 = page.locator("#vgrid .vt").first.bounding_box()["width"]
+    w0 = page.wait_for_function("() => { const t = document.querySelector('#vgrid .vt'); "
+                                "return t && t.getBoundingClientRect().width; }").json_value()
     page.locator("#fSize").fill("400")
-    w1 = page.locator("#vgrid .vt").first.bounding_box()["width"]
-    assert w1 > w0 * 1.5
+    page.wait_for_function("w => { const t = document.querySelector('#vgrid .vt'); "
+                           "return t && t.getBoundingClientRect().width > w * 1.5; }", arg=w0)
     page.locator("label.tog", has_text="nach Nacht gruppieren").click()
     # Großansicht: Klick zoomt, Klick passt wieder ein; Metadaten aus dem Header
     page.locator("#vgrid .vt[data-i='0']").click()

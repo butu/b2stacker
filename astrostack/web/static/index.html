@@ -1579,6 +1579,11 @@ function renderFrames(box){
       <span class="grow"></span>
       <label class="fsize" title="Größe der Vorschaubilder">${ic('image','s14')}<input type="range" id="fSize" min="100" max="420" step="10" value="${FV.size}" aria-label="Größe der Vorschaubilder">${ic('image','s18')}</label>
     </div>
+    <details class="help" id="fHelp"><summary>${ic('info','s14')} Wie bewertet b2stacker die Frames – und was kann ich tun?</summary><div>
+      <p><b>Was:</b> Jedes Light wird vermessen (Sterne, Schärfe/FWHM, Sternform, Hintergrund, Rauschen) und mit den anderen Frames <i>derselben Nacht und desselben Filters</i> verglichen.</p>
+      <p><b>Warum aussortiert:</b> deutlich weniger Sterne als üblich (Wolken, Dunst), viel hellerer Hintergrund (Dämmerung, Mond, Licht), deutlich unschärfer als der Durchschnitt oder stark ovale Sterne (Wind, Nachführung). Der Grund steht an jedem Frame – in der Großansicht ausführlich.</p>
+      <p><b>Was tun:</b> Nichts, wenn die Automatik passt. Sonst Frames auswählen und oben „Verwenden“ oder „Nicht verwenden“ wählen – in der Großansicht geht es mit <span class="kbd">V</span>, <span class="kbd">N</span> und <span class="kbd">A</span> (Automatik) – und so selbst entscheiden – deine Entscheidung gilt dann immer, auch nach neuem Prüfen. „Automatik“ setzt sie zurück. <b>Zum Löschen</b> vormerken entfernt Dateien erst, wenn du es im Banner bestätigst.</p>
+      <p><b>Tipp:</b> Nach FWHM oder Sternform sortieren und „nach Nacht gruppieren“ zeigt schnell, welche Nacht schwächelt.</p></div></details>
     <div id="delBan"></div>
     <div class="vgrid" id="vgrid"></div>
     <div class="keys" id="fKeys">${ic('info','s14')} Doppelklick öffnet die Großansicht · Klick auf das Kästchen, <span class="kbd">Shift</span>+Klick oder <span class="kbd">Strg</span>+Klick wählt mehrere aus</div></div>`;
@@ -2257,7 +2262,11 @@ function nightsAgo(night){
   if(n<=0)return 'heute Nacht';if(n===1)return 'letzte Nacht';if(n<31)return 'vor '+n+' Nächten';
   return agoLong(night+'T22:00:00');
 }
-const QL=[['fwhm','Schärfe (FWHM)'],['noise','Rauschen'],['stars','Sterne'],['ecc','Sternform'],['gradient_pct','Verlauf']];
+const QL=[['fwhm','Schärfe (FWHM)','Halbwertsbreite der Sterne im fertigen Stack. Kleiner = schärfer. Typisch 2–4″; deutlich mehr: Seeing, Fokus oder Nachführung.'],
+  ['noise','Rauschen','Hintergrundrauschen in 16-bit-Einheiten. Kleiner = glatter. Sinkt mit mehr Belichtung (etwa mit der Wurzel der Zeit).'],
+  ['stars','Sterne','Erkannte Sterne. Viel weniger als in einem anderen Stack desselben Objekts: Dunst, schlechtere Ausrichtung oder Fokus.'],
+  ['ecc','Sternform','Exzentrizität: 0 = rund. Unter 0,45 gut, über 0,55 sichtbar oval – Nachführung, Verkippung oder Optik prüfen.'],
+  ['gradient_pct','Verlauf','Helligkeitsunterschied über das Bild. Hoch: Lichtverschmutzung oder Mond – in PixInsight mit GraXpert/DBE entfernen.']];
 function qval(k,q){
   const v=q[k];if(v==null)return '–';
   if(k==='fwhm')return num(v,2)+(q.fwhm_unit==='″'?'″':' px');
@@ -2270,7 +2279,7 @@ function qualityHtml(s){
   if(s.status!=='done')return '';
   if(!q)return `<div class="qv pend">${ic('spinner','s14 spin')} Qualität wird gemessen …</div>`;
   if(q.error)return `<div class="qv pend" style="color:var(--warn)">${ic('warn','s14')} Keine Qualitätswerte: ${esc(q.error)}</div>`;
-  return `<div class="qv">${QL.map(([k,l])=>`<div><span>${l}</span><b>${esc(qval(k,q))}</b></div>`).join('')}</div>`;
+  return `<div class="qv">${QL.map(([k,l,h])=>`<div title="${esc(h||'')}"><span>${l}</span><b>${esc(qval(k,q))}</b></div>`).join('')}</div>`;
 }
 
 // ---------- Stacks
@@ -2288,6 +2297,10 @@ function renderStacks(box){
   }
   box.innerHTML=`<div class="sec" style="gap:16px">${runSt?'<div class="card" id="stackBox"></div>':''}
     <div class="cmpbar" id="cmpBar"></div>
+    <details class="help"><summary>${ic('info','s14')} Was sagen die Qualitätswerte – und wie vergleiche ich Stacks?</summary><div>
+      ${QL.map(([k,l,h])=>`<p><b>${l}:</b> ${esc(h)}</p>`).join('')}
+      <p><b>Vergleichen:</b> Zwei Stacks anhaken (oder „Neuesten vergleichen“). Beide werden gleich gestreckt und übereinandergelegt – der Schieber zeigt den Unterschied, die Werte stehen nebeneinander. So siehst du, ob mehr Nächte, andere Flats oder strengeres Aussortieren wirklich besser sind.</p>
+      <p><b>Danach:</b> „Spickzettel“ zeigt die Reihenfolge der Bearbeitung in PixInsight, passend zum Ergebnis.</p></div></details>
     <div class="stks">${st.map(stackCard).join('')}</div></div>`;
   renderCmpBar();
   if(runSt)renderStackBox();
