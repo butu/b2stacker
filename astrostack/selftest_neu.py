@@ -92,7 +92,9 @@ def run(pixinsight: str, workdir: str, folder: str, progress=None, cancel=None, 
                 res.setdefault("stacks", []).append(out)
                 if i == 3 and ok:
                     reused = [m for r in out for m in r.get("masters") or [] if m["reused"]]
-                    step("Master wiederverwendet", bool(reused), "%d Master" % len(reused))
+                    kinds = sorted({m["kind"] for m in reused})
+                    step("Master wiederverwendet", bool(reused),
+                         "%d Master (%s)" % (len(reused), ", ".join(kinds) or "keine"))
                 if not ok:
                     break
         else:

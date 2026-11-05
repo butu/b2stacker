@@ -50,7 +50,7 @@ BASE = {"EXPOSURE": 120.0, "EXPTIME": 120.0, "GAIN": 120, "OFFSET": 30, "BAYERPA
 
 
 def make_dataset(folder: str, log=print) -> str:
-    """Lights (2 Nächte, Kamera gedreht), Flats je Stellung, Bias – alles unter einem Ordner mit Komma."""
+    """Lights (2 Nächte, Kamera gedreht), Flats je Stellung, Bias, Darks – alles unter einem Ordner mit Komma."""
     root = os.path.join(folder, TEST_DIR)
     if os.path.isdir(root) and os.listdir(root):
         log("Testdaten vorhanden: %s" % root)
@@ -75,6 +75,13 @@ def make_dataset(folder: str, log=print) -> str:
         h = dict(BASE, IMAGETYP="BIAS", EXPOSURE=0.0001, EXPTIME=0.0001)
         data = np.clip(500 + np.random.default_rng(200 + i).normal(0, 8, (800, 1200)), 0, 65535).astype(np.uint16)
         _fits(os.path.join(root, "Bias, Darks, Flats", "Bias", "Gain 120", "Bias_%04d.fits" % i), h, data)
+    for i in range(5):                                   # Darks wie die Lights (120 s, Gain 120, -10 °C)
+        h = dict(BASE, IMAGETYP="DARK", **{"DATE-OBS": "2026-01-18T08:00:%02d" % i})
+        rng = np.random.default_rng(300 + i)
+        data = np.clip(510 + rng.normal(0, 9, (800, 1200)), 0, 65535)
+        data[np.random.default_rng(7).integers(0, 800, 40), np.random.default_rng(8).integers(0, 1200, 40)] = 9000
+        _fits(os.path.join(root, "Bias, Darks, Flats", "Darks", "120s", "Dark_%04d.fits" % i), h,
+              data.astype(np.uint16))
     return root
 
 

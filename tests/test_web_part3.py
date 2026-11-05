@@ -192,6 +192,8 @@ def test_selftest_runs_twice_and_reuses_masters(c, tmp_path):  # noqa: F811
     assert names["Ablauf (Entdecken bis Plan)"]["ok"], names
     assert names["Stacken – erster Durchlauf"]["ok"], names["Stacken – erster Durchlauf"]
     assert names["Master wiederverwendet"]["ok"]
+    second = res["stacks"][1][0]["masters"]
+    assert {m["kind"] for m in second if m["reused"]} >= {"bias", "dark", "flat"}, second
     assert res["ok"] and os.path.isfile(res["report"])
     assert os.path.isdir(folder / "b2stacker-selbsttest, mit Komma")
     assert co.projects() == []                                       # Testprojekt bleibt unsichtbar
