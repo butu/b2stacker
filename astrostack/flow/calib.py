@@ -104,7 +104,7 @@ def match_project(db: dbm.Database, pid: int, th: calibcheck.Thresholds | None =
             "WHERE pf.project_id = ? AND f.missing_since IS NULL AND f.header_error IS NULL ")
     rows = db.query(base + "ORDER BY f.date_obs, f.path", (pid,))
     lights = [r for r in rows if r["type"] == "light" and r["status"] == "use"]
-    calib = [r for r in rows if r["type"] in ("flat", "bias", "dark", "darkflat") and r["status"] != "skip"]
+    calib = [r for r in rows if r["type"] in ("flat", "bias", "dark", "darkflat") and r["status"] == "use"]
     flats = _flat_sets([r for r in calib if r["type"] == "flat"])
     runs = defaultdict(list)
     for r in lights:

@@ -512,6 +512,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(fr)
             if rest == ["plan"]:
                 return self._json(c.plan(pid))
+            if rest == ["deletion"]:
+                return self._json(c.deletion_list(pid))
             if rest == ["stacks"]:
                 return self._json(c.stacks(pid))
             if rest == ["gallery"]:
@@ -634,6 +636,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(c.refresh(pid, reason="von Hand").as_dict())
             if rest == ["decide"]:
                 return self._json(c.decide(pid, _ids(b, "file_ids"), _text(b, "decision"), _text(b, "reason")))
+            if rest == ["delete-frames"]:
+                cnt = b.get("confirm_count")
+                if isinstance(cnt, bool) or not isinstance(cnt, int):
+                    raise ValueError("confirm_count: Zahl erforderlich")
+                return self._json(c.delete_frames(pid, _ids(b, "file_ids"), cnt, b.get("allow_permanent") is True))
             if rest == ["plan"]:
                 return self._json(c.edit_plan(pid, _dict(b, "options"), _dict(b, "runs"), bool(b.get("reset"))))
             if rest == ["stack"]:

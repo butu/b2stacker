@@ -13,7 +13,7 @@ import os
 import threading
 
 from . import db as dbm
-from . import flow, gallery, history, library, stacking, stackview, tasks
+from . import flow, gallery, history, library, logbook, stacking, stackview, tasks, trash
 from .flow import plan as fplan
 from .flow.headers import summarize_new
 from .workspace import Workspace
@@ -221,6 +221,77 @@ class Core:
         plan = fplan.update_plan(self.db, pid, self.ws.root)
         self._notify("project", id=pid)
         return dict(changed=n, plan_ready=plan["ready"])
+
+    # ------------------------------------------------------------ Frames löschen (einzige Schreibaktion auf Rohdaten)
+    def deletion_list(self, project) -> dict:
+        """Zum Löschen vorgemerkte Frames mit Größe, Papierkorb ja/nein und Hinderungsgrund."""
+        pid = self._pid(project)
+        rows = self.db.query(
+            "SELECT f.id, f.path, f.type, f.filter, f.night, f.size FROM files f JOIN file_status st "
+            "ON st.file_id = f.id AND st.project_id = ? WHERE st.status = 'delete' AND f.missing_since IS NULL "
+            "ORDER BY f.date_obs, f.path", (pid,))
+        out, total, trash_dirs = [], 0, {}
+        for r in rows:
+            d = dict(r, name=os.path.basename(r["path"]), exists=os.path.isfile(r["path"]))
+            folder = os.path.dirname(r["path"])
+            if folder not in trash_dirs:
+                trash_dirs[folder] = trash.can_trash(r["path"]) if d["exists"] else False
+            d["trash"] = trash_dirs[folder]
+            other = self.db.query(
+                "SELECT p.name FROM project_files pf JOIN projects p ON p.id = pf.project_id "
+                "LEFT JOIN file_status st ON st.project_id = pf.project_id AND st.file_id = pf.file_id "
+                "WHERE pf.file_id = ? AND pf.project_id != ? AND COALESCE(st.status, 'use') != 'delete'", (r["id"], pid))
+            d["blocked"] = ("wird auch im Projekt „%s“ verwendet" % other[0]["name"]) if other else (
+                None if d["exists"] else "Datei nicht erreichbar")
+            if not d["blocked"]:
+                total += r["size"] or 0
+            out.append(d)
+        ok = [d for d in out if not d["blocked"]]
+        return dict(frames=out, count=len(ok), bytes=total, permanent=sum(1 for d in ok if not d["trash"]))
+
+    def delete_frames(self, project, file_ids: list[int], confirm_count: int, allow_permanent: bool = False,
+                      origin: str = "ui") -> dict:
+        """Vorgemerkte Frames löschen – nur nach Bestätigung in der Oberfläche, nie per MCP.
+
+        ``confirm_count`` muss der Anzahl entsprechen, die die Oberfläche angezeigt hat. Ohne Papierkorb (NAS)
+        wird nur mit ``allow_permanent`` gelöscht. Jede Löschung landet im Verlauf und im Protokoll."""
+        if origin == "mcp":
+            raise ValueError("Frames löschen ist nur in der Oberfläche möglich.")
+        pid = self._pid(project)
+        if any(t.lane == "stack" for t in self.tasks.active(pid)):
+            raise ValueError("Während dieses Projekt gestackt wird, werden keine Frames gelöscht.")
+        lst = {d["id"]: d for d in self.deletion_list(pid)["frames"]}
+        want = [int(x) for x in file_ids]
+        chosen = [lst[i] for i in want if i in lst and not lst[i]["blocked"]]
+        if not chosen or len(chosen) != int(confirm_count) or len(chosen) != len(set(want)):
+            raise ValueError("Die Auswahl hat sich geändert – bitte die Liste neu öffnen und erneut bestätigen.")
+        if any(not d["trash"] for d in chosen) and not allow_permanent:
+            raise ValueError("Ein Teil der Frames liegt an einem Ort ohne Papierkorb – endgültiges Löschen muss "
+                             "ausdrücklich bestätigt werden.")
+        done, failed, size, mode = [], [], 0, {"trash": 0, "permanent": 0}
+        now = dbm.now()
+        for d in chosen:
+            try:
+                how = trash.remove(d["path"], permanent=not d["trash"])
+            except OSError as e:
+                failed.append(dict(id=d["id"], name=d["name"], error=str(e) or type(e).__name__))
+                continue
+            mode[how] += 1
+            size += d["size"] or 0
+            done.append(d)
+            logbook.event("frame_deleted", path=d["path"], how=how, project=pid)
+        with self.db.transaction():
+            for d in done:
+                self.db.execute("UPDATE files SET missing_since = ? WHERE id = ?", (now, d["id"]))
+            if done:
+                self.db.event("frames_deleted", pid, json.dumps(dict(
+                    n=len(done), bytes=size, trash=mode["trash"], permanent=mode["permanent"],
+                    names=[d["name"] for d in done[:50]], failed=len(failed))))
+        if done:
+            fplan.update_plan(self.db, pid, self.ws.root)
+            self._notify("project", id=pid)
+            self._notify("projects")
+        return dict(deleted=len(done), bytes=size, trash=mode["trash"], permanent=mode["permanent"], failed=failed)
 
     # ------------------------------------------------------------ Plan
     def plan(self, project) -> dict | None:

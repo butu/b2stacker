@@ -162,6 +162,16 @@ def describe(kind: str, evs: list[dict]) -> dict:
     elif kind == "backup_restored":
         out.update(title="Datenbank wiederhergestellt", icon="undo", tone="warn",
                    detail="Sicherung %s" % os.path.basename(d.get("backup") or ""))
+    elif kind == "frames_deleted":
+        mb = d.get("bytes", 0) / 1e9
+        where = []
+        if d.get("trash"):
+            where.append("%d in den Papierkorb" % d["trash"])
+        if d.get("permanent"):
+            where.append("%d endgültig" % d["permanent"])
+        out.update(title="%d %s gelöscht (%s GB)" % (d.get("n", 0), "Frame" if d.get("n") == 1 else "Frames",
+                                                    ("%.1f" % mb).replace(".", ",")),
+                   detail=" · ".join(where + [", ".join(d.get("names") or [])[:300]]), icon="close", tone="warn")
     elif kind == "stack_note":
         out.update(title="Notiz zu %s" % (d.get("name") or "Stack"), detail=d.get("text") or "", icon="edit")
     else:

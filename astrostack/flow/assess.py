@@ -81,9 +81,10 @@ def _put(db: dbm.Database, pid: int, fid: int, status: str, reason: str, now: st
 
 
 def decide(db: dbm.Database, pid: int, file_ids: list[int], decision: str, reason: str = "") -> int:
-    """Manuelle Entscheidung: ``use``, ``skip`` oder ``auto`` (zurück zur Automatik). → Anzahl geänderter"""
-    if decision not in ("use", "skip", "auto"):
-        raise ValueError("Entscheidung muss use, skip oder auto sein")
+    """Manuelle Entscheidung: ``use``, ``skip``, ``delete`` (zum Löschen vormerken – löscht nichts) oder ``auto``
+    (zurück zur Automatik). → Anzahl geänderter"""
+    if decision not in ("use", "skip", "delete", "auto"):
+        raise ValueError("Entscheidung muss use, skip, delete oder auto sein")
     n = 0
     now = dbm.now()
     with db.transaction():
@@ -94,7 +95,8 @@ def decide(db: dbm.Database, pid: int, file_ids: list[int], decision: str, reaso
                 cur = db.execute("DELETE FROM file_status WHERE project_id = ? AND file_id = ? AND origin = 'manual'",
                                  (pid, fid))
             else:
-                text = reason or ("manuell verwendet" if decision == "use" else "manuell aussortiert")
+                text = reason or {"use": "manuell verwendet", "skip": "manuell aussortiert",
+                                  "delete": "zum Löschen vorgemerkt"}[decision]
                 cur = db.execute(
                     "INSERT INTO file_status (project_id, file_id, status, origin, reason, decided_at) "
                     "VALUES (?, ?, ?, 'manual', ?, ?) ON CONFLICT (project_id, file_id) DO UPDATE SET "

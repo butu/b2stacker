@@ -242,7 +242,7 @@ def add_parser(sub) -> None:
     x = ns.add_parser("frames", help="Frames mit Status, Grund und Messwerten")
     x.add_argument("project")
     x.add_argument("--type", default="light", choices=["light", "flat", "bias", "dark", "darkflat", "all"])
-    x.add_argument("--status", choices=["use", "skip"])
+    x.add_argument("--status", choices=["use", "skip", "delete"])
     x.add_argument("--limit", type=int, default=200)
     x = ns.add_parser("stack", help="mit PixInsight stacken")
     x.add_argument("project")
