@@ -15,10 +15,10 @@ from __future__ import annotations
 from .assess import ASSESS_VERSION, assess_project, decide
 from .discover import discover_project
 from .headers import HEADER_VERSION, read_headers
-from .measure import MEASURE_VERSION, measure_files
+from .measure import MEASURE_VERSION, measure_files, prepare_fast
 
 __all__ = ["ASSESS_VERSION", "HEADER_VERSION", "MEASURE_VERSION", "assess_project", "decide", "discover_project",
-           "measure_files", "read_headers", "run_project"]
+           "measure_files", "prepare_fast", "read_headers", "run_project"]
 
 
 def run_project(db, ws, pid: int, progress=None, cancel=None, workers: int = 2) -> dict:

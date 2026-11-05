@@ -271,7 +271,8 @@ def test_frames_virtualized_grid_lightbox_and_keyboard(page, app):
     lb = page.locator("#lb")
     expect(lb).to_be_visible()
     expect(page.locator("#lbN")).to_contain_text("1 von 7")
-    expect(page.locator("#lbSide .meta")).to_contain_text("FWHM")
+    expect(page.locator("#lbSide .meta").first).to_contain_text("FWHM")
+    expect(page.locator("#lbMore")).to_contain_text("Gain")
     expect(page.locator("#lbLoad")).to_be_hidden(timeout=15000)                   # große Vorschau geladen
     ids = [f["id"] for f in app.core.frames(vdb, limit=10)["frames"]]
     st = lambda i: app.core.frames(vdb, limit=10)["frames"][i]                    # noqa: E731

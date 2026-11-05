@@ -21,6 +21,31 @@ from .headers import meta_from_json
 
 MEASURE_VERSION = 1           # erhöhen, wenn sich analyze/calibcheck so ändert, dass alte Messwerte falsch sind
 THUMBS = "thumbs"
+FAST = "frames-fast"          # große Vorschau (JPEG) und Sterne (JSON) je Light, beim Vermessen erzeugt
+FAST_W = 1800
+FAST_VERSION = 1
+
+
+def fast_paths(previews_dir: str, checksum: str) -> tuple[str, str]:
+    """Große Vorschau und Sterne eines Lights (Schlüssel: Prüfsumme). → (jpg, json)"""
+    base = os.path.join(previews_dir, FAST, "%s-v%d" % (checksum[:20], FAST_VERSION))
+    return base + ".jpg", base + ".json"
+
+
+def _fast_media(raw, meta) -> tuple[bytes | None, dict | None]:
+    """Aus den schon geladenen Pixeln: große Vorschau und Sternliste (für sofortiges Durchblättern)."""
+    jpg = stars = None
+    try:
+        from .. import previews
+        jpg = previews._render_jpeg(raw, meta.bayer, FAST_W)[0]
+    except Exception:  # noqa: BLE001 – die Messung zählt, die Vorschau ist Zugabe
+        pass
+    try:
+        from .. import starmap
+        stars = starmap.compute("", meta.bayer, raw=raw)
+    except Exception:  # noqa: BLE001
+        pass
+    return jpg, stars
 
 
 def _work(item):
@@ -34,8 +59,10 @@ def _work(item):
         meta = meta_from_json(meta_json)
         if kind == "light" and meta is not None:
             from .. import analyze, imageio
-            row, thumb = analyze._measure_raw(meta, imageio.load(path, data))
+            raw = imageio.load(path, data)
+            row, thumb = analyze._measure_raw(meta, raw)
             out.update(row=row, thumb=thumb.astype(np.float16))
+            out["fast_jpg"], out["fast_stars"] = _fast_media(raw, meta)
         elif kind == "flat" and meta is not None and not meta.is_master:
             from .. import calibcheck
             out["flat"] = calibcheck.flat_frame_stats(path, meta.bayer, data)
@@ -81,6 +108,7 @@ def _store(db: dbm.Database, thumbs_dir: str, fid: int, out: dict, now: str) -> 
             with open(tmp, "wb") as fh:
                 np.save(fh, out["thumb"])
             os.replace(tmp, p)
+    _write_fast(os.path.dirname(thumbs_dir), sha, out.get("fast_jpg"), out.get("fast_stars"))
     data = row if row is not None else out.get("flat")
     hot = None
     if row:
@@ -96,6 +124,61 @@ def _store(db: dbm.Database, thumbs_dir: str, fid: int, out: dict, now: str) -> 
          _num((row or {}).get("bg")), _num((row or {}).get("noise")), _num((row or {}).get("snr_proxy")),
          _num(hot), thumb_name, json.dumps(data, default=str) if data is not None else None))
     return moved
+
+
+def _write_fast(previews_dir: str, sha: str, jpg: bytes | None, stars: dict | None) -> None:
+    pj, ps = fast_paths(previews_dir, sha)
+    os.makedirs(os.path.dirname(pj), exist_ok=True)
+    for p, payload in ((pj, jpg), (ps, json.dumps(stars).encode("utf-8") if stars is not None else None)):
+        if payload is not None and not os.path.exists(p):
+            tmp = p + ".tmp"
+            with open(tmp, "wb") as fh:
+                fh.write(payload)
+            os.replace(tmp, p)
+
+
+def _fast_work(item):
+    """Im eigenen Prozess: große Vorschau + Sterne für ein schon vermessenes Light nachholen."""
+    fid, path, meta_json, sha = item
+    try:
+        from .. import imageio
+        meta = meta_from_json(meta_json)
+        jpg, stars = _fast_media(imageio.load(path), meta)
+        return fid, sha, jpg, stars, None
+    except Exception as e:  # noqa: BLE001
+        return fid, sha, None, None, str(e)
+
+
+def prepare_fast(db: dbm.Database, ws, pid: int, progress=None, cancel=None, workers: int = 2) -> dict:
+    """Für Lights ohne große Vorschau/Sterne (z. B. aus älteren Versionen) beides nachholen – im Hintergrund,
+    damit die Großansicht sofort das volle Bild zeigt. → Anzahl"""
+    rows = db.query("SELECT f.id, f.path, f.meta_json, f.checksum FROM files f JOIN project_files pf ON pf.file_id = f.id "
+                    "WHERE pf.project_id = ? AND f.type = 'light' AND f.missing_since IS NULL AND f.checksum IS NOT NULL "
+                    "AND f.header_error IS NULL ORDER BY f.date_obs, f.path", (pid,))
+    todo = [(int(r["id"]), r["path"], r["meta_json"], r["checksum"]) for r in rows
+            if not all(os.path.exists(p) for p in fast_paths(ws.previews, r["checksum"]))]
+    res = dict(done=0, errors=0)
+    if not todo:
+        return res
+    if progress:
+        progress(step="Großansicht vorbereiten", done=0, total=len(todo))
+    workers = max(1, int(workers))
+    ex = ProcessPoolExecutor(max_workers=workers) if workers > 1 else None
+    try:
+        for i, (fid, sha, jpg, stars, err) in enumerate(ex.map(_fast_work, todo) if ex else map(_fast_work, todo), 1):
+            if err:
+                res["errors"] += 1
+            else:
+                _write_fast(ws.previews, sha, jpg, stars)
+                res["done"] += 1
+            if progress:
+                progress(done=i)
+            if cancel is not None and cancel():
+                break
+    finally:
+        if ex:
+            ex.shutdown(wait=True, cancel_futures=True)
+    return res
 
 
 def measure_files(db: dbm.Database, ws, pid: int, progress=None, cancel=None, workers: int = 2) -> dict:

@@ -251,3 +251,33 @@ def test_phone_pairs_over_lan_and_sees_projects(browser, app, monkeypatch):  # n
     finally:
         ctx.close()
     assert errs == [], errs
+
+
+def test_frames_sort_filter_group_size_and_click_zoom(page, app):
+    pid = pid_of(app, "vdB 131")
+    page.goto(app.url + "#/p/%d/frames" % pid)
+    expect(page.locator("#vgrid .vt")).to_have_count(7)
+    page.select_option("#fSortSel", "fwhm")                                    # schlechteste (größte) zuerst
+    fw = [f["fwhm"] for f in app.core.frames(pid)["frames"]]
+    first = page.locator("#vgrid .vt[data-i='0'] .fx .m").inner_text()
+    assert first.replace("FWHM ", "").replace(",", ".").strip() == "%.2f" % max(x for x in fw if x is not None)
+    page.select_option("#fFilt", "RGB")
+    expect(page.locator("#vgrid .vt")).to_have_count(3)
+    page.select_option("#fFilt", "")
+    page.locator("label.tog", has_text="nach Nacht gruppieren").click()
+    expect(page.locator("#vgrid .vgh")).to_have_count(2)                      # 12.10. und 20.07.
+    expect(page.locator("#vgrid .vgh").first).to_contain_text("Nacht vom")
+    shot(page, "frames-gruppiert")
+    w0 = page.locator("#vgrid .vt").first.bounding_box()["width"]
+    page.locator("#fSize").fill("400")
+    w1 = page.locator("#vgrid .vt").first.bounding_box()["width"]
+    assert w1 > w0 * 1.5
+    page.locator("label.tog", has_text="nach Nacht gruppieren").click()
+    # Großansicht: Klick zoomt, Klick passt wieder ein; Metadaten aus dem Header
+    page.locator("#vgrid .vt[data-i='0']").click()
+    expect(page.locator("#lbMore")).to_contain_text("Gain")
+    box = page.locator("#lbImgBox").bounding_box()
+    page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    expect(page.locator("#lbZoomI")).to_be_visible()
+    page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    expect(page.locator("#lbZoomI")).to_be_hidden()

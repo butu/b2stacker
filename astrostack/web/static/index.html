@@ -251,6 +251,11 @@ h3{margin:0;font-size:16px;font-weight:700}
 /* ---------- Frames */
 .fbar{position:sticky;top:-28px;z-index:5;background:var(--bg);padding:10px 0;margin:-10px 0 -8px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;box-shadow:0 1px 0 var(--div)}
 .fsum{font-size:13.5px;opacity:.65;display:flex;flex-wrap:wrap;gap:2px 12px}
+.fbar2{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.fsel{display:inline-flex;align-items:center;gap:6px}.fsel>svg{opacity:.6}
+.fsize{display:inline-flex;align-items:center;gap:8px;opacity:.85}.fsize input{width:130px;accent-color:#fff}
+.vgh{position:absolute;left:0;right:0;top:0;height:32px;display:flex;align-items:center;gap:12px;padding:0 4px;border-bottom:1px solid var(--div);font-size:14px}
+.vgh span{opacity:.6;font-size:13px}
 .selbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 6px 6px 14px;border-radius:10px;background:var(--info-bg)}
 .selbar b{font-size:14px;margin-right:6px}
 .vgrid{position:relative;width:100%}
@@ -296,7 +301,7 @@ h3{margin:0;font-size:16px;font-weight:700}
 .lbimg img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block}
 .lbimg img.soft{filter:blur(1px);opacity:.85}
 .zoomt{position:absolute;inset:0;transform-origin:0 0}
-.zoomt.zoomed{cursor:grab}.zoomt.zoomed:active{cursor:grabbing}
+#lbZoom{cursor:zoom-in}.zoomt.zoomed{cursor:grab}.zoomt.zoomed:active{cursor:grabbing}
 .stsvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
 .stsvg ellipse{fill:none;stroke-width:1.5}
 .zoomi{position:absolute;left:12px;bottom:12px;z-index:3;padding:3px 10px;border-radius:999px;background:rgba(15,15,15,.85);font-size:12.5px;font-weight:700;pointer-events:none}
@@ -1266,7 +1271,10 @@ const FTYPES=[['light','Lights'],['flat','Flats'],['bias','Bias'],['dark','Darks
 const FSTAT=[['all','Alle'],['use','Verwendet'],['skip','Aussortiert'],['delete','Zum Löschen'],['manual','Manuell']];
 const fstate=f=>f.status==='use'?'use':f.status==='delete'?'delete':'skip';
 const FCHUNK=5000;
-const FV={type:'light',status:'all',asc:true,sel:new Set(),anchor:null,view:[],geo:null,nodes:new Map(),raf:0};
+const FSORT=[['time','Aufnahmezeit','asc'],['fwhm','FWHM (Schärfe)','desc'],['ecc','Sternform (Exzentrizität)','desc'],['nstars','Anzahl Sterne','asc'],['noise','Rauschen','desc'],['bg','Hintergrund','desc'],['exposure','Belichtung','desc'],['name','Dateiname','asc']];
+const FV={type:'light',status:'all',sort:'time',asc:true,filt:'',night:'',group:false,size:170,sel:new Set(),anchor:null,view:[],rows:[],pos:[],geo:null,nodes:new Map(),raf:0};
+try{const o=JSON.parse(localStorage.getItem('b2-frames')||'{}');for(const k of ['sort','asc','group','size'])if(o[k]!=null)FV[k]=o[k];}catch(e){}
+const saveFV=()=>{try{localStorage.setItem('b2-frames',JSON.stringify({sort:FV.sort,asc:FV.asc,group:FV.group,size:FV.size}));}catch(e){}};
 async function loadFrames(keep){
   const p=S.P;if(!p)return;const pid=p.id,type=FV.type;
   const tok=(S.F&&S.F.tok||0)+1;
@@ -1285,9 +1293,11 @@ async function loadFrames(keep){
   }catch(e){toast(e.message,true);}
   if(!S.F||S.F.tok!==tok)return;
   S.F.list=all;S.F.total=total;S.F.loading=false;
-  applyFrameView();
+  fillFrameFilters();applyFrameView();
 }
 function frameMatches(f){
+  if(FV.filt&&(f.filter||'')!==FV.filt)return false;
+  if(FV.night&&(f.night||'')!==FV.night)return false;
   if(FV.status==='all')return true;
   if(FV.status==='manual')return f.origin==='manual';
   return fstate(f)===FV.status;
@@ -1295,7 +1305,13 @@ function frameMatches(f){
 function applyFrameView(){
   if(!S.F)return;
   const v=S.F.list.filter(frameMatches);
-  v.sort((a,b)=>{const x=(a.date_obs||'')+a.path,y=(b.date_obs||'')+b.path;return (x<y?-1:x>y?1:0)*(FV.asc?1:-1);});
+  const key=FV.sort,tkey=f=>(f.date_obs||'')+f.path;
+  const val=f=>key==='time'?tkey(f):key==='name'?f.name.toLowerCase():f[key];
+  v.sort((a,b)=>{
+    if(FV.group){const na=a.night||'',nb=b.night||'';if(na!==nb)return na<nb?-1:1;}
+    const x=val(a),y=val(b);
+    if(x==null&&y==null)return tkey(a)<tkey(b)?-1:1;if(x==null)return 1;if(y==null)return -1;   // ohne Wert ans Ende
+    const c=x<y?-1:x>y?1:(tkey(a)<tkey(b)?-1:1);return FV.asc?c:-c;});
   FV.view=v;
   for(const id of [...FV.sel])if(!S.F.list.some(f=>f.id===id))FV.sel.delete(id);
   renderFrameSummary();layoutGrid(true);
@@ -1307,16 +1323,33 @@ function renderFrames(box){
     <div class="fbar" id="fbar">
       <div class="seg" id="fType">${FTYPES.map(([k,l])=>`<button data-k="${k}" class="${FV.type===k?'on':''}">${l}<span class="n">${int(c[k]||0)}</span></button>`).join('')}</div>
       <div class="seg" id="fStat">${FSTAT.map(([k,l])=>`<button data-k="${k}" class="${FV.status===k?'on':''}">${l}</button>`).join('')}</div>
-      <button class="btn sm" id="fSort" title="Sortierung umdrehen">${ic(FV.asc?'up-arrow':'down-arrow','s14')} ${FV.asc?'Älteste zuerst':'Neueste zuerst'}</button>
       <span class="grow"></span><span class="fsum" id="fSum"></span>
       <div class="selbar" id="selBar" hidden></div>
+    </div>
+    <div class="fbar2" id="fbar2">
+      <label class="fsel">${ic('sort','s14')}<select id="fSortSel" aria-label="Sortieren nach">${FSORT.map(([k,l])=>`<option value="${k}" ${FV.sort===k?'selected':''}>${l}</option>`).join('')}</select></label>
+      <button class="btn sm" id="fSort" title="Reihenfolge umdrehen"></button>
+      <label class="fsel">${ic('grid','s14')}<select id="fFilt" aria-label="Aufnahmefilter"></select></label>
+      <label class="fsel">${ic('clock','s14')}<select id="fNight" aria-label="Nacht"></select></label>
+      <label class="tog small"><span class="switch"><input type="checkbox" id="fGroup" ${FV.group?'checked':''}><span></span></span>nach Nacht gruppieren</label>
+      <span class="grow"></span>
+      <label class="fsize" title="Größe der Vorschaubilder">${ic('image','s14')}<input type="range" id="fSize" min="100" max="420" step="10" value="${FV.size}" aria-label="Größe der Vorschaubilder">${ic('image','s18')}</label>
     </div>
     <div id="delBan"></div>
     <div class="vgrid" id="vgrid"></div>
     <div class="keys" id="fKeys">${ic('info','s14')} Doppelklick öffnet die Großansicht · Klick auf das Kästchen, <span class="kbd">Shift</span>+Klick oder <span class="kbd">Strg</span>+Klick wählt mehrere aus</div></div>`;
-  $$('#fType button').forEach(b=>b.onclick=()=>{FV.type=b.dataset.k;FV.sel.clear();$$('#fType button').forEach(x=>x.classList.toggle('on',x===b));$('#view').scrollTop=0;loadFrames();});
+  $$('#fType button').forEach(b=>b.onclick=()=>{FV.type=b.dataset.k;FV.sel.clear();FV.filt='';FV.night='';$$('#fType button').forEach(x=>x.classList.toggle('on',x===b));$('#view').scrollTop=0;loadFrames();});
   $$('#fStat button').forEach(b=>b.onclick=()=>{FV.status=b.dataset.k;$$('#fStat button').forEach(x=>x.classList.toggle('on',x===b));applyFrameView();});
-  $('#fSort').onclick=e=>{FV.asc=!FV.asc;e.currentTarget.innerHTML=`${ic(FV.asc?'up-arrow':'down-arrow','s14')} ${FV.asc?'Älteste zuerst':'Neueste zuerst'}`;applyFrameView();};
+  const sortLabel=()=>{const asc=FV.asc,k=FV.sort;
+    $('#fSort').innerHTML=`${ic(asc?'up-arrow':'down-arrow','s14')} `+(k==='time'?(asc?'älteste zuerst':'neueste zuerst'):k==='name'?(asc?'A–Z':'Z–A'):(asc?'kleinste zuerst':'größte zuerst'));};
+  sortLabel();
+  $('#fSort').onclick=()=>{FV.asc=!FV.asc;sortLabel();saveFV();applyFrameView();};
+  $('#fSortSel').onchange=e=>{FV.sort=e.target.value;FV.asc=(FSORT.find(x=>x[0]===FV.sort)||[])[2]==='asc';sortLabel();saveFV();applyFrameView();};
+  $('#fFilt').onchange=e=>{FV.filt=e.target.value;applyFrameView();};
+  $('#fNight').onchange=e=>{FV.night=e.target.value;applyFrameView();};
+  $('#fGroup').onchange=e=>{FV.group=e.target.checked;saveFV();applyFrameView();};
+  $('#fSize').oninput=e=>{FV.size=+e.target.value;saveFV();layoutGrid(true);};
+  fillFrameFilters();
   setupGrid();
   if(!S.F||S.F.pid!==S.P.id||S.F.type!==FV.type)loadFrames();else applyFrameView();
   loadDelBanner();
@@ -1357,6 +1390,17 @@ async function openDelete(){
   });
   if(!dlg.open)dlg.showModal();
 }
+// Auswahl für Aufnahmefilter und Nacht aus den geladenen Frames (mit Anzahl)
+function fillFrameFilters(){
+  const a=$('#fFilt'),b=$('#fNight');if(!a||!S.F)return;
+  const cnt=k=>{const m=new Map();for(const f of S.F.list){const v=f[k]||'';m.set(v,(m.get(v)||0)+1);}return m;};
+  const fl=cnt('filter'),nl=cnt('night');
+  if(FV.filt&&!fl.has(FV.filt))FV.filt='';if(FV.night&&!nl.has(FV.night))FV.night='';
+  a.innerHTML=`<option value="">Alle Filter</option>`+[...fl].sort().map(([k,n])=>`<option value="${esc(k)}" ${k===FV.filt?'selected':''}>${esc(k||'ohne Filter')} (${int(n)})</option>`).join('');
+  b.innerHTML=`<option value="">Alle Nächte</option>`+[...nl].sort((x,y)=>x[0]<y[0]?1:-1).map(([k,n])=>`<option value="${esc(k)}" ${k===FV.night?'selected':''}>${k?ymd(k):'ohne Datum'} (${int(n)})</option>`).join('');
+  a.parentElement.hidden=fl.size<2&&!FV.filt;b.parentElement.hidden=nl.size<2&&!FV.night;
+  if(typeof enhanceSelects==='function')enhanceSelects($('#fbar2'));
+}
 function renderFrameSummary(){
   const el=$('#fSum');if(!el||!S.F)return;
   const l=S.F.list,use=l.filter(f=>f.status==='use').length,man=l.filter(f=>f.origin==='manual').length;
@@ -1387,12 +1431,21 @@ function teardownGrid(){
 }
 function layoutGrid(reset){
   const g=$('#vgrid');if(!g)return;
-  const W=g.clientWidth,gap=10,minW=W<700?130:170;
+  const W=g.clientWidth,gap=10,minW=W<700?Math.min(FV.size,Math.max(100,W/2-gap)):FV.size;
   const cols=Math.max(1,Math.floor((W+gap)/(minW+gap))),tw=(W-(cols-1)*gap)/cols,th=Math.round(tw*2/3)+22,rh=th+gap;
-  const rows=Math.ceil(FV.view.length/cols);
-  const changed=!FV.geo||FV.geo.cols!==cols||Math.abs(FV.geo.tw-tw)>.5;
-  FV.geo={cols,tw,th,rh,gap};
-  g.style.height=(rows?rows*rh-gap:0)+'px';
+  // Zeilen: Überschrift je Nacht (beim Gruppieren) und Kachelreihen; pos[i] = [x, y] jeder Kachel
+  const rows=[],pos=new Array(FV.view.length),HH=40;let y=0,i=0;
+  while(i<FV.view.length){
+    let end=FV.view.length;
+    if(FV.group){const n=FV.view[i].night||'';let j=i;while(j<FV.view.length&&(FV.view[j].night||'')===n)j++;end=j;
+      const sub=FV.view.slice(i,end),hrsN=sub.reduce((a,f)=>a+(f.exposure||0),0)/3600,used=sub.filter(f=>f.status==='use').length;
+      rows.push({h:true,y,label:n?ymd(n):'ohne Datum',n:sub.length,used,hrs:hrsN});y+=HH;}
+    for(let k=i;k<end;k++){const c=(k-i)%cols;if(c===0&&k>i)y+=rh;pos[k]=[c*(tw+gap),y];}
+    y+=rh;i=end;
+  }
+  const changed=!FV.geo||FV.geo.cols!==cols||Math.abs(FV.geo.tw-tw)>.5||FV.geo.group!==FV.group;
+  FV.geo={cols,tw,th,rh,gap,group:FV.group};FV.rows=rows;FV.pos=pos;
+  g.style.height=(FV.view.length?y-gap:0)+'px';
   if(!FV.view.length&&S.F&&!S.F.loading){g.innerHTML=`<div class="empty"><div class="t">Keine Frames</div><div class="x">${FV.status==='all'?'In diesem Projekt gibt es (noch) keine Frames dieser Art.':'Keine Frames mit diesem Status.'}</div></div>`;g.style.height='auto';FV.nodes=new Map();return;}
   if(reset||changed){g.innerHTML='';FV.nodes=new Map();}
   renderVisible();
@@ -1400,17 +1453,24 @@ function layoutGrid(reset){
 function renderVisible(){
   const g=$('#vgrid'),G=FV.geo;if(!g||!G)return;
   const v=$('#view'),top=g.getBoundingClientRect().top-v.getBoundingClientRect().top;   // Abstand Raster ↔ sichtbarer Bereich
-  const r0=Math.max(0,Math.floor((-top)/G.rh)-2),r1=Math.ceil((-top+v.clientHeight)/G.rh)+2;
-  const i0=r0*G.cols,i1=Math.min(FV.view.length,r1*G.cols);
+  const y0=-top-2*G.rh,y1=-top+v.clientHeight+2*G.rh,P=FV.pos;
+  // erste sichtbare Kachel per Binärsuche (pos ist nach y sortiert)
+  let lo=0,hi=P.length;while(lo<hi){const m=(lo+hi)>>1;if(P[m][1]+G.th<y0)lo=m+1;else hi=m;}
+  const i0=lo;let i1=i0;while(i1<P.length&&P[i1][1]<y1)i1++;
   for(const [i,el] of FV.nodes)if(i<i0||i>=i1||FV.view[i]!==el._f){el.remove();FV.nodes.delete(i);}
   const frag=document.createDocumentFragment();
   for(let i=i0;i<i1;i++){
     if(FV.nodes.has(i))continue;
     const f=FV.view[i],el=document.createElement('div');el._f=f;el.dataset.i=i;
     el.className='vt';el.style.width=G.tw+'px';el.style.height=G.th+'px';
-    el.style.transform=`translate(${(i%G.cols)*(G.tw+G.gap)}px,${Math.floor(i/G.cols)*G.rh}px)`;
+    el.style.transform=`translate(${P[i][0]}px,${P[i][1]}px)`;
     fillTile(el,f);frag.appendChild(el);FV.nodes.set(i,el);
   }
+  // Nacht-Überschriften im sichtbaren Bereich
+  $$('.vgh',g).forEach(h=>{if(!FV.rows.includes(h._r)||h._r.y<y0-100||h._r.y>y1)h.remove();});
+  for(const r of FV.rows){if(r.y<y0-100||r.y>y1||[...g.children].some(c=>c._r===r))continue;
+    const h=document.createElement('div');h._r=r;h.className='vgh';h.style.transform=`translateY(${r.y}px)`;
+    h.innerHTML=`<b>${ic('clock','s14')} Nacht vom ${esc(r.label)}</b><span>${plural(r.n,'Frame','Frames')} · ${int(r.used)} verwendet · ${hrs(r.hrs)} h</span>`;frag.appendChild(h);}
   g.appendChild(frag);
 }
 function fillTile(el,f){
@@ -1475,7 +1535,14 @@ function makeZoom(host,target,o){
     const ux=(cx-L.l-Z.x)/Z.s,uy=(cy-L.t-Z.y)/Z.s;Z.x=cx-L.l-s*ux;Z.y=cy-L.t-s*uy;Z.s=s;apply();};
   Z.reset=()=>{Z.s=1;apply();};
   host.addEventListener('wheel',e=>{if(o.enabled&&!o.enabled())return;e.preventDefault();Z.to(Z.s*Math.exp(-e.deltaY*(e.deltaMode===1?0.05:0.0016)),e.clientX,e.clientY);},{passive:false});
-  host.addEventListener('dblclick',e=>{if(o.enabled&&!o.enabled())return;if(e.target.closest('button'))return;e.preventDefault();
+  if(o.clickZoom){       // Klick (ohne Ziehen) wechselt zwischen eingepasst und 1:1 an der Klickstelle
+    let down=null;
+    host.addEventListener('pointerdown',e=>{if(e.button===0&&!e.target.closest('button'))down={x:e.clientX,y:e.clientY,t:Date.now(),n:Z.ptr.size};},true);
+    host.addEventListener('pointerup',e=>{const d=down;down=null;if(!d||e.target.closest('button')||d.n>1)return;
+      if(Math.hypot(e.clientX-d.x,e.clientY-d.y)>5||Date.now()-d.t>400)return;
+      const one=o.oneToOne?o.oneToOne():2;Z.to(Z.s>1.01?1:Math.max(one,1.5),e.clientX,e.clientY);});
+  }
+  if(!o.clickZoom)host.addEventListener('dblclick',e=>{if(o.enabled&&!o.enabled())return;if(e.target.closest('button'))return;e.preventDefault();
     const one=o.oneToOne?o.oneToOne():2;Z.to(Z.s>1.01?1:Math.max(one,1.5),e.clientX,e.clientY);});
   host.addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;Z.ptr.set(e.pointerId,{x:e.clientX,y:e.clientY});
     if(Z.ptr.size===2){const [a,b]=[...Z.ptr.values()];Z.pinch={d:Math.hypot(a.x-b.x,a.y-b.y),s:Z.s};Z.pan=null;e.stopPropagation();return;}
@@ -1489,7 +1556,7 @@ function makeZoom(host,target,o){
 }
 
 // ---------- Großansicht
-const LB={list:null,i:0,tok:0,msgT:0,stars:false,starCache:new Map()};
+const LB={list:null,i:0,tok:0,msgT:0,stars:false,starCache:new Map(),full:new Map(),info:new Map()};
 function openLightbox(i){
   LB.list=FV.view.slice();LB.i=i;$('#lb').hidden=false;LBZ.reset();renderLightbox();
 }
@@ -1499,8 +1566,8 @@ async function drawStars(){
   const info=$('#lbStarInfo');
   if(!LB.stars||!LB.list){svg.innerHTML='';if(info)info.textContent='';return;}
   const f=LB.list[LB.i];let d=LB.starCache.get(f.id);
-  if(!d){if(info)info.innerHTML=`${ic('spinner','s14 spin')} Sterne werden erkannt …`;
-    try{d=await api('/api/frame/'+f.id+'/stars');LB.starCache.set(f.id,d);}catch(e){if(info)info.textContent='Sterne nicht verfügbar: '+e.message;svg.innerHTML='';return;}
+  if(!d){svg.innerHTML='';if(info)info.innerHTML=`${ic('spinner','s14 spin')} Sterne werden erkannt …`;
+    try{d=await lbStarsOf(f);}catch(e){if(info)info.textContent='Sterne nicht verfügbar: '+e.message;return;}
     if(!LB.list||LB.list[LB.i]!==f||!LB.stars)return;}
   svg.setAttribute('viewBox',`0 0 ${d.width} ${d.height}`);
   const col=e=>e<0.5?'#8ff0a4':e<0.65?'#f8e45c':'#ff7b63';
@@ -1509,10 +1576,10 @@ async function drawStars(){
   const inf=$('#lbStarInfo');
   if(inf)inf.innerHTML=`${int(d.nstars)} Sterne erkannt${d.stars.length<d.nstars?`, die hellsten ${int(d.stars.length)} markiert`:''} · FWHM ${d.fwhm_med!=null?num(d.fwhm_med,1)+' px':'–'} · Form ${d.ecc_med!=null?num(d.ecc_med,2):'–'}<br><span style="color:#8ff0a4">●</span> rund <span style="color:#f8e45c">●</span> leicht oval <span style="color:#ff7b63">●</span> länglich · b2stacker-Erkennung`;
 }
-const LBZ=makeZoom($('#lbImgBox'),$('#lbZoom'),{max:10,info:()=>$('#lbZoomI'),
+const LBZ=makeZoom($('#lbImgBox'),$('#lbZoom'),{max:10,clickZoom:true,info:()=>$('#lbZoomI'),onChange:s=>lbHiRes(s),
   oneToOne:()=>{const img=$('#lbImg'),b=$('#lbImgBox');if(!img.naturalWidth)return 2;const ar=img.naturalWidth/img.naturalHeight;
     const w=Math.min(b.clientWidth,b.clientHeight*ar);return img.naturalWidth/Math.max(1,w);},
-  label:s=>Math.round(s*100)+' % · Doppelklick: einpassen'});
+  label:s=>Math.round(s*100)+' % · Klick: einpassen'});
 $('#lbStars').innerHTML=ic('search','s14')+'<span class="hl"> Sterne</span>';
 (function(){
   const box=$('#lbImgBox');let st=null;
@@ -1523,7 +1590,8 @@ $('#lbStars').innerHTML=ic('search','s14')+'<span class="hl"> Sterne</span>';
     else if(Math.abs(dy)>70&&Math.abs(dy)>1.5*Math.abs(dx)){lbDecide(dy<0?'use':'skip');lbMsg(dy<0?'verwendet':'nicht verwendet');}});
   box.addEventListener('pointercancel',()=>{st=null;});
 })();
-$('#lbStars').onclick=()=>{LB.stars=!LB.stars;drawStars();};
+$('#lbStars').onclick=()=>{LB.stars=!LB.stars;try{localStorage.setItem('b2-stars',LB.stars?'1':'');}catch(e){}drawStars();lbPrefetch();};
+try{LB.stars=localStorage.getItem('b2-stars')==='1';}catch(e){}
 function closeLightbox(silent){
   if($('#lb').hidden)return;$('#lb').hidden=true;LB.list=null;LB.tok++;
   if(!silent&&S.route.tab==='frames'){applyFrameView();}
@@ -1541,20 +1609,26 @@ function renderLightbox(){
   $('#lbTitle').innerHTML=`${fic(f.filter)}${esc(f.filter||f.type||'')}`;
   $('#lbN').textContent=`${f.name} · ${LB.i+1} von ${LB.list.length}`;
   $('#lbPrev').disabled=LB.i===0;$('#lbNext').disabled=LB.i===LB.list.length-1;
-  // Bild: zuerst das kleine Vorschaubild, dann die große Vorschau aus dem Original
+  // Bild: die große Vorschau wird beim Vermessen vorbereitet und hier für die Nachbarn vorausgeladen –
+  // liegt sie schon im Speicher, erscheint sie sofort; sonst kurz das kleine Vorschaubild
   const img=$('#lbImg');
   if(img.dataset.fid!==String(f.id)){
-    img.dataset.fid=f.id;const tok=++LB.tok;
-    if(f.thumb_url){img.src=f.thumb_url;img.classList.add('soft');}else img.removeAttribute('src');
-    const ld=$('#lbLoad');ld.hidden=false;ld.innerHTML=`${ic('spinner','s14 spin')} große Vorschau wird geladen …`;
-    const hi=new Image();
-    hi.onload=()=>{if(tok!==LB.tok)return;img.src=hi.src;img.classList.remove('soft');ld.hidden=true;};
-    hi.onerror=()=>{if(tok!==LB.tok)return;ld.innerHTML=`${ic('warn','s14')} Große Vorschau nicht möglich (Original nicht erreichbar?)`;};
-    hi.src='/api/frame/'+f.id+'/preview';
+    img.dataset.fid=f.id;img.dataset.hi='';const tok=++LB.tok,ld=$('#lbLoad');
+    const pre=lbFull(f);
+    if(pre.complete&&pre.naturalWidth){img.src=pre.src;img.classList.remove('soft');ld.hidden=true;}
+    else{
+      if(f.thumb_url){img.src=f.thumb_url;img.classList.add('soft');}else img.removeAttribute('src');
+      ld.hidden=false;ld.innerHTML=`${ic('spinner','s14 spin')} große Vorschau wird geladen …`;
+      const done=()=>{if(tok!==LB.tok)return;if(pre.naturalWidth){img.src=pre.src;img.classList.remove('soft');ld.hidden=true;}
+        else ld.innerHTML=`${ic('warn','s14')} Große Vorschau nicht möglich (Original nicht erreichbar?)`;};
+      pre.addEventListener('load',done,{once:true});pre.addEventListener('error',done,{once:true});
+    }
+    lbPrefetch();
   }
   const m=[['Nacht',f.night?ymd(f.night):'–'],['Aufnahme',f.date_obs?ymd(f.date_obs)+' '+hm(f.date_obs):'–'],['Filter',f.filter||'–'],['Belichtung',f.exposure!=null?num(f.exposure,f.exposure<10?1:0)+' s':'–'],
     ['FWHM',f.fwhm!=null?num(f.fwhm,2)+' px':'–'],['Sternform (Exzentrizität)',f.ecc!=null?num(f.ecc,2):'–'],['Sterne',f.nstars!=null?int(f.nstars):'–'],
     ['Hintergrund',f.bg!=null?num(f.bg,0)+' ADU':'–'],['Rauschen',f.noise!=null?num(f.noise,1)+' ADU':'–']];
+  const inf=LB.info.get(f.id);
   $('#lbSide').innerHTML=`<div class="lbst"><div class="row" style="gap:8px"><span class="pill ${use?'ok':'err'}">${use?'wird verwendet':f.status==='delete'?'zum Löschen vorgemerkt':'aussortiert'}</span>${man?`<span class="pill neutral">${ic('hand','tiny')} manuell</span>`:'<span class="pill neutral">Automatik</span>'}</div>
       ${f.reason?`<div class="r">${esc(f.reason)}</div>`:''}${f.header_error?`<div class="r errc">${esc(f.header_error)}</div>`:''}</div>
     <div class="dbtns">
@@ -1563,11 +1637,64 @@ function renderLightbox(){
       <button class="dbtn auto" data-d="auto" ${man?'':'disabled style="opacity:.4;cursor:default"'}>${ic('undo')}<span class="g">Automatik entscheiden lassen</span><span class="kbd">A</span></button>
       <button class="dbtn del ${f.status==='delete'?'on':''}" data-d="delete">${ic('trash')}<span class="g">Zum Löschen vormerken</span><span class="kbd">Entf</span></button></div>
     <div class="meta">${m.map(([k,v])=>`<span>${k}</span><span>${esc(v)}</span>`).join('')}</div>
+    <div class="meta" id="lbMore">${inf?lbMoreHtml(inf):''}</div>
     <div class="stinfo" id="lbStarInfo"></div>
     <div class="fpath" title="Datei">${esc(f.path)}</div>
-    <div class="keys lbkeys"><span><span class="kbd">←</span> <span class="kbd">→</span> blättern</span><span><span class="kbd">V</span> <span class="kbd">N</span> entscheiden und weiter</span><span><span class="kbd">A</span> Automatik</span><span><span class="kbd">Entf</span> zum Löschen vormerken</span><span><span class="kbd">S</span> Sterne</span><span>Mausrad/Doppelklick: Zoom</span><span class="touchonly">Wischen: ← → blättern · ↑ verwenden · ↓ nicht verwenden · zwei Finger: Zoom</span><span><span class="kbd">Esc</span> schließen</span></div>`;
+    <div class="keys lbkeys"><span><span class="kbd">←</span> <span class="kbd">→</span> blättern</span><span><span class="kbd">V</span> <span class="kbd">N</span> entscheiden und weiter</span><span><span class="kbd">A</span> Automatik</span><span><span class="kbd">Entf</span> zum Löschen vormerken</span><span><span class="kbd">S</span> Sterne</span><span>Klick: Zoom 1:1 · Mausrad</span><span class="touchonly">Wischen: ← → blättern · ↑ verwenden · ↓ nicht verwenden · zwei Finger: Zoom</span><span><span class="kbd">Esc</span> schließen</span></div>`;
   $$('#lbSide [data-d]').forEach(b=>b.onclick=()=>lbDecide(b.dataset.d));
   drawStars();
+  if(!inf)lbInfo(f).then(()=>{if(LB.list&&LB.list[LB.i]===f){const x=$('#lbMore');if(x)x.innerHTML=lbMoreHtml(LB.info.get(f.id)||{});}});
+}
+// Beim Hineinzoomen die volle Auflösung nachladen (gleiches Seitenverhältnis → Ausschnitt bleibt stehen)
+function lbHiRes(s){
+  if(s<1.3||!LB.list)return;const f=LB.list[LB.i],img=$('#lbImg');
+  if(img.dataset.hi===String(f.id))return;img.dataset.hi=f.id;
+  const tok=LB.tok,hi=new Image();hi.onload=()=>{if(tok===LB.tok&&LB.list&&LB.list[LB.i]===f)img.src=hi.src;};
+  hi.src='/api/frame/'+f.id+'/full';
+}
+// Vorausladen: volle Vorschau, Infos und (falls eingeblendet) Sterne der nächsten Bilder
+function lbFull(f){
+  let im=LB.full.get(f.id);
+  if(!im){im=new Image();im.decoding='async';im.src='/api/frame/'+f.id+'/preview';LB.full.set(f.id,im);
+    if(LB.full.size>40){const k=LB.full.keys().next().value;LB.full.delete(k);}}
+  return im;
+}
+async function lbInfo(f){
+  if(LB.info.has(f.id))return LB.info.get(f.id);
+  try{const d=await api('/api/frame/'+f.id+'/info');LB.info.set(f.id,d);return d;}catch(e){return null;}
+}
+async function lbStarsOf(f){
+  let d=LB.starCache.get(f.id);if(d)return d;
+  d=await api('/api/frame/'+f.id+'/stars');LB.starCache.set(f.id,d);return d;
+}
+function lbPrefetch(){
+  if(!LB.list)return;
+  for(const k of [1,2,3,-1]){const g=LB.list[LB.i+k];if(!g)continue;lbFull(g);lbInfo(g);if(LB.stars)lbStarsOf(g).catch(()=>{});}
+}
+const deg=v=>v==null?'–':num(v,1)+'°';
+function raHms(v){if(v==null)return '–';const h=((v%360)+360)%360/15,H=Math.floor(h),M=Math.floor((h-H)*60),S=Math.round(((h-H)*60-M)*60);return `${H}h ${String(M).padStart(2,'0')}m ${String(S).padStart(2,'0')}s`;}
+function decDms(v){if(v==null)return '–';const s=v<0?'−':'+',a=Math.abs(v),D=Math.floor(a),M=Math.floor((a-D)*60),S=Math.round(((a-D)*60-M)*60);return `${s}${D}° ${String(M).padStart(2,'0')}′ ${String(S).padStart(2,'0')}″`;}
+function lbMoreHtml(i){
+  const ms=i.measured||{},r=[];
+  const add=(k,v)=>{if(v!=null&&v!==''&&v!=='–')r.push([k,v]);};
+  add('Kamera',i.camera);add('Teleskop',i.telescope?(i.telescope+(i.focal_length?' · '+num(i.focal_length,0)+' mm':'')):(i.focal_length?num(i.focal_length,0)+' mm':null));
+  add('Gain / Offset',i.gain!=null?num(i.gain,0)+(i.offset!=null?' / '+num(i.offset,0):''):null);
+  add('Auslesemodus',i.readout);add('Binning',i.binning&&i.binning!==1?i.binning+'×'+i.binning:null);
+  add('Sensortemperatur',i.ccd_temp!=null?num(i.ccd_temp,1)+' °C'+(i.set_temp!=null?' (Soll '+num(i.set_temp,0)+' °C)':''):null);
+  add('Bildgröße',i.width?i.width+' × '+i.height+' px'+(i.bayer?' · '+i.bayer:''):null);
+  add('Bildmaßstab',ms.pixscale?num(ms.pixscale,2)+' ″/px':null);
+  add('FWHM (Bogensek.)',ms.fwhm!=null&&ms.pixscale?num(ms.fwhm*ms.pixscale,2)+' ″':null);
+  add('FWHM Mitte / Ecken',ms.fwhm_c!=null&&ms.fwhm_corner!=null?num(ms.fwhm_c,2)+' / '+num(ms.fwhm_corner,2)+' px':null);
+  add('HFR (Aufnahme)',i.hfr_from_name!=null?num(i.hfr_from_name,2):null);
+  add('SNR (Schätzung)',ms.snr_proxy!=null?num(ms.snr_proxy,1):null);
+  add('RA / Dec',i.ra!=null?raHms(i.ra)+' · '+decDms(i.dec):null);
+  add('Objekthöhe',i.alt!=null?deg(i.alt)+(i.airmass?' · Luftmasse '+num(i.airmass,2):''):(ms.alt!=null?deg(ms.alt):null));
+  add('Mond',ms.moon_illum!=null?Math.round(ms.moon_illum*100)+' % beleuchtet'+(ms.moon_alt!=null?(ms.moon_alt<0?' · unter dem Horizont':' · '+deg(ms.moon_alt)+' hoch'):''):null);
+  add('Fokus',i.focus_pos!=null?int(i.focus_pos)+(i.focus_temp!=null?' · '+num(i.focus_temp,1)+' °C':''):null);
+  add('Rotator / Seite',i.rotator!=null||i.pier_side?[i.rotator!=null?deg(i.rotator):null,i.pier_side].filter(Boolean).join(' · '):null);
+  add('Wetter',[i.ambient_temp!=null?num(i.ambient_temp,1)+' °C':null,i.humidity!=null?num(i.humidity,0)+' % Feuchte':null,i.dew_point!=null?'Taupunkt '+num(i.dew_point,1)+' °C':null].filter(Boolean).join(' · ')||null);
+  add('Aufnahme mit',i.software||(i.source&&i.source!=='unknown'?i.source:null));
+  return r.map(([k,v])=>`<span>${esc(k)}</span><span>${esc(v)}</span>`).join('');
 }
 function lbDecide(d){
   if(!LB.list)return;const f=LB.list[LB.i];
@@ -1591,7 +1718,7 @@ window.addEventListener('keydown',e=>{
   else if(!e.repeat&&k==='n'){e.preventDefault();lbDecide('skip');}
   else if(!e.repeat&&k==='a'){e.preventDefault();lbDecide('auto');}
   else if(!e.repeat&&k==='Delete'){e.preventDefault();lbDecide('delete');}
-  else if(!e.repeat&&k==='s'){e.preventDefault();LB.stars=!LB.stars;drawStars();}
+  else if(!e.repeat&&k==='s'){e.preventDefault();$('#lbStars').click();}
   else if(k==='+'||k==='='){e.preventDefault();LBZ.to(LBZ.s*1.5);}
   else if(k==='-'){e.preventDefault();LBZ.to(LBZ.s/1.5);}
   else if(k==='0'){e.preventDefault();LBZ.reset();}

@@ -196,9 +196,24 @@ class Core:
             plan = fplan.update_plan(self.db, pid, self.ws.root, progress=task.progress)
             res["plan_ready"] = plan["ready"]
             self._notify("project", id=pid)
+            self.prepare_media(pid)
             return res
         return self.tasks.submit("refresh", "%s prüfen%s" % (name, (" (%s)" % reason) if reason else ""), work,
                                  lane="analysis", project_id=pid, key="refresh:%d" % pid)
+
+    def prepare_media(self, project) -> tasks.Task:
+        """Große Vorschauen und Sterne für die Großansicht im Hintergrund nachholen (Spur ``misc``)."""
+        pid = self._pid(project)
+        name = self.db.value("SELECT name FROM projects WHERE id = ?", (pid,))
+
+        def work(task: tasks.Task):
+            r = flow.prepare_fast(self.db, self.ws, pid, progress=task.progress, cancel=lambda: task.cancelled,
+                                  workers=self.workers)
+            if r["done"]:
+                self._notify("project", id=pid)
+            return r
+        return self.tasks.submit("media", "%s: Großansicht vorbereiten" % name, work, lane="misc", project_id=pid,
+                                 key="media:%d" % pid)
 
     def refresh_all(self) -> list[dict]:
         """App-Start: alle Projekte im Hintergrund prüfen (das geöffnete hat Vorrang, siehe open_project)."""
@@ -224,6 +239,24 @@ class Core:
                              "st.origin, st.reason" + sql + " ORDER BY f.date_obs, f.path LIMIT ? OFFSET ?",
                              args + [max(1, min(int(limit), 5000)), max(0, int(offset))])
         return dict(total=total, offset=offset, frames=[dict(r, name=os.path.basename(r["path"])) for r in rows])
+
+    def frame_info(self, file_id: int) -> dict:
+        """Alles zu einem Frame für die Großansicht: Header (Kamera, Gain, Temperatur, Koordinaten …) und Messwerte
+        (FWHM, Sterne, Mond, Objekthöhe …)."""
+        r = self.db.one("SELECT f.id, f.path, f.size, f.meta_json, m.data_json FROM files f LEFT JOIN frame_metrics m "
+                        "ON m.file_id = f.id WHERE f.id = ?", (int(file_id),))
+        if not r:
+            raise ValueError("Frame nicht gefunden.")
+        meta = json.loads(r["meta_json"] or "{}")
+        data = json.loads(r["data_json"] or "{}") if r["data_json"] else {}
+        keep_m = ("source", "object", "filter", "exposure", "gain", "offset", "readout", "binning", "width", "height",
+                  "bayer", "ccd_temp", "set_temp", "date_obs", "night", "camera", "telescope", "focal_length",
+                  "pixel_size", "focus_pos", "focus_temp", "rotator", "pier_side", "ra", "dec", "alt", "airmass",
+                  "ambient_temp", "dew_point", "humidity", "wind", "software", "hfr_from_name", "site_fallback")
+        keep_d = ("moon_illum", "moon_alt", "alt", "snr_proxy", "fwhm", "fwhm_c", "fwhm_corner", "ecc", "nstars",
+                  "bg", "noise", "grad", "sat_frac", "pixscale", "fwhm_as", "hotpixels")
+        return dict(id=r["id"], size=r["size"], **{k: meta.get(k) for k in keep_m if meta.get(k) not in (None, "")},
+                    measured={k: data.get(k) for k in keep_d if data.get(k) is not None})
 
     def decide(self, project, file_ids: list[int], decision: str, reason: str = "") -> dict:
         pid = self._pid(project)

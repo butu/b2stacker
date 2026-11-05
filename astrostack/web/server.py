@@ -643,6 +643,11 @@ class Handler(BaseHTTPRequestHandler):
         if len(api) == 2 and api[0] == "thumb":
             path, version = media.thumb(c.ws, c.db, self._fid(api[1]))
             return self._image(path, version, immutable=_str(q, "v") == version)
+        if len(api) == 3 and api[0] == "frame" and api[2] == "full":
+            path, version = media.full(c.ws, c.db, self._fid(api[1]))
+            return self._image(path, version, immutable=False)
+        if len(api) == 3 and api[0] == "frame" and api[2] == "info":
+            return self._json(c.frame_info(self._fid(api[1])))
         if len(api) == 3 and api[0] == "frame" and api[2] == "stars":
             return self._json(media.stars(c.ws, c.db, self._fid(api[1])))
         if len(api) == 3 and api[0] == "frame" and api[2] == "preview":

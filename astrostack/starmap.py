@@ -33,9 +33,9 @@ def distortion(ecc: float) -> float:
     return math.pi / 4 * math.sqrt(max(0.0, 1 - ecc * ecc))
 
 
-def compute(path: str, bayer: str | None, hot: bool = False) -> dict:
+def compute(path: str, bayer: str | None, hot: bool = False, raw=None) -> dict:
     from . import analyze, imageio
-    raw = imageio.load(path)
+    raw = imageio.load(path) if raw is None else raw
     if raw.ndim == 3:
         raw = raw.mean(axis=0)
     H, W = raw.shape

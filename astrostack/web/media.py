@@ -33,7 +33,7 @@ class MediaError(Exception):
 
 
 def _known_file(db, fid: int):
-    row = db.one("SELECT f.id, f.path, f.missing_since, m.thumb FROM files f "
+    row = db.one("SELECT f.id, f.path, f.missing_since, f.checksum, m.thumb FROM files f "
                  "LEFT JOIN frame_metrics m ON m.file_id = f.id "
                  "WHERE f.id = ? AND EXISTS (SELECT 1 FROM project_files pf WHERE pf.file_id = f.id)", (fid,))
     if row is None:
@@ -80,8 +80,13 @@ def thumb(ws, db, fid: int) -> tuple[str, str]:
 
 
 def preview(ws, db, fid: int) -> tuple[str, str]:
-    """Große Vorschau eines Frames aus dem Original. → (Pfad, Version für ETag)"""
+    """Große Vorschau eines Frames: beim Vermessen vorbereitet (sofort), sonst aus dem Original. → (Pfad, Version)"""
     row = _known_file(db, fid)
+    if row["checksum"]:
+        from ..flow.measure import fast_paths
+        pj = fast_paths(ws.previews, row["checksum"])[0]
+        if os.path.isfile(pj):
+            return pj, os.path.splitext(os.path.basename(pj))[0]
     if row["missing_since"] or not os.path.isfile(row["path"]):
         raise MediaError("Originaldatei nicht erreichbar: %s" % row["path"])
     try:
@@ -91,10 +96,32 @@ def preview(ws, db, fid: int) -> tuple[str, str]:
     return out, os.path.splitext(os.path.basename(out))[0]
 
 
+def full(ws, db, fid: int) -> tuple[str, str]:
+    """Volle Auflösung (für starkes Hineinzoomen), einmal gerendert und zwischengespeichert. → (Pfad, Version)"""
+    row = _known_file(db, fid)
+    if row["missing_since"] or not os.path.isfile(row["path"]):
+        raise MediaError("Originaldatei nicht erreichbar: %s" % row["path"])
+    w = db.value("SELECT width FROM files WHERE id = ?", (fid,)) or 8000
+    try:
+        out = previews.frame_preview(row["path"], os.path.join(ws.previews, "frames-full"), width=int(w))
+    except (OSError, ValueError, RuntimeError) as e:
+        raise MediaError("Volle Auflösung nicht möglich: %s" % e, 422) from None
+    return out, os.path.splitext(os.path.basename(out))[0]
+
+
 def stars(ws, db, fid: int) -> dict:
     """Erkannte Sterne eines Frames (Originalpixel) für die Markierung in der Großansicht; zwischengespeichert."""
     from .. import starmap
     row = _known_file(db, fid)
+    if row["checksum"]:
+        import json
+        from ..flow.measure import fast_paths
+        ps = fast_paths(ws.previews, row["checksum"])[1]
+        try:
+            with open(ps, encoding="utf-8") as fh:
+                return json.load(fh)
+        except (OSError, ValueError):
+            pass
     if row["missing_since"] or not os.path.isfile(row["path"]):
         raise MediaError("Originaldatei nicht erreichbar: %s" % row["path"])
     bayer = db.value("SELECT bayer FROM files WHERE id = ?", (fid,))
