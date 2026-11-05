@@ -210,7 +210,9 @@ def build_plan(db: dbm.Database, pid: int, workdir: str, edits: dict | None = No
                                      edited_keys=sorted(user)))
                 continue
             changed = user is not None and user != value
-            settings.append(dict(key=key, value=user if changed else value, auto=value, why=why, edited=changed))
+            # fest = vom Nutzer gewählt (auch wenn gleich der Automatik) – bleibt, wenn die Automatik umschlägt
+            settings.append(dict(key=key, value=user if user is not None else value, auto=value, why=why,
+                                 edited=changed, fixed=user is not None))
         disk = system.estimate_disk_gb(n, w, h, is_osc, mode)
         ram = system.estimate_ram_gb(n, w, h, 3 if mode == "debayer" else 1)
         no_flats = run["nights"] and not any(x["flats"]["file_ids"] or x["flats"].get("manual") for x in run["nights"])

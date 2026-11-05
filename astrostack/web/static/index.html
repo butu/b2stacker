@@ -407,6 +407,7 @@ details.help{border-radius:8px;background:rgba(255,255,255,.04);font-size:13.5px
 details.help summary{cursor:pointer;padding:8px 10px;display:flex;align-items:center;gap:6px;color:var(--info);font-weight:700;list-style:none}
 details.help summary::-webkit-details-marker{display:none}
 details.help>div{padding:0 12px 10px;opacity:.85}details.help p{margin:6px 0;text-wrap:pretty}
+.optrow.fixed{box-shadow:inset 3px 0 0 var(--accent)}
 .optrow{display:flex;align-items:center;gap:14px;padding:12px 16px;border-top:1px solid var(--div)}
 .optrow:first-child{border-top:0}
 .optrow.col{flex-direction:column;align-items:stretch}
@@ -930,7 +931,7 @@ const pct=t=>t.total?Math.max(2,Math.min(100,100*t.done/t.total)):0;
 const bar=t=>`<div class="bar6${t.total?'':' indet'}"><div style="width:${pct(t)}%"></div></div>`;
 // Kurze Aufträge (Prüfen ohne Neues, < 1 s) nicht anzeigen – sonst blitzt der Hinweis nur auf
 const SHOW_AFTER=1000;
-const shown=t=>Date.now()-(t._t0||0)>=SHOW_AFTER;
+const shown=t=>t.lane==='stack'||Date.now()-(t._t0||0)>=SHOW_AFTER;   // Stacken immer sofort zeigen
 function liveHtml(pid){
   const ts=projTasks(pid).filter(shown);
   return ts.map(t=>`<div class="live${t.state==='queued'?' q':''}">${t.state==='running'?bar(t):ic('clock','s14')}<span class="lt ell">${esc(taskText(t))}</span></div>`).join('');
@@ -2047,7 +2048,9 @@ function renderPlan(box){
   const pr=$('#planReset');if(pr)pr.onclick=async()=>{if(await ask('Alles auf Automatik?','Alle Änderungen am Plan werden verworfen: Einstellungen, Namen, Referenz, beste X % und Kalibrierung von Hand.','Zurücksetzen',true))busy(pr,()=>editPlan({reset:true}));};
   const R=id=>plan.runs.find(r=>r.id===id);
   $$('[data-run-en]',box).forEach(i=>i.onchange=()=>editPlan({runs:{[i.dataset.runEn]:{enabled:i.checked}}},i.dataset.runEn+'|enabled'));
-  $$('[data-set]',box).forEach(i=>i.onchange=()=>{const [rid,key]=splitKey(i.dataset.set);const val=i.type==='checkbox'?i.checked:i.value;editPlan({runs:{[rid]:{[key]:val}}},i.dataset.set);});
+  $$('[data-set]',box).forEach(i=>i.onchange=()=>{const [rid,key]=splitKey(i.dataset.set);
+    let val=i.type==='checkbox'?i.checked:i.value;if(val==='auto')val=null;else if(i.dataset.kind==='bool')val=val==='true';
+    editPlan({runs:{[rid]:{[key]:val}}},i.dataset.set);});
   $$('[data-reset]',box).forEach(b=>b.onclick=()=>{const [rid,key]=splitKey(b.dataset.reset);editPlan({runs:{[rid]:{[key]:null}}},b.dataset.reset);});
   $$('[data-tcal]',box).forEach(b=>b.onclick=()=>{const id=b.dataset.tcal;UIP.cal.has(id)?UIP.cal.delete(id):UIP.cal.add(id);renderTab();});
   $$('[data-topt]',box).forEach(b=>b.onclick=()=>{const id=b.dataset.topt;UIP.opt.has(id)?UIP.opt.delete(id):UIP.opt.add(id);renderTab();});
@@ -2115,13 +2118,15 @@ function optBody(r){
   const setRows=r.settings.filter(s=>s.key!=='star_detection').map(s=>{
     const L=SETL[s.key]||[s.key,typeof s.value==='boolean'?'bool':'ro'],k=r.id+'|'+s.key,pend=PENDING.has(k);
     let ctl;
-    if(L[1]==='bool')ctl=`<label class="switch"><input type="checkbox" data-set="${esc(k)}" ${s.value?'checked':''} aria-label="${esc(L[0])}"><span></span></label>`;
-    else if(L[1]==='sel'){const base=s.key==='rejection'?L[2].slice(0,4):L[2];
-      const opts=base.some(o=>o[0]===s.value)?base:base.concat([L[2].find(o=>o[0]===s.value)||[s.value,String(s.value)]]);
-      ctl=`<select data-set="${esc(k)}" aria-label="${esc(L[0])}">${opts.map(o=>`<option value="${esc(o[0])}" ${o[0]===s.value?'selected':''}>${esc(o[1])}</option>`).join('')}</select>`;}
+    if(L[1]==='bool'||L[1]==='sel'){
+      // Automatik oder fester Wert: erste Option folgt der Automatik (aktueller Wert in Klammern), darunter feste Werte
+      const fixedOpts=L[1]==='bool'?[['true','An'],['false','Aus']]:L[2].map(o=>[String(o[0]),o[1]]);
+      const cur=s.fixed?String(s.value):'auto';
+      ctl=`<select data-set="${esc(k)}" data-kind="${L[1]}" aria-label="${esc(L[0])}"><option value="auto" ${cur==='auto'?'selected':''}>Automatisch (${esc(autoText(L,s.auto))})</option>
+        ${fixedOpts.map(o=>`<option value="${esc(o[0])}" ${cur===o[0]?'selected':''}>${esc(o[1])}</option>`).join('')}</select>`;}
     else ctl=`<span class="ro">${esc(String(s.value))}</span>`;
-    return `<div class="optrow${pend?' pending':''}"><div class="ot"><span class="on">${esc(L[0])}${s.edited?` <span class="adj">angepasst</span><button class="rst" data-reset="${esc(k)}">zurück auf Automatik</button>`:''}</span>
-      <span class="od">${esc(s.why)}${s.edited?' · Automatik wäre: '+esc(autoText(L,s.auto)):''}</span></div><div class="oc">${ctl}</div></div>`;}).join('');
+    return `<div class="optrow${pend?' pending':''}${s.fixed?' fixed':''}"><div class="ot"><span class="on">${esc(L[0])}${s.fixed?` <span class="adj" title="Fester Wert – bleibt, auch wenn die Automatik (z. B. bei weniger Frames) etwas anderes vorschlagen würde">fest</span>`:''}</span>
+      <span class="od">${esc(s.why)}${s.fixed&&String(s.auto)!==String(s.value)?' · Automatik wäre: '+esc(autoText(L,s.auto)):''}</span></div><div class="oc">${ctl}</div></div>`;}).join('');
   const sd=r.settings.find(s=>s.key==='star_detection');
   const sdKeys=[...new Set(['maxStarDistortion','minStructureSize','hotPixelFilterRadius','noiseReductionFilterRadius','structureLayers',...Object.keys((sd&&sd.value)||{})])];
   const sdRows=sd?sdKeys.map(k=>{const v=sd.value[k],a=sd.auto[k],ed=(sd.edited_keys||[]).includes(k),L=STARL[k]||[k,''];

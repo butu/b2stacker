@@ -317,21 +317,26 @@ def test_plan_setting_persists_and_stack_shows_progress(page, app):
     expect(ha.locator("details.help")).to_contain_text("Wie wählt b2stacker")
     ha.locator("[data-topt]").click()
     opt = lambda: page.locator(".run", has_text="HaO3").locator(".optrow", has_text="Lokale Normalisierung")  # noqa: E731
-    before = opt().locator("input").is_checked()
-    opt().locator(".switch").click()
-    expect(opt().locator(".adj")).to_have_text("angepasst")
-    plan = app.core.plan(pid)
-    s = [x for r in plan["runs"] if r["name"] == "HaO3" for x in r["settings"] if x["key"] == "local_normalization"][0]
-    assert s["value"] is (not before) and s["edited"]
+    sel = lambda: opt().locator("select[data-set]")  # noqa: E731
+    s0 = [x for r in app.core.plan(pid)["runs"] if r["name"] == "HaO3" for x in r["settings"]
+          if x["key"] == "local_normalization"][0]
+    expect(sel()).to_have_value("auto")                                  # Automatisch (an/aus)
+    assert ("an" if s0["auto"] else "aus") in opt().locator("button.uisel").inner_text()
+    # gleicher Wert wie die Automatik fest wählen: bleibt fest (früher nicht möglich)
+    sel().select_option("true" if s0["auto"] else "false")
+    expect(opt().locator(".adj")).to_have_text("fest")
+    s = [x for r in app.core.plan(pid)["runs"] if r["name"] == "HaO3" for x in r["settings"]
+         if x["key"] == "local_normalization"][0]
+    assert s["fixed"] and s["value"] is s0["auto"]
     page.reload()
     page.locator(".run", has_text="HaO3").locator("[data-topt]").click()
-    expect(opt().locator(".adj")).to_have_text("angepasst")
-    opt().locator(".rst").click()
+    expect(opt().locator(".adj")).to_have_text("fest")
+    sel().select_option("auto")
     expect(page.locator(".run", has_text="HaO3").locator(".optrow .adj")).to_have_count(0)
     # Auswahl: Rejection (gestaltete Auswahlbox, darunter das echte <select>)
     page.locator(".run", has_text="HaO3").locator("select[data-set$='|rejection']").select_option("winsorized")
     expect(page.locator(".run", has_text="HaO3").locator(".optrow", has_text="Pixel-Rejection").locator(".adj")) \
-        .to_have_text("angepasst")
+        .to_have_text("fest")
     # Lauf umbenennen
     page.locator(".run", has_text="HaO3").locator("[data-rren]").click()
     page.fill("#txtIn", "Ha+OIII")
