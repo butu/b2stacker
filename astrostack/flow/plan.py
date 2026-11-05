@@ -101,6 +101,13 @@ def _apply_calib_edits(run: dict, ed: dict, lights: list[dict]) -> None:
             o = opts[choice]
             n["flats"] = dict(file_ids=o["ids"], night=o["night"], quality=None, manual=True, hints=[],
                               reason="von Hand: Flats vom %s (%s, %d Frames)" % (o["night"], o["filter"] or "–", o["n"]))
+    ok = set(ed.get("flat_ok") or [])                # „Passt, Setup unverändert“ – Abstand-Hinweis ausblenden
+    if ok:
+        for n in run["nights"]:
+            hs = n["flats"].get("hints") or []
+            if any(h.get("kind") == "distance" and h.get("key") in ok for h in hs):
+                n["flats"]["hints"] = [h for h in hs if not (h.get("kind") == "distance" and h.get("key") in ok)]
+                n["flats"]["confirmed"] = True
     for kind in ("bias", "darks"):
         if ed.get(kind) == "none":
             run[kind] = dict(file_ids=[], reason="von Hand: ohne %s" % ("Bias" if kind == "bias" else "Darks"))
@@ -141,7 +148,8 @@ def build_plan(db: dbm.Database, pid: int, workdir: str, edits: dict | None = No
         top = float(run_edit.get("top_percent") or 100)
         keep = {x["id"] for x in ranked[:top_keep(len(ranked), top)]}
         lights = [x for x in lights_all if x["id"] in keep]
-        _apply_calib_edits(run, run_edit, lights)
+        ok_all = list((edits.get("options") or {}).get("flat_ok") or []) + list(run_edit.get("flat_ok") or [])
+        _apply_calib_edits(run, dict(run_edit, flat_ok=ok_all), lights)
         is_osc = bool(run.get("bayer"))
         proc = flt.processing_for(run.get("filter_kind") or flt.UNKNOWN, is_osc)
         # Dualband/Schmalband an Farbkamera: WBPP 3.2.0 trennt die Kanäle selbst und registriert jeden einzeln
@@ -230,10 +238,14 @@ def build_plan(db: dbm.Database, pid: int, workdir: str, edits: dict | None = No
                                for x in _ref_choices(lights, auto_ref)],
             flats=[dict(night=x["night"], file_ids=x["flats"]["file_ids"], reason=x["flats"]["reason"],
                         verdict=(x["flats"].get("quality") or {}).get("verdict"), hints=x["flats"].get("hints") or [],
-                        days=x["flats"].get("days"), manual=x["flats"].get("manual"), lights=x.get("lights"))
+                        days=x["flats"].get("days"), manual=x["flats"].get("manual"), lights=x.get("lights"),
+                        confirmed=bool(x["flats"].get("confirmed")),
+                        findings=[dict(level=f.get("level"), title=f.get("title"))
+                                  for f in (x["flats"].get("quality") or {}).get("findings") or []
+                                  if f.get("level") in ("warning", "critical")])
                    for x in run["nights"]],
             flat_options=[{k: o[k] for k in ("key", "filter", "night", "n", "master")} for o in run.get("flat_options") or []],
-            calib_edits={k: run_edit[k] for k in ("flats", "bias", "darks") if k in run_edit},
+            calib_edits={k: run_edit[k] for k in ("flats", "bias", "darks", "flat_ok") if k in run_edit},
             bias=run["bias"], darks=run["darks"], problems=run["problems"], settings=settings,
             enabled=bool(enabled), why_off=why_off, disk_gb=round(disk, 1), ram_gb=round(ram, 1),
             light_stats=stats))
@@ -260,6 +272,7 @@ def build_plan(db: dbm.Database, pid: int, workdir: str, edits: dict | None = No
                 total_gb=None if total_disk is None else round(total_disk, 1), drive=drive,
                 need_ram_gb=round(peak_ram, 1), free_ram_gb=None if not free_ram else round(free_ram, 1),
                 total_ram_gb=None if not total_ram else round(total_ram, 1),
+                flat_ok=list(opt_edit.get("flat_ok") or []),
                 ready=any(r["enabled"] for r in runs))
 
 
@@ -304,7 +317,7 @@ def edit_plan(db: dbm.Database, pid: int, workdir: str, options: dict | None = N
               runs: dict | None = None, reset: bool = False) -> dict:
     """Änderungen des Nutzers speichern (``None`` als Wert = zurück zur Automatik) und den Plan neu berechnen."""
     known = set(DEFAULT_OPTIONS) | {"star_detection", "enabled", "top_percent", "reference", "label", "flats",
-                                    "bias", "darks"}
+                                    "bias", "darks", "flat_ok"}
     edits = {} if reset else load_edits(db, pid)
     for scope, data in (("options", options), ("runs", runs)):
         if not data:

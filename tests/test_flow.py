@@ -369,3 +369,28 @@ def test_plan_top_percent_reference_label_and_manual_calibration(env):
         fp.edit_plan(db, pid, ws.root, runs={ha["id"]: {"star_detection": {"hotPixelFilterRadius": "zwei"}}})
     with pytest.raises(ValueError, match="unbekannt"):
         fp.edit_plan(db, pid, ws.root, runs={ha["id"]: {"star_detection": {"hotPixelRadius": 2}}})
+
+
+def test_flat_distance_rule_and_confirmation(env):
+    """Beschlossen (Feedback 0.12.2): bis 14 Tage kein Hinweis; darüber höchstens ein Hinweis (nie ein Fehler), egal
+    ob davor oder danach; „Passt, Setup unverändert“ blendet ihn fürs ganze Projekt aus."""
+    from astrostack.flow import calib
+    from astrostack.flow import plan as fp
+    ws, db, data = env
+    _calib_tree(data)
+    pid = library.create_project(db, ws, "vdB 131", folders=[data])
+    flow.run_project(db, ws, pid, workers=1)
+    assert calib.FLAT_WARN_DAYS == 14
+    p = fp.update_plan(db, pid, ws.root)
+    far = [(r, f) for r in p["runs"] for f in r["flats"] if (f.get("days") or 0) > 14]
+    near = [(r, f) for r in p["runs"] for f in r["flats"] if f.get("days") is not None and f["days"] <= 14]
+    for _r, f in near:
+        assert not any(h.get("kind") == "distance" for h in f["hints"])
+    assert far, "Testdaten brauchen eine Nacht mit weit entfernten Flats"
+    r, f = far[0]
+    d = [h for h in f["hints"] if h.get("kind") == "distance"]
+    assert d and d[0]["level"] == "info" and "egal" in d[0]["text"]
+    p2 = fp.edit_plan(db, pid, ws.root, options={"flat_ok": [d[0]["key"]]})
+    f2 = next(x for x in next(y for y in p2["runs"] if y["id"] == r["id"])["flats"] if x["night"] == f["night"])
+    assert f2["confirmed"] and not any(h.get("kind") == "distance" for h in f2["hints"])
+    assert p2["flat_ok"] == [d[0]["key"]]

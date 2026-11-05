@@ -14,6 +14,7 @@ import threading
 
 from . import db as dbm
 from . import flow, gallery, history, library, logbook, stacking, stackview, tasks, trash
+from .flow import insights
 from .flow import plan as fplan
 from .flow.headers import summarize_new
 from .workspace import Workspace
@@ -195,8 +196,18 @@ class Core:
                              if k != "nights"}
             plan = fplan.update_plan(self.db, pid, self.ws.root, progress=task.progress)
             res["plan_ready"] = plan["ready"]
+            d, m = res.get("discover") or {}, res.get("measure") or {}
+            parts = []
+            if d.get("new"):
+                parts.append("%d neue Dateien" % d["new"])
+            if m.get("measured"):
+                parts.append("%d vermessen" % m["measured"])
+            if m.get("errors"):
+                parts.append("%d nicht lesbar" % m["errors"])
+            task.progress(step="Fertig", message=", ".join(parts) or "alles aktuell – nichts Neues")
             self._notify("project", id=pid)
             self.prepare_media(pid)
+            insights.forget(pid)
             return res
         return self.tasks.submit("refresh", "%s prüfen%s" % (name, (" (%s)" % reason) if reason else ""), work,
                                  lane="analysis", project_id=pid, key="refresh:%d" % pid)
@@ -282,13 +293,11 @@ class Core:
     def insights(self, project) -> dict:
         """Nachtübersicht, Rig-Hinweise (Fokus, Nachführung, Dithering, Taupunkt …), Himmelsbahnen und Kennzahlen –
         dieselben Auswertungen wie der Bericht aus 0.10, aus den gespeicherten Messwerten."""
-        from .flow import insights as fins
-        return fins.build(self.db, self._pid(project), self.ws)
+        return insights.build(self.db, self._pid(project), self.ws)
 
     def report_html(self, project) -> str:
         """Ausführlicher Bericht (eigene HTML-Seite, wie in 0.10) mit Nächten, Mond, Qualität und Diagrammen."""
-        from .flow import insights as fins
-        return fins.report_html(self.db, self._pid(project), self.ws)
+        return insights.report_html(self.db, self._pid(project), self.ws)
 
     def decide(self, project, file_ids: list[int], decision: str, reason: str = "") -> dict:
         pid = self._pid(project)

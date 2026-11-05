@@ -21,7 +21,7 @@ from collections import defaultdict
 from .. import calibcheck
 from .. import db as dbm
 
-FLAT_WARN_DAYS = 30               # Flats weiter entfernt → Hinweis (nicht Ausschluss)
+FLAT_WARN_DAYS = 14               # bis 14 Tage Abstand nichts; darüber höchstens ein Hinweis, nie ein Fehler
 DARK_EXP_TOL = 1.0
 DARK_TEMP_TOL = 2.0
 MIN_FRAMES = 3                     # WBPP braucht mindestens 3 Rohframes für einen Master
@@ -162,11 +162,11 @@ def _pick_flats(flt, settings, night, ref, flats, th) -> dict:
     ch["days"] = days
     if days > FLAT_WARN_DAYS:
         ch.setdefault("hints", []).append(dict(
-            level="warning", title="Flats %d Tage entfernt" % days,
-            text="Für diese Nacht gibt es keine eigenen Flats; die nächsten passenden sind vom %s. Das geht gut, "
-                 "solange am Aufbau nichts verändert wurde (Kamera nicht gedreht, kein neuer Staub). Bei Staubringen "
-                 "oder Vignettierung im Stack: Flats der Nacht nachholen oder unter „Kalibrierung“ andere wählen."
-                 % n2))
+            level="info", kind="distance", key="%s|%s" % (flt, n2), title="Flats %d Tage entfernt" % days,
+            text="Für diese Nacht gibt es keine eigenen Flats; die nächsten passenden (Filter, Gain, Setup) sind vom %s "
+                 "– ob davor oder danach, ist egal. Das passt, solange am Aufbau nichts verändert wurde (Kamera nicht "
+                 "gedreht, kein neuer Staub). Ist das so, bestätige es mit „Passt, Setup unverändert“. Zeigt der Stack "
+                 "Staubringe oder Vignettierung: Flats nachholen oder rechts andere wählen." % n2))
     return ch
 
 

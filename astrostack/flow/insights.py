@@ -54,7 +54,8 @@ def _thumb(ws, row) -> str:
 def _compute(db: dbm.Database, pid: int, ws) -> dict:
     rows, unusable = _rows(db, pid)
     if not rows:
-        return dict(rows=[], nights=[], filters=[], kpi=[], diag=None, sky=None, rec=[], meta={}, unusable=len(unusable))
+        return dict(rows=[], nights=[], filters=[], kpi=[], diag=None, sky=None, rec=[], meta={}, unusable=len(unusable),
+                    diag_note="Noch keine vermessenen Lights.")
     for r in rows:                                 # Felder, die der alte Bericht aus metrics.csv kannte
         r.setdefault("frame", os.path.basename(r["path"]))
         r.setdefault("file", os.path.basename(r["path"]))
@@ -63,12 +64,26 @@ def _compute(db: dbm.Database, pid: int, ws) -> dict:
     rec = legacy_assess.recommendations(rows, ntab, filters)
     scales = [r["pixscale"] for r in rows if r.get("pixscale")]
     scale = st.median(scales) if scales else None
-    diag = None
+    diag, diag_note = None, None
     try:
         from ..report.diag import rig_diagnostics
         diag = rig_diagnostics(rows, scale, lambda r: _thumb(ws, r))
     except Exception as e:  # noqa: BLE001 – Hinweise dürfen die Übersicht nicht verhindern
-        rec.append("Rig-Hinweise konnten nicht berechnet werden: %s" % e)
+        import logging
+        logging.getLogger(__name__).exception("Rig-Hinweise")
+        diag_note = ("Die Rig-Hinweise ließen sich nicht berechnen (%s: %s). Das ist ein Fehler in b2stacker – bitte "
+                     "melden; die übrige Auswertung stimmt." % (type(e).__name__, e))
+    if diag is None and diag_note is None:
+        no_night = sum(1 for r in rows if not r.get("night"))
+        no_tiles = sum(1 for r in rows if not r.get("tiles_fwhm"))
+        if no_tiles:
+            diag_note = ("Für %d von %d Lights fehlen die Messwerte über das Bildfeld (Schärfe in den Ecken, Sternform) – "
+                         "sie stammen aus einer älteren Version. „Neu prüfen“ misst sie nach." % (no_tiles, len(rows)))
+        elif no_night:
+            diag_note = ("%d von %d Lights haben keine Nacht (Aufnahmezeit oder Standort fehlt im Header). Unter "
+                         "Einstellungen einen Ersatz-Standort eintragen und „Neu prüfen“." % (no_night, len(rows)))
+        else:
+            diag_note = "Zu wenige verwendete Lights für Rig-Hinweise."
     first = db.one("SELECT f.meta_json FROM files f JOIN project_files pf ON pf.file_id = f.id WHERE pf.project_id = ? "
                    "AND f.type = 'light' AND f.meta_json IS NOT NULL AND f.missing_since IS NULL ORDER BY f.date_obs "
                    "LIMIT 1", (pid,))
@@ -96,7 +111,7 @@ def _compute(db: dbm.Database, pid: int, ws) -> dict:
                 scale=round(scale, 3) if scale else None,
                 first=nights_sorted[0] if nights_sorted else "", last=nights_sorted[-1] if nights_sorted else "")
     return dict(rows=rows, nights=ntab, filters=filters, kpi=kpi, diag=diag, sky=sky, rec=rec, meta=meta,
-                unusable=len(unusable))
+                unusable=len(unusable), diag_note=diag_note)
 
 
 def _cached(db: dbm.Database, pid: int, ws) -> dict:
@@ -134,6 +149,7 @@ def build(db: dbm.Database, pid: int, ws) -> dict:
     diag = d["diag"] or {}
     return dict(meta=d["meta"], kpi=d["kpi"], nights=nights, checks=diag.get("checks") or [], rec=d["rec"],
                 sky=d["sky"] or [], focus=diag.get("focus"), dither=diag.get("dither"), unusable=d["unusable"],
+                diag_note=d.get("diag_note"),
                 frames=len(d["rows"]))
 
 

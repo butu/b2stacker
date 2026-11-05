@@ -928,8 +928,11 @@ function taskText(t,withTitle){
 }
 const pct=t=>t.total?Math.max(2,Math.min(100,100*t.done/t.total)):0;
 const bar=t=>`<div class="bar6${t.total?'':' indet'}"><div style="width:${pct(t)}%"></div></div>`;
+// Kurze Aufträge (Prüfen ohne Neues, < 1 s) nicht anzeigen – sonst blitzt der Hinweis nur auf
+const SHOW_AFTER=1000;
+const shown=t=>Date.now()-(t._t0||0)>=SHOW_AFTER;
 function liveHtml(pid){
-  const ts=projTasks(pid);
+  const ts=projTasks(pid).filter(shown);
   return ts.map(t=>`<div class="live${t.state==='queued'?' q':''}">${t.state==='running'?bar(t):ic('clock','s14')}<span class="lt ell">${esc(taskText(t))}</span></div>`).join('');
 }
 
@@ -939,7 +942,7 @@ $('#histBtn').innerHTML=ic('clock')+'<span class="hl">Verlauf</span>';
 $('#libBtn').innerHTML=ic('layers')+'<span class="hl">Kalibrierung</span>';
 $('#setBtn').onclick=()=>openSettings();
 function renderTaskIndicator(){
-  const b=$('#tind'),act=[...S.tasks.values()].filter(t=>ACTIVE.includes(t.state));
+  const b=$('#tind'),act=[...S.tasks.values()].filter(t=>ACTIVE.includes(t.state)&&shown(t));
   const run=act.filter(t=>t.state==='running');
   const failed=S.finished.find(t=>t.state==='failed'&&!t._seen);
   if(!act.length){
@@ -1053,7 +1056,8 @@ function onTask(t){
   // Antworten von POST-Anfragen können nach den Live-Ereignissen ankommen: nie einen älteren Stand übernehmen
   if(S.finished.some(x=>x.id===t.id))return;
   if(was&&was.state==='running'&&t.state==='queued')return;
-  if(ACTIVE.includes(t.state)){S.tasks.set(t.id,t);}
+  if(ACTIVE.includes(t.state)){t._t0=was?was._t0:Date.now();S.tasks.set(t.id,t);
+    if(!was)setTimeout(()=>{renderTaskIndicator();updateLive();},SHOW_AFTER+20);}
   else{
     S.tasks.delete(t.id);
     if(!S.finished.some(x=>x.id===t.id)){
@@ -1061,6 +1065,7 @@ function onTask(t){
       if(t.state==='failed')toast('Fehler bei „'+t.title+'“: '+(t.error||'unbekannt'),true);
       if(t.kind==='selftest'&&t.state==='done')api('/api/selftest').then(l=>{renderSelftests();const r=l[0];if(r)toast(r.ok?'Selbsttest bestanden':'Selbsttest: Problem gefunden – Details in den Einstellungen',!r.ok);}).catch(()=>{});
       else if(t.state==='done'&&t.kind==='stack')toast('Fertig gestackt: '+t.title.replace(/ stacken.*$/,''));
+      else if(t.state==='done'&&t.kind==='refresh'&&/\(von Hand\)/.test(t.title))toast('Geprüft: '+(t.message||'fertig'));
       if(t.project_id!=null){soon('projects',loadProjects,250);
         if(S.P&&S.P.id===t.project_id){if(S.F&&S.F.pid===t.project_id)S.F.stale=true;soon('project',reloadProject,150);}}
     }
@@ -1455,7 +1460,7 @@ function renderInsights(box,d){
     </div>
     <div class="card"><div class="cardhd"><h3>Rig-Hinweise</h3><span class="small muted">Schärfe, Nachführung, Fokus, Dithering, Kühlung, Taupunkt – aus den Frames gemessen</span></div>
       ${areas.length?`<div class="rigchips">${areas.map(a=>{const L=LVL[a.level]||LVL.info;return `<span class="pill ${L[0]}">${ic(L[2],'s14')}${esc(a.area)}</span>`;}).join('')}</div>`:''}
-      <div class="clist">${issues.map(chk).join('')||`<div class="citem"><span class="ci okc">${ic('check')}</span><div class="cx">${checks.length?'Keine Auffälligkeiten – das Rig hat in allen Nächten sauber gearbeitet.':'Zu wenige Messwerte für Rig-Hinweise (z. B. fehlt die Nacht-Zuordnung).'}</div></div>`}
+      <div class="clist">${issues.map(chk).join('')||`<div class="citem"><span class="ci okc">${ic('check')}</span><div class="cx">${checks.length?'Keine Auffälligkeiten – das Rig hat in allen Nächten sauber gearbeitet.':esc(d.diag_note||'Keine Rig-Hinweise.')}</div></div>`}
         ${rest.length?`<button class="lnk" id="rigGood" style="padding:10px 16px;text-align:left">${INS.good?'Unauffällige Prüfungen ausblenden':plural(rest.length,'unauffällige Prüfung','unauffällige Prüfungen')+' anzeigen'}</button>${INS.good?rest.map(chk).join(''):''}`:''}</div></div>
   </div>`;
   $$('tr.nrow',box).forEach(tr=>tr.onclick=e=>{if(e.target.closest('[data-ngo]'))return;const k=tr.dataset.nk;INS.open.has(k)?INS.open.delete(k):INS.open.add(k);renderInsights(box,d);});
@@ -2016,7 +2021,8 @@ function runCalLevel(r){
 // Befund in drei Teilen: was ist los · warum so bewertet · was kann ich tun
 function hintHtml(h){
   const L=lvl(h.level);
-  return `<div class="hint ${L[0]}"><span class="hi">${ic(L[1],'s14')}</span><div><b>${esc(h.title||'')}</b>${h.text?`<div>${esc(h.text)}</div>`:''}</div></div>`;
+  return `<div class="hint ${L[0]}"><span class="hi">${ic(L[1],'s14')}</span><div><b>${esc(h.title||'')}</b>${h.text?`<div>${esc(h.text)}</div>`:''}
+    ${h.kind==='distance'&&h.key?`<button class="btn sm" style="margin-top:6px" data-flatok="${esc(h.key)}" title="Gilt für das ganze Projekt">${ic('check','s14')} Passt, Setup unverändert</button>`:''}</div></div>`;
 }
 function renderPlan(box){
   const p=S.P,plan=p.plan;
@@ -2053,6 +2059,8 @@ function renderPlan(box){
   $$('[data-flat]',box).forEach(c=>c.onchange=()=>{const [rid,night]=splitKey(c.dataset.flat);const r=R(rid);
     const cur=Object.assign({},(r.calib_edits||{}).flats||{});if(c.value==='auto')delete cur[night];else cur[night]=c.value;
     editPlan({runs:{[rid]:{flats:Object.keys(cur).length?cur:null}}},rid+'|flats');});
+  $$('[data-flatok]',box).forEach(b=>b.onclick=()=>{const all=[...new Set([...(S.P.plan.flat_ok||[]),b.dataset.flatok])];
+    editPlan({options:{flat_ok:all}},'flatok');});
   $$('[data-calk]',box).forEach(c=>c.onchange=()=>{const [rid,k]=splitKey(c.dataset.calk);editPlan({runs:{[rid]:{[k]:c.value==='auto'?null:c.value}}},rid+'|'+k);});
   $$('[data-sd]',box).forEach(inp=>inp.onchange=()=>{const [rid,k]=splitKey(inp.dataset.sd);const r=R(rid);
     const sd=r.settings.find(x=>x.key==='star_detection')||{value:{},auto:{},edited_keys:[]};
@@ -2090,7 +2098,7 @@ function calBody(r){
       ${opts.map(o=>`<option value="${esc(o.key)}" ${ce[f.night||'']===o.key?'selected':''}>${esc((o.filter||'ohne Filter')+' · '+ymd(o.night)+' · '+o.n+(o.master?' (Master)':' Flats'))}</option>`).join('')}</select>`;
   const flatRows=(r.flats||[]).map(f=>{const n=(f.file_ids||[]).length,L=lvl(f.verdict);
     return `<div class="calrow"><span class="cl">Nacht ${esc(dm(f.night))}<small>${f.lights?plural(f.lights,'Light','Lights'):''}</small></span>
-      <span class="cv">${n?`<span class="pill ${f.verdict?L[0]:'ok'}">${plural(n,'Flat','Flats')}</span> `:f.manual?'':'<span class="pill err">keine Flats</span> '}${esc(f.reason)}
+      <span class="cv">${n?`<span class="pill ${f.verdict?L[0]:'ok'}" title="${esc((f.findings||[]).map(x=>x.title).join(' · ')||'Flats in Ordnung')}">${plural(n,'Flat','Flats')}${(f.findings||[]).length?' · '+esc(f.findings[0].title):''}</span> `:f.manual?'':'<span class="pill err">keine Flats</span> '}${esc(f.reason)}${f.confirmed?' <span class="pill ok" title="Von dir bestätigt: Setup unverändert">bestätigt</span>':''}
         ${(f.hints||[]).map(hintHtml).join('')}</span>
       <span class="cc">${flatSel(f)}</span></div>`;}).join('');
   const simple=(k,l)=>{const x=r[k]||{},n=(x.file_ids||[]).length,ed=(r.calib_edits||{})[k];

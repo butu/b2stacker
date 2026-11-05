@@ -48,6 +48,25 @@ def _fast_media(raw, meta) -> tuple[bytes | None, dict | None]:
     return jpg, stars
 
 
+def _calib_thumb(raw) -> np.ndarray:
+    """Thumbnail wie bei Lights: Mittelwert über 16×16 Pixel (float16)."""
+    a = np.asarray(raw, dtype=np.float32)
+    if a.ndim == 3:
+        a = a.mean(axis=0) if a.shape[0] <= 4 else a[..., 0]
+    h, w = (a.shape[0] // 16) * 16, (a.shape[1] // 16) * 16
+    if h == 0 or w == 0:
+        return a.astype(np.float16)
+    return a[:h, :w].reshape(h // 16, 16, w // 16, 16).mean(axis=(1, 3)).astype(np.float16)
+
+
+def _fast_media_plain(raw, meta) -> bytes | None:
+    try:
+        from .. import previews
+        return previews._render_jpeg(raw, meta.bayer, FAST_W)[0]
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _work(item):
     """Im eigenen Prozess: Datei einmal lesen, Prüfsumme + Messung. → (id, ergebnis, fehler)"""
     fid, path, kind, meta_json = item
@@ -63,9 +82,18 @@ def _work(item):
             row, thumb = analyze._measure_raw(meta, raw)
             out.update(row=row, thumb=thumb.astype(np.float16))
             out["fast_jpg"], out["fast_stars"] = _fast_media(raw, meta)
-        elif kind == "flat" and meta is not None and not meta.is_master:
-            from .. import calibcheck
-            out["flat"] = calibcheck.flat_frame_stats(path, meta.bayer, data)
+        elif meta is not None:
+            if kind == "flat" and not meta.is_master:
+                from .. import calibcheck
+                out["flat"] = calibcheck.flat_frame_stats(path, meta.bayer, data)
+            # Vorschaubilder auch für Flats, Bias, Darks und Dark-Flats (Kachel + Großansicht, ohne Sterne)
+            try:
+                from .. import imageio
+                raw = imageio.load(path, data)
+                out["thumb"] = _calib_thumb(raw)
+                out["fast_jpg"] = _fast_media_plain(raw, meta)
+            except Exception:  # noqa: BLE001 – Vorschau ist Zugabe; „Neu prüfen“ holt sie nach
+                pass
         return fid, out, None
     except Exception as e:  # noqa: BLE001
         from .. import fitsmeta as fm
@@ -186,7 +214,9 @@ def measure_files(db: dbm.Database, ws, pid: int, progress=None, cancel=None, wo
         "SELECT f.id, f.path, f.type, f.meta_json FROM files f JOIN project_files pf ON pf.file_id = f.id "
         "LEFT JOIN frame_metrics m ON m.file_id = f.id "
         "WHERE pf.project_id = ? AND f.missing_since IS NULL AND f.header_version IS NOT NULL "
-        "AND f.header_error IS NULL AND (m.file_id IS NULL OR m.version < ? OR f.checksum IS NULL) "
+        "AND f.header_error IS NULL AND (m.file_id IS NULL OR m.version < ? OR f.checksum IS NULL "
+        "OR (m.thumb IS NULL AND f.is_master = 0) "
+        "OR (f.type = 'light' AND json_extract(m.data_json, '$.tiles_fwhm') IS NULL)) "
         "ORDER BY CASE f.type WHEN 'light' THEN 0 WHEN 'flat' THEN 1 ELSE 2 END, f.date_obs, f.path",
         (pid, MEASURE_VERSION))
     res = dict(measured=0, errors=0, moved=0)
