@@ -226,6 +226,14 @@ MIGRATIONS: list[str] = [
     CREATE INDEX events_at ON events(at);
     CREATE INDEX events_project ON events(project_id, at);
     """,
+    # ---------------------------------------------------------------- 2: Galerie (Neue Oberfläche, Teil 2)
+    """
+    -- 1 = aus der Galerie entfernt (die Datei bleibt; der Watcher nimmt sie nicht wieder auf)
+    ALTER TABLE assets ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;
+    -- Größe + Änderungszeit beim letzten Blick: Vorschaubild neu, wenn sich die Datei ändert
+    ALTER TABLE assets ADD COLUMN mtime_ns INTEGER;
+    CREATE INDEX assets_stack ON assets(stack_id);
+    """,
 ]
 
 SCHEMA_VERSION = len(MIGRATIONS)

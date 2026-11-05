@@ -28,7 +28,7 @@ def _stat(path: str):
 
 
 def discover_folder(db: dbm.Database, pid: int, folder_id: int, path: str, progress=None, cancel=None) -> dict:
-    res = dict(folder=path, online=True, files=0, new=0, changed=0, missing=0, back=0)
+    res = dict(folder=path, online=True, files=0, new=0, changed=0, missing=0, back=0, new_ids=[])
     if not os.path.isdir(path):
         with db.transaction():
             db.execute("UPDATE source_folders SET online = 0 WHERE id = ?", (folder_id,))
@@ -62,6 +62,7 @@ def discover_folder(db: dbm.Database, pid: int, folder_id: int, path: str, progr
                                      "VALUES (?, ?, ?, ?, ?)", (p, size, mtime, now, int(excluded)))
                     fid = int(cur.lastrowid)
                     res["new"] += 1
+                    res["new_ids"].append(fid)
                 else:
                     fid = int(row["id"])
                     if row["size"] != size or row["mtime_ns"] != mtime:
@@ -94,9 +95,12 @@ def discover_folder(db: dbm.Database, pid: int, folder_id: int, path: str, progr
 
 
 def discover_project(db: dbm.Database, pid: int, progress=None, cancel=None) -> dict:
-    """Alle Quellordner eines Projekts durchsuchen. → Zusammenfassung"""
+    """Alle Quellordner eines Projekts durchsuchen. → Zusammenfassung
+
+    ``new_ids`` (neu angelegte Dateien) und ``event`` (ID des History-Eintrags ``files_discovered``) braucht
+    ``flow.headers.summarize_new``: erst nach dem Header-Lesen sind Typ, Filter, Nacht und Belichtung bekannt."""
     folders = db.query("SELECT id, path FROM source_folders WHERE project_id = ? ORDER BY id", (pid,))
-    total = dict(folders=[], new=0, changed=0, missing=0, back=0, offline=0)
+    total = dict(folders=[], new=0, changed=0, missing=0, back=0, offline=0, new_ids=[], event=None)
     for i, f in enumerate(folders):
         if cancel is not None and cancel():
             break
@@ -104,6 +108,7 @@ def discover_project(db: dbm.Database, pid: int, progress=None, cancel=None) -> 
             progress(step="Neue Dateien suchen", done=i, total=len(folders),
                      message=os.path.basename(f["path"]) or f["path"])
         r = discover_folder(db, pid, int(f["id"]), f["path"], cancel=cancel)
+        total["new_ids"] += r.pop("new_ids")
         total["folders"].append(r)
         for k in ("new", "changed", "missing", "back"):
             total[k] += r[k]
@@ -111,5 +116,5 @@ def discover_project(db: dbm.Database, pid: int, progress=None, cancel=None) -> 
     if total["new"]:
         with db.transaction():
             import json
-            db.event("files_discovered", pid, json.dumps({"new": total["new"]}))
+            total["event"] = db.event("files_discovered", pid, json.dumps({"new": total["new"]}))
     return total

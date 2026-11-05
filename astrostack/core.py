@@ -13,21 +13,25 @@ import os
 import threading
 
 from . import db as dbm
-from . import flow, library, stacking, tasks
+from . import flow, gallery, history, library, stacking, stackview, tasks
 from .flow import plan as fplan
+from .flow.headers import summarize_new
 from .workspace import Workspace
 
 
 class Core:
     def __init__(self, workdir: str, pixinsight: str = "", workers: int = 2, manager: tasks.TaskManager | None = None,
-                 stack_runner=None):
+                 stack_runner=None, backup_dir: str = ""):
         self.ws = Workspace(workdir).ensure()
         self.db = self.ws.open_db()
         self.pixinsight = pixinsight
         self.workers = workers
         self.tasks = manager or tasks.TaskManager()
         self.stack_runner = stack_runner              # Ersatz für handover.run (Tests)
+        self.backup_dir = backup_dir or ""            # zusätzlicher, frei wählbarer Sicherungsort
+        self.script_runner = None                     # Ersatz für piscript.run (Tests)
         self._lock = threading.Lock()
+        self._mirror_backups()
 
     def close(self) -> None:
         self.tasks.shutdown()
@@ -64,12 +68,32 @@ class Core:
                 "SELECT COUNT(*) FROM files f JOIN project_files pf ON pf.file_id = f.id WHERE pf.project_id = ? "
                 "AND f.type = 'light' AND f.discovered_at > COALESCE(?, '')", (pid, last_stack))
             out.append(dict(p, filters=filters, hours=round(sum(f["hours"] for f in filters), 2),
+                            cover_url=self._cover_url(pid),
                             lights=sum(f["lights"] for f in filters), months=months,
                             first_light=min((r["first"] for r in rows if r["first"]), default=None),
                             last_light=max((r["last"] for r in rows if r["last"]), default=None),
                             new_since_stack=new_lights if last_stack else None,
                             busy=bool(self.tasks.active(pid))))
         return out
+
+    def _cover_url(self, pid: int) -> str | None:
+        """Bild für die Kachel: das gewählte Projektbild, sonst die Vorschau des neuesten Stacks."""
+        row = self.db.one("SELECT a.id, a.path, a.size, a.mtime_ns, a.owned, a.stack_id, a.missing_since FROM projects p "
+                          "JOIN assets a ON a.id = p.cover_asset_id WHERE p.id = ? AND a.hidden = 0", (pid,))
+        if row is not None and not row["missing_since"]:
+            if row["owned"] and row["stack_id"]:
+                q = json.loads(self.db.value("SELECT quality_json FROM stacks WHERE id = ?", (row["stack_id"],))
+                               or "null") or {}
+                if q.get("preview"):
+                    return "/api/stacks/%d/preview?v=%s" % (row["stack_id"], q["preview"])
+            else:
+                return "/api/assets/%d/thumb?v=%s" % (row["id"], gallery.thumb_version(row))
+        for r in self.db.query("SELECT id, quality_json FROM stacks WHERE project_id = ? AND status = 'done' "
+                               "ORDER BY created_at DESC, id DESC LIMIT 5", (pid,)):
+            q = json.loads(r["quality_json"] or "null") or {}
+            if q.get("preview"):
+                return "/api/stacks/%d/preview?v=%s" % (r["id"], q["preview"])
+        return None
 
     def create_project(self, name: str, folders: list[str] | None = None, description: str = "") -> dict:
         try:
@@ -92,10 +116,13 @@ class Core:
 
     def rename(self, project, name: str) -> dict:
         pid = self._pid(project)
+        old = self.db.value("SELECT folder FROM projects WHERE id = ?", (pid,))
         try:
             folder = library.rename_project(self.db, self.ws, pid, name)
         except (library.LibraryError, PermissionError) as e:
             raise ValueError(str(e)) from None
+        if folder != old:                            # gespeicherte Pfade im Projektordner mitziehen
+            gallery.relocate(self.db, pid, self.ws.project_dir(old), self.ws.project_dir(folder))
         self._notify("projects")
         return dict(id=pid, folder=folder)
 
@@ -140,9 +167,15 @@ class Core:
         def work(task: tasks.Task):
             cancel = lambda: task.cancelled                       # noqa: E731
             res = {}
+            new_ids, event = [], None
             if discover:
                 res["discover"] = flow.discover_project(self.db, pid, progress=task.progress, cancel=cancel)
+                new_ids, event = res["discover"].pop("new_ids"), res["discover"].pop("event")
             res["headers"] = flow.read_headers(self.db, pid, progress=task.progress, cancel=cancel)
+            summarize_new(self.db, event, new_ids)              # Verlauf: „20 neue Lights · Ha · 2 h“
+            if discover:
+                gallery.scan_project_dir(self.db, self.ws, pid)
+                gallery.check_missing(self.db, pid)
             res["measure"] = flow.measure_files(self.db, self.ws, pid, progress=task.progress, cancel=cancel,
                                                 workers=self.workers)
             task.check_cancel()
@@ -217,32 +250,172 @@ class Core:
             res = stacking.stack_project(self.db, self.ws, pid, self.pixinsight, run_ids, progress=task.progress,
                                          cancel=task.cancel_event, origin=origin, **kw)
             self._notify("project", id=pid)
+            done = [r for r in res if r["status"] == "done"]
+            for i, r in enumerate(done):                         # Qualität + Vorschau gleich messen
+                task.progress(step="Qualität messen", done=i, total=len(done), message=r["run"])
+                r["quality"] = {k: v for k, v in stackview.measure(self.db, self.ws, r["stack_id"]).items()
+                                if k in ("fwhm", "fwhm_unit", "noise", "stars", "ecc", "gradient_pct", "error")}
+            if done:
+                self._notify("project", id=pid)
+                self._notify("projects")
             return res
         title = "%s stacken" % name + (" · per Claude" if origin == "mcp" else "")
         return self.tasks.submit("stack", title, work, lane="stack", project_id=pid, origin=origin).as_dict()
 
-    def stacks(self, project) -> list[dict]:
+    def stacks(self, project, measure: bool = True) -> list[dict]:
+        """Alle Stacks, neueste zuerst: Dateien (mit „fehlt“), Größe, Qualität, Vorschau, Notiz.
+        Fehlen bei fertigen Stacks die Qualitätswerte, werden sie im Hintergrund nachgerechnet."""
         pid = self._pid(project)
-        out = []
+        cover = self.db.value("SELECT cover_asset_id FROM projects WHERE id = ?", (pid,))
+        out, todo = [], []
         for r in self.db.query("SELECT * FROM stacks WHERE project_id = ? ORDER BY created_at DESC, id DESC", (pid,)):
+            if stackview.needs_measure(r):
+                todo.append(int(r["id"]))
             d = dict(r)
             d["settings"] = json.loads(d.pop("settings_json") or "{}")
             d["quality"] = json.loads(d.pop("quality_json") or "null")
-            d["files"] = [a[0] for a in self.db.query("SELECT path FROM assets WHERE stack_id = ?", (r["id"],))]
+            files = self.db.query("SELECT id, path, size, owned FROM assets WHERE stack_id = ? AND hidden = 0 "
+                                  "ORDER BY owned DESC, id", (r["id"],))
+            d["files"] = [a["path"] for a in files if a["owned"]]
+            d["file_info"] = [dict(id=a["id"], path=a["path"], name=os.path.basename(a["path"]), size=a["size"],
+                                   owned=bool(a["owned"]), exists=os.path.isfile(a["path"])) for a in files]
+            d["missing"] = bool(d["files"]) and not any(f["exists"] for f in d["file_info"] if f["owned"])
+            d["hours"] = round((d.get("exposure_s") or 0) / 3600, 2)
+            q = d["quality"] or {}
+            d["preview_url"] = ("/api/stacks/%d/preview?v=%s" % (r["id"], q["preview"])) if q.get("preview") else None
+            master = stackview.light_master(self.db, int(r["id"]))
+            d["master_asset_id"] = self.db.value("SELECT id FROM assets WHERE stack_id = ? AND path = ?",
+                                                 (r["id"], master)) if master else None
+            d["cover"] = bool(cover and d["master_asset_id"] == cover)
             out.append(d)
+        if todo and measure:
+            self.measure_stacks(pid, todo)
         return out
 
+    def measure_stacks(self, project, stack_ids: list[int] | None = None) -> tasks.Task:
+        """Qualität und Vorschau für Stacks ohne Werte im Hintergrund berechnen (Spur ``misc``)."""
+        pid = self._pid(project)
+
+        def work(task: tasks.Task):
+            ids = stack_ids or [int(r["id"]) for r in self.db.query("SELECT * FROM stacks WHERE project_id = ?", (pid,))
+                                if stackview.needs_measure(r)]
+            for i, sid in enumerate(ids):
+                task.check_cancel()
+                task.progress(step="Stack-Qualität messen", done=i, total=len(ids))
+                stackview.measure(self.db, self.ws, sid)
+            self._notify("project", id=pid)
+            self._notify("projects")
+            return dict(measured=len(ids))
+        name = self.db.value("SELECT name FROM projects WHERE id = ?", (pid,))
+        return self.tasks.submit("quality", "%s: Stacks vermessen" % name, work, lane="misc", project_id=pid,
+                                 key="quality:%d" % pid)
+
     def note(self, project, stack_id: int, text: str) -> None:
-        stacking.set_note(self.db, self._pid(project), int(stack_id), text)
+        pid = self._pid(project)
+        stacking.set_note(self.db, pid, int(stack_id), text)
+        self._notify("project", id=pid)
 
     def delete_stack(self, project, stack_id: int) -> list[str]:
         pid = self._pid(project)
+        if any(t.lane == "stack" for t in self.tasks.active(pid)):
+            raise ValueError("Während dieses Projekt gestackt wird, kann kein Stack gelöscht werden.")
         removed = stacking.delete_stack(self.db, self.ws, pid, int(stack_id))
+        stackview.forget(self.ws, int(stack_id))
         self._notify("project", id=pid)
+        self._notify("projects")
         return removed
 
+    def compare(self, project, a: int, b: int) -> dict:
+        """Zwei Stacks nebeneinander: Werte (besser/schlechter) und ausgerichtete Vorschauen mit gleichem Strich."""
+        pid = self._pid(project)
+        try:
+            out = stackview.compare(self.db, self.ws, pid, int(a), int(b))
+        except stackview.StackViewError as e:
+            raise ValueError(str(e)) from None
+        imgs = out.pop("images") or None
+        if imgs:
+            out["image_a"] = "/api/projects/%d/compare/%d/%d/a?v=%s" % (pid, int(a), int(b), imgs["version"])
+            out["image_b"] = "/api/projects/%d/compare/%d/%d/b?v=%s" % (pid, int(a), int(b), imgs["version"])
+        return out
+
+    def compare_image(self, project, a: int, b: int, side: str) -> tuple[str, str]:
+        pid = self._pid(project)
+        rows = {r["id"]: json.loads(r["quality_json"] or "null") or {} for r in self.db.query(
+            "SELECT id, quality_json FROM stacks WHERE project_id = ? AND id IN (?, ?)", (pid, int(a), int(b)))}
+        if int(a) not in rows or int(b) not in rows:
+            raise FileNotFoundError("Stack nicht gefunden.")
+        pa, pb, meta = stackview.compare_paths(self.ws, int(a), int(b), rows[int(a)], rows[int(b)])
+        if not (os.path.isfile(pa) and os.path.isfile(pb)):
+            self.compare(pid, a, b)
+        return (pa if side == "a" else pb), os.path.basename(meta)[:-5]
+
+    def stack_preview(self, stack_id: int) -> tuple[str, str]:
+        q = json.loads(self.db.value("SELECT quality_json FROM stacks WHERE id = ?", (int(stack_id),)) or "null")
+        p = stackview.preview_path(self.ws, q)
+        if not p:
+            raise FileNotFoundError("Für diesen Stack gibt es (noch) keine Vorschau.")
+        return p, q["preview"]
+
+    def run_script(self, script: str, args: list[str] | None = None, timeout_min: float | None = None,
+                   origin: str = "ui") -> dict:
+        """Eigenes PixInsight-Skript aus dem Arbeitsverzeichnis als Auftrag in der Spur ``stack`` (nie parallel
+        zum Stacken). Ausgabe zeilenweise als Meldung des Auftrags, vollständig in ``logs/pixinsight-scripts``."""
+        from . import piscript
+        if not self.pixinsight or not os.path.isfile(self.pixinsight):
+            raise ValueError("PixInsight nicht gefunden – bitte in den Einstellungen angeben.")
+        try:
+            path, argv, notes = piscript.check(script, self.ws.root, args)
+        except piscript.ScriptError as e:
+            raise ValueError(str(e)) from None
+        runner = self.script_runner or piscript.run
+
+        def work(task: tasks.Task):
+            task.progress(step="PixInsight-Skript: %s" % os.path.basename(path))
+            res = runner(self.pixinsight, path, argv, self.ws.root, log=lambda line: task.progress(message=line),
+                         cancel=task.cancel_event, timeout_s=float(timeout_min or 30) * 60)
+            res["notes"] = notes
+            return res
+        title = "Skript %s" % os.path.basename(path) + (" · per Claude" if origin == "mcp" else "")
+        return self.tasks.submit("script", title, work, lane="stack", origin=origin).as_dict()
+
+    # ------------------------------------------------------------ Galerie
+    def gallery(self, project) -> list[dict]:
+        pid = self._pid(project)
+        out = gallery.listing(self.db, pid, self.ws.project_dir(self.db.value("SELECT folder FROM projects WHERE id = ?",
+                                                                                (pid,))))
+        for a in out:
+            a["thumb_url"] = "/api/assets/%d/thumb?v=%s" % (a["id"], a["version"])
+            a["view_url"] = "/api/assets/%d/view?v=%s" % (a["id"], a["version"])
+        return out
+
+    def add_images(self, project, paths: list[str], origin: str = "ui") -> dict:
+        pid = self._pid(project)
+        res = gallery.add(self.db, self.ws, pid, paths, origin=origin)
+        self._notify("project", id=pid)
+        return res
+
+    def hide_image(self, project, asset_id: int) -> None:
+        pid = self._pid(project)
+        gallery.hide(self.db, pid, int(asset_id))
+        self._notify("project", id=pid)
+        self._notify("projects")
+
+    def set_cover(self, project, asset_id: int | None) -> None:
+        pid = self._pid(project)
+        gallery.set_cover(self.db, pid, int(asset_id) if asset_id is not None else None)
+        self._notify("projects")
+        self._notify("project", id=pid)
+
+    def asset_thumb(self, asset_id: int, large: bool = False) -> tuple[str, str]:
+        return gallery.thumb(self.db, self.ws, int(asset_id), gallery.VIEW_W if large else gallery.THUMB_W)
+
     # ------------------------------------------------------------ History
+    def timeline(self, project=None, limit: int = 100) -> list[dict]:
+        """Verlauf in Klartext, zusammengefasst (allgemein oder für ein Projekt)."""
+        return history.timeline(self.db, self._pid(project) if project is not None else None, limit)
+
     def history(self, project=None, limit: int = 200) -> list[dict]:
+        """Rohe Ereignisse (für Fehlersuche, MCP ``logs``)."""
         sql = ("SELECT e.id, e.at, e.kind, e.data_json, e.project_id, p.name AS project FROM events e "
                "LEFT JOIN projects p ON p.id = e.project_id")
         args: list = []
@@ -254,9 +427,110 @@ class Core:
 
     # ------------------------------------------------------------ Wartung
     def backup(self) -> str:
-        return dbm.backup(self.db, self.ws.backups)
+        path = dbm.backup(self.db, self.ws.backups)
+        self._mirror_backups()
+        return path
+
+    def _mirror_backups(self) -> None:
+        """Sicherungen zusätzlich an den gewählten Ort kopieren (dort ebenfalls die letzten 10)."""
+        extra = (self.backup_dir or "").strip()
+        if not extra or os.path.normcase(os.path.abspath(extra)) == os.path.normcase(self.ws.backups):
+            return
+        import shutil
+        try:
+            os.makedirs(extra, exist_ok=True)
+            have = {os.path.basename(p) for p in dbm.list_backups(extra)}
+            for p in dbm.list_backups(self.ws.backups)[:dbm.store.BACKUP_KEEP]:
+                if os.path.basename(p) not in have:
+                    shutil.copy2(p, os.path.join(extra, os.path.basename(p) + ".tmp"))
+                    os.replace(os.path.join(extra, os.path.basename(p) + ".tmp"), os.path.join(extra, os.path.basename(p)))
+            for old in dbm.list_backups(extra)[dbm.store.BACKUP_KEEP:]:
+                os.remove(old)
+        except OSError as e:                          # Ort nicht erreichbar: die Sicherung in system/ zählt
+            from . import logbook
+            logbook.event("backup_mirror_failed", target=extra, error=str(e))
+
+    def backups(self) -> list[dict]:
+        """Vorhandene Sicherungen (system/backup und der gewählte Ort), neueste zuerst."""
+        seen, out = set(), []
+        for where, d in (("system", self.ws.backups), ("extra", self.backup_dir)):
+            if not d:
+                continue
+            for p in dbm.list_backups(d):
+                name = os.path.basename(p)
+                try:
+                    st = os.stat(p)
+                except OSError:
+                    continue
+                if name in seen:
+                    next(o for o in out if o["name"] == name)["places"].append(where)
+                    continue
+                seen.add(name)
+                m = dbm.store._BACKUP_RE.match(name)
+                stamp = m.group(1) if m else ""
+                out.append(dict(name=name, path=p, size=st.st_size, places=[where], _key=(stamp, name),
+                                at="%s-%s-%sT%s:%s:%s" % (stamp[0:4], stamp[4:6], stamp[6:8], stamp[9:11], stamp[11:13],
+                                                          stamp[13:15]) if len(stamp) >= 15 else None,
+                                label=name[len("b2stacker-") + len(stamp):-3].strip("-") if stamp else ""))
+        out.sort(key=lambda o: o["_key"], reverse=True)
+        for o in out:
+            del o["_key"]
+        return out
+
+    def find_backup(self, name: str) -> str:
+        for b in self.backups():
+            if b["name"] == name:
+                return b["path"]
+        raise ValueError("Sicherung nicht gefunden: %s" % name)
 
     def clear_temp(self) -> int:
         if [t for t in self.tasks.active() if t.lane == "stack"]:
             raise ValueError("Während gestackt wird, bleibt der Temp-Ordner unangetastet.")
         return self.ws.clear_temp()
+
+
+class RestoreError(ValueError):
+    """Zurückspielen gescheitert; ``core`` ist der wieder geöffnete bisherige Stand."""
+
+    def __init__(self, msg: str, core: Core):
+        super().__init__(msg)
+        self.core = core
+
+
+def restore(core: Core, name: str) -> Core:
+    """Datenbank aus einer Sicherung zurückspielen und eine frische ``Core`` liefern.
+
+    Ablauf (robust, ohne Neustart des Programms): Stacken läuft → abgelehnt. Sonst alle Aufträge abbrechen, die
+    gewählte Sicherung an einen sicheren Ort kopieren (damit das Aufräumen alter Sicherungen sie nicht erwischt),
+    den aktuellen Stand als „vor-wiederherstellen“ sichern, alle Verbindungen schließen, zurückspielen (SQLite-
+    Backup-API, auch WAL-sicher) und neu öffnen. Die alte ``Core`` ist danach geschlossen."""
+    import shutil
+    src = core.find_backup(name)
+    if any(t.lane == "stack" for t in core.tasks.active()):
+        raise ValueError("Während gestackt wird, kann keine Sicherung zurückgespielt werden.")
+    for t in core.tasks.active():
+        core.tasks.cancel(t.id)
+    if not core.tasks.wait_idle(30):
+        raise ValueError("Laufende Aufträge enden nicht – bitte kurz warten und erneut versuchen.")
+    tmp = os.path.join(core.ws.system, "restore-source.db")
+    shutil.copy2(src, tmp)
+    try:
+        dbm.backup(core.db, core.ws.backups, label="vor-wiederherstellen")
+        args = dict(pixinsight=core.pixinsight, workers=core.workers, stack_runner=core.stack_runner,
+                    backup_dir=core.backup_dir)
+        root, db_path = core.ws.root, core.ws.db_path
+        core.close()
+        try:
+            dbm.restore_backup(tmp, db_path)
+        except Exception as e:  # noqa: BLE001 – z. B. beschädigte Sicherung: bisherigen Stand wieder öffnen
+            raise RestoreError("Zurückspielen nicht möglich (%s) – es gilt weiter der bisherige Stand." % e,
+                               Core(root, **args)) from e
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    new = Core(root, **args)
+    with new.db.transaction():
+        new.db.event("backup_restored", None, json.dumps(dict(backup=name)))
+    return new

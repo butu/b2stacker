@@ -71,6 +71,9 @@ class WebServer(ThreadingHTTPServer):
         self.core = core
         self.stopping = threading.Event()
         self._mcp = None
+        self.watcher = None
+        self.swap_lock = threading.Lock()         # Core-Wechsel (Wiederherstellung) nie doppelt
+        self.restoring = False
 
     @property
     def url(self) -> str:
@@ -85,24 +88,33 @@ class WebServer(ThreadingHTTPServer):
     def stop(self) -> None:
         """Server beenden: SSE-Ströme enden, ``serve_forever`` kehrt zurück, der Port wird frei."""
         self.stopping.set()
+        if self.watcher is not None:
+            self.watcher.stop()
         self.shutdown()
         self.server_close()
 
+    def start_watcher(self, interval: float) -> None:
+        """Watcher für Quell- und Projektordner (``astrostack/watcher.py``) im Hintergrund starten."""
+        from ..watcher import Watcher
+        if self.watcher is None:
+            self.watcher = Watcher(lambda: self.core, interval).start()
+
     def mcp_handler(self):
-        """MCP über HTTP: dieselben Werkzeuge wie in der alten App (sprechen noch deren API, siehe NEUBAU.md)."""
+        """MCP über HTTP: Werkzeuge direkt auf ``Core`` (``web/mcp_tools.py``)."""
         if self._mcp is None:
-            from ..app.server import _mcp_handler
-            self._mcp = _mcp_handler(self.url)
+            from . import mcp_tools
+            self._mcp = mcp_tools.handler(lambda: self.core)
         return self._mcp
 
 
 def create(port: int = PORT, settings: Settings | None = None, core: Core | None = None,
-           refresh: bool = True, tries: int = 20) -> WebServer:
-    """Core aus den Einstellungen bauen (falls nicht übergeben), Server binden, Projekte prüfen lassen.
-    ``port=0`` wählt einen freien Port (Tests)."""
+           refresh: bool = True, tries: int = 20, watch: bool | None = None,
+           watch_interval: float | None = None) -> WebServer:
+    """Core aus den Einstellungen bauen (falls nicht übergeben), Server binden, Projekte prüfen lassen und den
+    Watcher starten (Standard: wie ``refresh``). ``port=0`` wählt einen freien Port (Tests)."""
     s = settings or Settings.load()
     own = core is None
-    core = core or Core(s.workdir, pixinsight=s.pixinsight, workers=s.analysis_workers)
+    core = core or Core(s.workdir, pixinsight=s.pixinsight, workers=s.analysis_workers, backup_dir=s.backup_dir)
     srv = None
     for p in ([0] if port == 0 else range(port, port + tries)):
         try:
@@ -116,6 +128,8 @@ def create(port: int = PORT, settings: Settings | None = None, core: Core | None
         raise RuntimeError("Kein freier Port ab %d" % port)
     if refresh:
         core.refresh_all()
+    if refresh if watch is None else watch:
+        srv.start_watcher(watch_interval or s.watch_interval_s)
     return srv
 
 
@@ -141,6 +155,11 @@ def save_settings(srv: WebServer, data: dict) -> dict:
         s.save()
     srv.core.pixinsight = s.pixinsight
     srv.core.workers = s.analysis_workers
+    if srv.core.backup_dir != s.backup_dir:
+        srv.core.backup_dir = s.backup_dir
+        srv.core._mirror_backups()
+    if srv.watcher is not None:
+        srv.watcher.interval = max(1.0, float(s.watch_interval_s))
     logbook.event("settings", changed={k: v for k, v in data.items()}, workdir=s.workdir)
     moved = os.path.normcase(os.path.abspath(srv.core.ws.root)) != os.path.normcase(os.path.abspath(s.workdir))
     switched = moved and _switch_workdir(srv, s)
@@ -153,11 +172,82 @@ def _switch_workdir(srv: WebServer, s: Settings) -> bool:
     old = srv.core
     if old.tasks.active() or old.db.value("SELECT COUNT(*) FROM projects"):
         return False
-    srv.core = Core(s.workdir, pixinsight=s.pixinsight, workers=s.analysis_workers, stack_runner=old.stack_runner)
+    srv.core = Core(s.workdir, pixinsight=s.pixinsight, workers=s.analysis_workers, stack_runner=old.stack_runner,
+                    backup_dir=s.backup_dir)
     logbook.setup(s.workdir)
     logbook.event("workdir_switched", old=old.ws.root, new=s.workdir)
     old.close()
     return True
+
+
+def restore_backup(srv: WebServer, name: str) -> dict:
+    """Sicherung zurückspielen (``core.restore``): danach arbeitet der Server mit einer frischen ``Core``;
+    offene Live-Verbindungen enden und die Oberfläche lädt neu (``reset``)."""
+    from .. import core as core_mod
+    if not isinstance(name, str) or not name:
+        raise ValueError("Bitte eine Sicherung wählen.")
+    with srv.swap_lock:
+        old = srv.core
+        old.find_backup(name)                     # unbekannt → 400, bevor irgendetwas angehalten wird
+        interval = srv.watcher.interval if srv.watcher is not None else None
+        if srv.watcher is not None:               # Watcher anhalten: er darf die Datenbank nicht öffnen
+            srv.watcher.stop()
+            srv.watcher = None
+        srv.restoring = True                      # andere Anfragen bekommen kurz 503 (Oberfläche versucht erneut)
+        try:
+            new = core_mod.restore(old, name)
+            srv.core = new
+        except core_mod.RestoreError as e:        # Zurückspielen gescheitert: mit dem bisherigen Stand weiter
+            srv.core = e.core
+            raise ValueError(str(e)) from None
+        finally:
+            srv.restoring = False
+            if interval is not None:
+                srv.start_watcher(interval)
+    logbook.event("backup_restored", backup=name, workdir=new.ws.root)
+    return dict(ok=True, restored=name, backups=new.backups())
+
+
+def pick_images(initial: str = "") -> list[str]:
+    """Mehrere Bilder wählen: im Programmfenster nativ, sonst über einen Hilfsprozess mit Dateidialog."""
+    import subprocess
+    from ..app import window as oldwin
+    from ..app.server import IMAGE_PATTERNS
+    w = oldwin.STATE.get("window")
+    if w is not None:
+        import webview
+        kind = getattr(getattr(webview, "FileDialog", None), "OPEN", None) or webview.OPEN_DIALOG
+        d = initial if os.path.isdir(initial or "") else os.path.dirname(initial or "")
+        res = w.create_file_dialog(kind, directory=d if d and os.path.isdir(d) else "", allow_multiple=True,
+                                   file_types=("Bilder (%s)" % IMAGE_PATTERNS.replace(" ", ";"), "Alle Dateien (*.*)"))
+        return [os.path.normpath(p) for p in (res or [])]
+    cmd = ([sys.executable, "_pick-files", initial or ""] if getattr(sys, "frozen", False) else
+           [sys.executable, "-m", "astrostack", "_pick-files", initial or ""])
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900,
+                             env=dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1"),
+                             creationflags=0x08000000 if sys.platform == "win32" else 0)
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError("Datei-Dialog nicht verfügbar (%s) – Pfad bitte eintippen." % e) from None
+    if out.returncode != 0:
+        raise RuntimeError("Datei-Dialog nicht verfügbar – Pfad bitte eintippen.")
+    return [os.path.normpath(p) for p in out.stdout.splitlines() if p.strip()]
+
+
+def _pick_files_dialog(initial: str = "") -> None:
+    """Hilfsprozess (``_pick-files``): tkinter-Dialog, eine Zeile je gewählter Datei auf stdout."""
+    import tkinter as tk
+    from tkinter import filedialog
+
+    from ..app.server import IMAGE_PATTERNS
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    d = initial if os.path.isdir(initial) else os.path.dirname(initial)
+    ps = filedialog.askopenfilenames(initialdir=d or None, title="Bilder wählen",
+                                     filetypes=[("Bilder", IMAGE_PATTERNS), ("Alle Dateien", "*.*")])
+    sys.stdout.write("\n".join(ps or ()))
+    sys.stdout.flush()
 
 
 def bootstrap(srv: WebServer) -> dict:
@@ -180,6 +270,11 @@ def dialogs():
     Hilfsprozess). Eigene Funktion, damit Tests sie ersetzen können."""
     from ..app import server as old
     return old
+
+
+def dialogs_web():
+    """Dialoge dieses Servers (mehrere Bilder wählen); eigene Funktion, damit Tests sie ersetzen können."""
+    return sys.modules[__name__]
 
 
 def quit_server(srv: WebServer) -> dict:
@@ -343,6 +438,8 @@ class Handler(BaseHTTPRequestHandler):
         return parts, urllib.parse.parse_qs(u.query)
 
     def _guarded(self, fn, *args):
+        if self.server.restoring and not (self.command == "POST" and self.path.startswith("/api/backups/restore")):
+            return self._error(503, "Die Datenbank wird gerade wiederhergestellt – bitte einen Moment warten.")
         try:
             return fn(*args)
         except NotFound as e:
@@ -383,7 +480,17 @@ class Handler(BaseHTTPRequestHandler):
         if api == ["history"]:
             project = _str(q, "project")
             project = self._project(project) if project is not None else None
-            return self._json(c.history(project, limit=_int(q, "limit", 200)))
+            if _str(q, "raw"):
+                return self._json(c.history(project, limit=_int(q, "limit", 200)))
+            return self._json(c.timeline(project, limit=_int(q, "limit", 100)))
+        if api == ["backups"]:
+            return self._json(c.backups())
+        if len(api) == 3 and api[0] == "stacks" and api[2] == "preview":
+            path, version = self._file(c.stack_preview, self._fid(api[1]))
+            return self._image(path, version, immutable=_str(q, "v") == version)
+        if len(api) == 3 and api[0] == "assets" and api[2] in ("thumb", "view"):
+            path, version = self._file(c.asset_thumb, self._fid(api[1]), api[2] == "view")
+            return self._image(path, version, immutable=_str(q, "v") == version)
         if api == ["tasks"]:
             return self._json(c.tasks.snapshot())
         if len(api) == 2 and api[0] == "thumb":
@@ -407,7 +514,25 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(c.plan(pid))
             if rest == ["stacks"]:
                 return self._json(c.stacks(pid))
+            if rest == ["gallery"]:
+                return self._json(c.gallery(pid))
+            if rest == ["compare"]:
+                return self._json(c.compare(pid, self._stack(pid, _str(q, "a") or ""), self._stack(pid, _str(q, "b") or "")))
+            if len(rest) == 4 and rest[0] == "compare" and rest[3] in ("a", "b"):
+                a, b = self._stack(pid, rest[1]), self._stack(pid, rest[2])
+                path, version = self._file(c.compare_image, pid, a, b, rest[3])
+                return self._image(path, version, immutable=_str(q, "v") == version)
         raise NotFound("nicht gefunden")
+
+    @staticmethod
+    def _file(fn, *args):
+        """Bild-Datei aus Core holen; fehlt sie, gibt es 404 mit Klartext."""
+        try:
+            return fn(*args)
+        except FileNotFoundError as e:
+            raise NotFound(str(e) or "Bild nicht gefunden.") from None
+        except (OSError, ValueError, RuntimeError) as e:
+            raise media.MediaError("Vorschau nicht möglich: %s" % e, 422) from None
 
     def _project(self, key: str) -> int:
         """Projekt per ID oder Name; unbekannt → 404 (statt 400 aus ``Core``)."""
@@ -451,7 +576,14 @@ class Handler(BaseHTTPRequestHandler):
         if api == ["settings"]:
             return self._json(save_settings(self.server, b))
         if api == ["backup"]:
-            return self._json({"path": c.backup()})
+            return self._json({"path": c.backup(), "backups": c.backups()})
+        if api == ["backups", "restore"]:
+            return self._json(restore_backup(self.server, _text(b, "name")))
+        if api == ["pick-files"]:
+            try:
+                return self._json({"paths": dialogs_web().pick_images(_text(b, "initial"))})
+            except RuntimeError as e:
+                raise ValueError(str(e)) from None
         if api == ["clear-temp"]:
             return self._json({"removed": c.clear_temp()})
         if api == ["quit"]:
@@ -509,6 +641,17 @@ class Handler(BaseHTTPRequestHandler):
                 if run_ids and not all(isinstance(x, str) for x in run_ids):
                     raise ValueError("run_ids: nur Lauf-Kennungen (Text) erlaubt")
                 return self._json(c.stack(pid, run_ids))
+            if rest == ["gallery"]:
+                return self._json(c.add_images(pid, _paths(b, "paths")))
+            if len(rest) == 3 and rest[0] == "gallery" and rest[2] == "remove":
+                c.hide_image(pid, self._fid(rest[1]))
+                return self._json({"ok": True})
+            if rest == ["cover"]:
+                aid = b.get("asset_id")
+                if aid is not None and (isinstance(aid, bool) or not str(aid).isdigit()):
+                    raise ValueError("asset_id: Zahl oder null")
+                c.set_cover(pid, int(aid) if aid is not None else None)
+                return self._json({"ok": True})
             if len(rest) == 3 and rest[0] == "stacks" and rest[2] in ("note", "delete"):
                 sid = self._stack(pid, rest[1])
                 if rest[2] == "note":
@@ -635,6 +778,8 @@ def main(port: int = PORT, open_browser: bool = True) -> None:
         pass
     finally:
         srv.stopping.set()
+        if srv.watcher is not None:
+            srv.watcher.stop()
         srv.server_close()
         srv.core.close()
         logbook.event("app_exit", ui="web")

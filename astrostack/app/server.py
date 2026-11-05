@@ -127,7 +127,8 @@ def _site_value(k: str, v):
     return f
 
 
-SETTING_LIMITS = {"analysis_workers": (1, 32, "Gleichzeitige Analysen"), "min_free_ram_gb": (0, 1024, "Freier RAM")}
+SETTING_LIMITS = {"analysis_workers": (1, 32, "Gleichzeitige Analysen"), "min_free_ram_gb": (0, 1024, "Freier RAM"),
+                  "watch_interval_s": (10, 3600, "Prüfabstand für neue Dateien (Sekunden)")}
 
 
 def _setting_value(k: str, cur, v):

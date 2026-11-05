@@ -159,8 +159,11 @@ def stack_project(db: dbm.Database, ws: Workspace, pid: int, pixinsight: str, ru
                        "wbpp_version = ?, size_bytes = ? WHERE id = ?",
                        (status, error, folder, dbm.now(), res.get("pixinsight"), res.get("wbpp"), _size(files), sid))
             for f in files:
-                db.execute("INSERT OR IGNORE INTO assets (project_id, stack_id, path, size, added_at, owned) "
-                           "VALUES (?, ?, ?, ?, ?, 1)", (pid, sid, f, _size([f]), dbm.now()))
+                # Upsert: der Watcher könnte die Datei schon als fremdes Bild gesehen haben – sie gehört b2stacker
+                db.execute("INSERT INTO assets (project_id, stack_id, path, size, added_at, owned) "
+                           "VALUES (?, ?, ?, ?, ?, 1) ON CONFLICT (project_id, path) DO UPDATE SET owned = 1, "
+                           "stack_id = excluded.stack_id, size = excluded.size, hidden = 0, missing_since = NULL",
+                           (pid, sid, f, _size([f]), dbm.now()))
             if status == "done":
                 db.execute("UPDATE projects SET stacked_at = ? WHERE id = ?", (dbm.now(), pid))
             db.event("stack_" + status, pid, json.dumps(dict(stack=sid, run=run["name"], lights=run["lights"],
@@ -173,31 +176,41 @@ def stack_project(db: dbm.Database, ws: Workspace, pid: int, pixinsight: str, ru
 
 def delete_stack(db: dbm.Database, ws: Workspace, pid: int, sid: int) -> list[str]:
     """Stack löschen: nur von b2stacker erzeugte Dateien; fremde Dateien im Stack-Ordner bleiben. → gelöscht"""
-    row = db.one("SELECT folder FROM stacks WHERE id = ? AND project_id = ?", (sid, pid))
+    row = db.one("SELECT folder, name FROM stacks WHERE id = ? AND project_id = ?", (sid, pid))
     if not row:
         raise ValueError("Stack nicht gefunden.")
     folder = db.value("SELECT folder FROM projects WHERE id = ?", (pid,))
-    removed = []
-    for a in db.query("SELECT path FROM assets WHERE stack_id = ? AND owned = 1", (sid,)):
+    removed, locked = [], []
+    for a in db.query("SELECT id, path FROM assets WHERE stack_id = ? AND owned = 1", (sid,)):
         try:
             os.remove(a["path"])
             removed.append(a["path"])
         except FileNotFoundError:
             pass
+        except PermissionError:                              # Windows: Datei gerade geöffnet (z. B. in PixInsight)
+            locked.append(a)
+    if locked:
+        with db.transaction():                               # was schon weg ist, vergessen; der Stack bleibt
+            db.execute("DELETE FROM assets WHERE stack_id = ? AND owned = 1 AND id NOT IN (%s)"
+                       % ",".join("?" * len(locked)), (sid, *[a["id"] for a in locked]))
+        raise ValueError("Die Datei ist gerade geöffnet und kann nicht gelöscht werden – bitte schließen und erneut "
+                         "versuchen: %s" % locked[0]["path"])
     if row["folder"]:
         sdir = os.path.join(ws.project_dir(folder), row["folder"])
         log = os.path.join(sdir, "protokoll")
         if os.path.isdir(log):
-            shutil.rmtree(log)
+            shutil.rmtree(log, ignore_errors=True)
         try:
             os.rmdir(sdir)                                   # nur, wenn nichts Fremdes darin liegt
         except OSError:
             pass
     with db.transaction():
+        db.execute("UPDATE projects SET cover_asset_id = NULL WHERE id = ? AND cover_asset_id IN "
+                   "(SELECT id FROM assets WHERE stack_id = ? AND owned = 1)", (pid, sid))
         db.execute("DELETE FROM assets WHERE stack_id = ? AND owned = 1", (sid,))
         db.execute("UPDATE assets SET stack_id = NULL WHERE stack_id = ?", (sid,))
         db.execute("DELETE FROM stacks WHERE id = ?", (sid,))
-        db.event("stack_deleted", pid, json.dumps(dict(stack=sid, files=len(removed))))
+        db.event("stack_deleted", pid, json.dumps(dict(stack=sid, name=row["name"], files=len(removed))))
     return removed
 
 

@@ -35,6 +35,8 @@ class Settings:
     open_results: bool = True                  # Ergebnisse am Ende in PixInsight öffnen
     min_free_ram_gb: float = 8.0
     language: str = "de"
+    backup_dir: str = ""                       # zusätzlicher Ort für Datenbank-Sicherungen (neue Oberfläche); leer = nur system/backup
+    watch_interval_s: int = 45                 # Watcher der neuen Oberfläche: so oft werden die Ordner geprüft
     mcp_token: str = ""                        # Schlüssel für MCP über HTTP (OpenCode, Claude Code …); leer = beim ersten Bedarf erzeugen
     # Ersatz-Standort, wenn die FITS-Daten keinen enthalten (Mondstand, Objekthöhe, Nachtgrenze)
     site_lat: float | None = None

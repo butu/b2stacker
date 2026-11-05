@@ -87,3 +87,32 @@ def read_headers(db: dbm.Database, pid: int, progress=None, cancel=None, workers
             if cancel is not None and cancel():
                 break
     return res
+
+
+def summarize_new(db: dbm.Database, event_id: int | None, file_ids: list[int]) -> dict | None:
+    """History-Eintrag ``files_discovered`` um Klartext-Bausteine ergänzen: je Art, Filter und Nacht die Anzahl
+    und Stunden (erst nach dem Header-Lesen bekannt). → neue Daten des Eintrags"""
+    if not event_id or not file_ids:
+        return None
+    groups: dict[tuple, dict] = {}
+    for start in range(0, len(file_ids), 900):
+        chunk = file_ids[start:start + 900]
+        for r in db.query("SELECT COALESCE(type, 'unknown') AS type, filter, night, COUNT(*) AS n, "
+                          "SUM(COALESCE(exposure, 0)) AS s FROM files WHERE id IN (%s) GROUP BY 1, 2, 3"
+                          % ",".join("?" * len(chunk)), chunk):
+            k = (r["type"], r["filter"] or "", r["night"] or "")
+            g = groups.setdefault(k, dict(type=k[0], filter=k[1] or None, night=k[2] or None, n=0, hours=0.0))
+            g["n"] += r["n"]
+            g["hours"] += (r["s"] or 0) / 3600
+    items = sorted(groups.values(), key=lambda g: (g["type"] != "light", g["night"] or "", g["filter"] or ""))
+    for g in items:
+        g["hours"] = round(g["hours"], 2)
+    by_type: dict[str, int] = {}
+    for g in items:
+        by_type[g["type"]] = by_type.get(g["type"], 0) + g["n"]
+    data = dict(new=len(file_ids), types=by_type, groups=items[:60],
+                light_hours=round(sum(g["hours"] for g in items if g["type"] == "light"), 2),
+                nights=sorted({g["night"] for g in items if g["night"]}))
+    with db.transaction():
+        db.execute("UPDATE events SET data_json = ? WHERE id = ?", (json.dumps(data), event_id))
+    return data

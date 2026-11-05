@@ -396,6 +396,8 @@ def main(argv=None):
     p.add_argument("--trace", action="store_true", help="Tracebacks mit ausgeben")
     p = sub.add_parser("settings", help="Einstellungen anzeigen/ändern")
     p.add_argument("--set", nargs="*", help="schluessel=wert")
+    from .web import cli_neu
+    cli_neu.add_parser(sub)
     args = ap.parse_args(argv)
     if not args.cmd:                       # ohne Befehl → Programmfenster
         args = ap.parse_args(["app"])
@@ -412,6 +414,11 @@ def main(argv=None):
         from .app import window
         return window.run()
     from .appclient import AppError
+    if args.cmd == "neu":
+        try:
+            return cli_neu.run(args, s)
+        except ValueError as e:
+            sys.exit("Fehler: %s" % e)
     try:
         {"scan": cmd_scan, "check-calib": cmd_check_calib, "report": cmd_report, "settings": cmd_settings,
          "gui": cmd_gui, "web": cmd_web, "plan": cmd_plan, "override": cmd_override, "stack": cmd_stack, "status": cmd_status,

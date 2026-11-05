@@ -88,6 +88,8 @@ def run(port: int = server.PORT) -> None:
         oldwin.STATE["window"] = None
     if srv is not None:
         srv.stopping.set()
+        if srv.watcher is not None:
+            srv.watcher.stop()
         srv.server_close()
         srv.core.close()
     logbook.event("app_exit", ui="web")
