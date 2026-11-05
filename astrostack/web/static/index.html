@@ -848,6 +848,7 @@ function onTask(t){
     if(!S.finished.some(x=>x.id===t.id)){
       S.finished.unshift(t);S.finished.length=Math.min(S.finished.length,12);
       if(t.state==='failed')toast('Fehler bei „'+t.title+'“: '+(t.error||'unbekannt'),true);
+      if(t.kind==='selftest'&&t.state==='done')api('/api/selftest').then(l=>{renderSelftests();const r=l[0];if(r)toast(r.ok?'Selbsttest bestanden':'Selbsttest: Problem gefunden – Details in den Einstellungen',!r.ok);}).catch(()=>{});
       else if(t.state==='done'&&t.kind==='stack')toast('Fertig gestackt: '+t.title.replace(/ stacken.*$/,''));
       if(t.project_id!=null){soon('projects',loadProjects,250);
         if(S.P&&S.P.id===t.project_id){if(S.F&&S.F.pid===t.project_id)S.F.stale=true;soon('project',reloadProject,150);}}
@@ -1699,6 +1700,7 @@ function stackCard(s){
         ${s.status==='done'?`<label class="tog small"><input type="checkbox" data-pick="${s.id}" ${SV.sel.includes(s.id)?'checked':''}> zum Vergleich</label>`:''}
         <span class="grow"></span>
         ${s.status==='done'&&s.master_asset_id&&s.preview_url?`<button class="btn sm${s.cover?' ghost':''}" data-cover="${s.cover?'':s.master_asset_id}">${ic('star','s14')} ${s.cover?'Projektbild zurücksetzen':'Als Projektbild'}</button>`:''}
+        ${s.status==='done'&&!s.missing?`<button class="btn sm" data-pi="${s.id}" title="Ergebnis in PixInsight öffnen">In PixInsight öffnen</button>`:''}
         <button class="btn sm ghost danger" data-del="${s.id}" ${['running','queued'].includes(s.status)?'disabled':''}>Löschen</button></div>
     </div></div>`;
 }
@@ -1720,6 +1722,8 @@ function wireStacks(box){
   }
   $$('[data-cover]',box).forEach(b=>b.onclick=()=>busy(b,async()=>{const aid=b.dataset.cover?+b.dataset.cover:null;
     await api('/api/projects/'+p.id+'/cover',{asset_id:aid});toast(aid?'Projektbild gesetzt':'Projektbild zurückgesetzt – die Kachel zeigt den neuesten Stack.');reloadProject();}));
+  $$('[data-pi]',box).forEach(b=>b.onclick=()=>busy(b,async()=>{const r=await api('/api/projects/'+p.id+'/stacks/'+b.dataset.pi+'/open-pixinsight',{});
+    toast('PixInsight öffnet '+plural(r.opened.length,'Datei','Dateien'));}));
   $$('[data-del]',box).forEach(b=>b.onclick=async()=>{
     const s=(S.P.stacks||[]).find(x=>x.id===+b.dataset.del);if(!s)return;
     if(!await ask('Stack löschen?',`${s.name}\n\nGelöscht werden nur die Dateien, die b2stacker erzeugt hat${s.size_bytes?' ('+bytes(s.size_bytes)+')':''}. Eigene Dateien im Stack-Ordner bleiben.`,'Löschen',true))return;
@@ -1970,6 +1974,15 @@ function mRow(m){
     <div class="ms">${m.size?gb(m.size):''}</div><button class="btn sm ghost" data-mdel="${m.id}" title="Master entfernen">${ic('trash','s14')}</button></div>`;
 }
 
+// ---------- Selbsttest-Berichte (Einstellungen)
+async function renderSelftests(){
+  const box=$('#stList');if(!box)return;
+  let l;try{l=await api('/api/selftest');}catch(e){box.innerHTML='';return;}
+  if(!$('#stList'))return;
+  box.innerHTML=l.length?l.slice(0,3).map(r=>`<div class="bkr"><span class="pill ${r.ok?'ok':'err'}">${r.ok?'bestanden':'Problem'}</span><span class="bd2 grow">${esc(ymd(r.started)+' '+hm(r.started))}${r.environment&&r.environment.pixinsight_version?' · '+esc(r.environment.pixinsight_version):''}${r.environment&&r.environment.test_folder_remote?' · NAS':''}${r.duration_s?' · '+Math.max(1,Math.round(r.duration_s/60))+' min':''}
+    ${r.ok?'':'<div class="small errc">'+esc((r.steps.filter(x=>!x.ok&&!x.optional).map(x=>x.name+(x.detail?': '+x.detail:'')).join(' · ')).slice(0,300))+'</div>'}</span></div>`).join(''):'';
+}
+
 // ---------- Datenbank-Sicherungen (Einstellungen)
 async function renderBackups(){
   const box=$('#bkList');if(!box)return;
@@ -2018,7 +2031,11 @@ function openSettings(){
     <div class="row"><button class="btn" id="bkBtn" type="button">${ic('disk','s14')} Datenbank jetzt sichern</button><button class="btn" id="tmpBtn" type="button">Temp-Dateien löschen</button></div>
     ${one(SETF.find(f=>f[0]==='backup_dir'))}
     <div class="field"><span class="lbl">Sicherungen der Datenbank</span><div class="bkl" id="bkList"><div class="bkr"><span class="bd2">wird geladen …</span></div></div>
-      <div class="d">Wiederherstellen ersetzt Projekte, Entscheidungen, Pläne und Verlauf durch den gesicherten Stand – sofort, ohne Neustart. Vorher wird der jetzige Stand gesichert. Bilddateien und Stacks auf der Platte bleiben, wie sie sind.</div></div>`+
+      <div class="d">Wiederherstellen ersetzt Projekte, Entscheidungen, Pläne und Verlauf durch den gesicherten Stand – sofort, ohne Neustart. Vorher wird der jetzige Stand gesichert. Bilddateien und Stacks auf der Platte bleiben, wie sie sind.</div></div>
+    <div class="field"><span class="lbl">Selbsttest mit PixInsight</span>
+      <div class="frow"><input type="text" class="mono" id="stFolder" style="font-size:13.5px" placeholder="Ordner für die Testdaten (leer = Arbeitsverzeichnis)" aria-label="Ordner für die Testdaten">${pick('stFolder','folder')}<button class="btn" type="button" id="stBtn">Starten</button></div>
+      <div class="bkl" id="stList"></div>
+      <div class="d">Legt einen kleinen Testdatensatz an (Ordnername mit Komma), liest ihn ein und stackt zweimal mit PixInsight – das zweite Mal mit den gespeicherten Mastern. Für den NAS-Test einen Ordner auf dem NAS wählen. Dauert einige Minuten; deine Projekte bleiben unberührt.</div></div>`+
     `<div class="dsec">KI-Bedienung (MCP)</div>
     <div class="field"><div class="frow"><input type="text" class="mono" id="mcpUrl" readonly style="font-size:13px" aria-label="MCP-Adresse"><button class="btn sm" type="button" data-copy="mcpUrl">Kopieren</button></div>
       <div class="frow"><input type="password" class="mono" id="mcpTok" readonly style="font-size:13px" aria-label="Schlüssel"><button class="btn sm" type="button" id="mcpShow">Zeigen</button><button class="btn sm" type="button" data-copy="mcpTok">Kopieren</button><button class="btn sm" type="button" id="mcpNew" title="Der alte Schlüssel wird ungültig">Neu erzeugen</button></div>
@@ -2029,11 +2046,12 @@ function openSettings(){
       <div class="d">MCP über HTTP, nur auf diesem Rechner erreichbar. Den Schlüssel wie ein Passwort behandeln.</div></div>`+
     `<div class="row" style="border-top:1px solid var(--div);padding-top:14px"><div class="small grow muted">Version ${esc(S.boot?S.boot.version:'')} · Arbeitsverzeichnis jetzt: <span class="mono">${esc(S.boot?S.boot.workdir:'')}</span></div>
       <button class="btn sm danger" id="quitBtn" type="button">b2stacker beenden</button></div>`;
-  $$('#setBody [data-pick]').forEach(b=>b.onclick=()=>busy(b,async()=>{const inp=$('#set_'+b.dataset.pick);
+  $$('#setBody [data-pick]').forEach(b=>b.onclick=()=>busy(b,async()=>{const inp=$('#set_'+b.dataset.pick)||$('#'+b.dataset.pick);
     const r=await api(b.dataset.kind==='file'?'/api/pick-file':'/api/pick-folder',{initial:inp.value});if(r.path){inp.value=r.path;if(b.dataset.kind==='file')checkPi(inp,$('#piCheck'));}}));
   const pi=$('#set_pixinsight');pi.onchange=()=>checkPi(pi,$('#piCheck'));checkPi(pi,$('#piCheck'));
   $('#bkBtn').onclick=e=>busy(e.currentTarget,async()=>{const r=await api('/api/backup',{});toast('Gesichert: '+r.path);renderBackups();});
-  renderBackups();
+  renderBackups();renderSelftests();
+  $('#stBtn').onclick=e=>busy(e.currentTarget,async()=>{await api('/api/selftest',{folder:$('#stFolder').value.trim()});toast('Selbsttest gestartet – Fortschritt oben bei den Aufträgen');});
   $('#tmpBtn').onclick=e=>busy(e.currentTarget,async()=>{const r=await api('/api/clear-temp',{});toast(r.removed?plural(r.removed,'Eintrag','Einträge')+' gelöscht':'Temp-Ordner war schon leer');});
   $('#quitBtn').onclick=async()=>{const a=[...S.tasks.values()].some(t=>t.state==='running');
     if(!await ask('b2stacker beenden?',a?'Es läuft gerade ein Auftrag – er wird abgebrochen.':'','Beenden',true))return;

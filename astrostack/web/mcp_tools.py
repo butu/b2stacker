@@ -55,8 +55,9 @@ def _stack(s: dict) -> dict:
 class CoreTools:
     """Ein Werkzeug je Methode; ``a`` sind die Argumente des Aufrufs (dict)."""
 
-    def __init__(self, get_core):
+    def __init__(self, get_core, server=None):
         self.get_core = get_core                     # Core kann wechseln (Wiederherstellung, Arbeitsverzeichnis)
+        self.server = server                         # für Einstellungen (Speichern wirkt auf den laufenden Server)
 
     @property
     def c(self):
@@ -242,6 +243,30 @@ class CoreTools:
         r = self.c.compare(pid, int(a.get("a")), int(a.get("b")))
         return dict(a=r["a"], b=r["b"], metrics=r["metrics"], align=r.get("align"))
 
+    def selftest(self, a):
+        t = self.c.selftest(a.get("folder") or "", origin="mcp")
+        return dict(job=_task(t), next="job mit wait_s aufrufen (einige Minuten); Ergebnis: Schritte mit ok/Detail.")
+
+    def open_in_pixinsight(self, a):
+        pid = self._pid(a.get("project"))
+        sid = a.get("stack_id")
+        return self.c.open_in_pixinsight(pid, int(sid) if sid is not None else None)
+
+    def settings(self, a):
+        from ..settings import Settings
+        from . import server as web
+        ch = a.get("changes")
+        if ch:
+            if not isinstance(ch, dict):
+                raise ToolError("changes muss ein Objekt sein, z. B. {\"analysis_workers\": 4}")
+            if self.server is None:
+                raise ToolError("Einstellungen ändern geht nur im laufenden Programm.")
+            r = web.save_settings(self.server, ch)
+            return dict(settings=r["settings"], restart_needed=r["restart_needed"] or None)
+        s = Settings.load()
+        return dict(settings=web.public_settings(s), settings_file=Settings.path(),
+                    pixinsight_ok=bool(self.c.pixinsight) and os.path.isfile(self.c.pixinsight))
+
     def calibration_library(self, a):
         out = []
         for m in self.c.calibration_library():
@@ -315,6 +340,15 @@ TOOLS = [
     ("stack_note", "Notiz zu einem Stack setzen (erscheint in der Liste und im Vergleich).",
      {"project": S_PROJECT, "stack_id": {"type": "integer"}, "text": {"type": "string"}},
      ["project", "stack_id", "text"], RW),
+    ("selftest", "Selbsttest mit echtem PixInsight: legt im Ordner folder (Standard: Arbeitsverzeichnis; für einen "
+     "NAS-Test einen Ordner auf dem NAS) einen kleinen Testdatensatz an, liest ihn ein und stackt zweimal (zweites "
+     "Mal mit gespeicherten Mastern). Dauert einige Minuten; Fortschritt mit job.",
+     {"folder": {"type": "string"}}, [], RW),
+    ("open_in_pixinsight", "Ergebnis eines Stacks (Standard: neuester) in PixInsight öffnen.",
+     {"project": S_PROJECT, "stack_id": {"type": "integer"}}, ["project"], RW),
+    ("settings", "Einstellungen anzeigen oder mit changes ändern (z. B. {\"analysis_workers\": 4, "
+     "\"pixinsight\": \"C:/…/PixInsight.exe\"}). Der MCP-Schlüssel ist nicht änderbar.",
+     {"changes": {"type": "object"}}, [], RW),
     ("calibration_library", "Kalibrier-Bibliothek: gespeicherte Master-Bias/-Darks/-Flats aller Projekte mit "
      "Eckdaten (Frames, Filter, Belichtung, Gain, Temperatur, Nächte) und wo sie verwendet wurden. Ein Master wird "
      "automatisch wiederverwendet, wenn ein Stack genau dieselben Kalibrier-Rohframes braucht.", {}, [], RO),
@@ -358,8 +392,8 @@ class CoreServer(mcp.Server):
         return super().handle(msg)
 
 
-def handler(get_core):
+def handler(get_core, server=None):
     """``mcp_http.Handler`` für ``/mcp`` des neuen Servers."""
     from .. import mcp_http
     logbook.event("mcp_core_ready")
-    return mcp_http.Handler(CoreServer(CoreTools(get_core)))
+    return mcp_http.Handler(CoreServer(CoreTools(get_core, server)))

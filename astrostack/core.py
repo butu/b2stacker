@@ -554,6 +554,63 @@ class Core:
                 return b["path"]
         raise ValueError("Sicherung nicht gefunden: %s" % name)
 
+    # ------------------------------------------------------------ Selbsttest, PixInsight öffnen
+    def selftest(self, folder: str = "", origin: str = "ui") -> dict:
+        """Selbsttest mit echtem PixInsight als Auftrag in der Spur ``stack`` (nie parallel zum Stacken).
+        ``folder``: wo die Testdaten angelegt werden (z. B. ein NAS-Ordner); Standard: Arbeitsverzeichnis."""
+        from . import selftest_neu
+        folder = (folder or "").strip() or self.ws.root
+        if not os.path.isdir(folder):
+            raise ValueError("Ordner nicht gefunden: %s" % folder)
+
+        def work(task: tasks.Task):
+            kw = dict(runner=self.stack_runner) if self.stack_runner else {}
+            res = selftest_neu.run(self.pixinsight, self.ws.root, folder, progress=task.progress,
+                                   cancel=task.cancel_event, **kw)
+            logbook.event("selftest", ok=res.get("ok"), report=res.get("report"), environment=res.get("environment"),
+                          steps=res.get("steps"), ui="neu")
+            return res
+        title = "Selbsttest" + (" · per Claude" if origin == "mcp" else "")
+        return self.tasks.submit("selftest", title, work, lane="stack", origin=origin).as_dict()
+
+    def selftest_reports(self, limit: int = 5) -> list[dict]:
+        d = os.path.join(self.ws.root, "selbsttest")
+        out = []
+        try:
+            names = sorted((n for n in os.listdir(d) if n.startswith("bericht-") and n.endswith(".json")), reverse=True)
+        except OSError:
+            return []
+        for n in names[:limit]:
+            try:
+                with open(os.path.join(d, n), encoding="utf-8") as fh:
+                    r = json.load(fh)
+            except (OSError, ValueError):
+                continue
+            out.append(dict(name=n, path=os.path.join(d, n), ok=r.get("ok"), started=r.get("started"),
+                            duration_s=r.get("duration_s"), steps=r.get("steps") or [], kind=r.get("kind") or "alt",
+                            environment={k: (r.get("environment") or {}).get(k) for k in
+                                         ("pixinsight_version", "test_folder", "test_folder_remote")}))
+        return out
+
+    def open_in_pixinsight(self, project, stack_id: int | None = None, popen=None) -> dict:
+        """Die Master eines Stacks (Standard: neuester fertiger) in PixInsight öffnen."""
+        import subprocess
+        pid = self._pid(project)
+        if not self.pixinsight or not os.path.isfile(self.pixinsight):
+            raise ValueError("PixInsight nicht gefunden – bitte in den Einstellungen angeben.")
+        if stack_id is None:
+            stack_id = self.db.value("SELECT id FROM stacks WHERE project_id = ? AND status = 'done' "
+                                     "ORDER BY created_at DESC, id DESC LIMIT 1", (pid,))
+        if stack_id is None or not self.db.one("SELECT 1 FROM stacks WHERE id = ? AND project_id = ?", (stack_id, pid)):
+            raise ValueError("Kein Stack gefunden – erst stacken.")
+        files = [r["path"] for r in self.db.query("SELECT path FROM assets WHERE stack_id = ? AND owned = 1 AND hidden = 0 "
+                                                   "ORDER BY id", (int(stack_id),)) if os.path.isfile(r["path"])]
+        if not files:
+            raise ValueError("Die Dateien dieses Stacks fehlen.")
+        (popen or subprocess.Popen)([self.pixinsight] + files)
+        logbook.event("open_in_pixinsight", project=pid, stack=stack_id, files=len(files))
+        return dict(opened=files, stack_id=int(stack_id))
+
     # ------------------------------------------------------------ Kalibrier-Bibliothek
     def calibration_library(self) -> list[dict]:
         """Alle gespeicherten Master-Bias/-Darks/-Flats über alle Projekte. Ein Master wird in jedem Projekt

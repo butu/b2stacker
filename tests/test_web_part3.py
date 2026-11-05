@@ -169,3 +169,60 @@ def test_library_http_and_mcp(proj, tmp_path, monkeypatch):
         assert st == 200
     finally:
         _stop(srv)
+
+
+# ---------------------------------------------------------------- Selbsttest, PixInsight öffnen, Einstellungen per MCP
+
+def test_selftest_runs_twice_and_reuses_masters(c, tmp_path):  # noqa: F811
+    co, _ = c
+    folder = tmp_path / "nas"
+    folder.mkdir()
+    from astrostack import handover
+    main = handover.wbpp_main(co.pixinsight)
+    os.makedirs(os.path.dirname(main))
+    open(main, "w").write("// WBPP")
+    t = co.selftest(str(folder))
+    assert co.tasks.wait_idle(240)
+    task = co.tasks.get(t["id"])
+    assert task.state == "done", task.error
+    res = task.result
+    names = {s["name"]: s for s in res["steps"]}
+    assert names["Ablauf (Entdecken bis Plan)"]["ok"], names
+    assert names["Stacken – erster Durchlauf"]["ok"], names["Stacken – erster Durchlauf"]
+    assert names["Master wiederverwendet"]["ok"]
+    assert res["ok"] and os.path.isfile(res["report"])
+    assert os.path.isdir(folder / "b2stacker-selbsttest, mit Komma")
+    assert co.projects() == []                                       # Testprojekt bleibt unsichtbar
+    rep = co.selftest_reports()
+    assert rep and rep[0]["ok"] and rep[0]["kind"] == "neu"
+
+
+def test_open_in_pixinsight(proj):
+    co, pid, _ = proj
+    with pytest.raises(ValueError, match="erst stacken"):
+        co.open_in_pixinsight(pid, popen=lambda cmd: None)
+    _stack_ha(co, pid)
+    calls = []
+    r = co.open_in_pixinsight(pid, popen=calls.append)
+    assert calls and calls[0][0] == co.pixinsight and r["opened"] and all(os.path.isfile(f) for f in r["opened"])
+
+
+def test_mcp_settings_selftest_tools(proj, tmp_path, monkeypatch):
+    co, pid, _ = proj
+    s = _settings(tmp_path, monkeypatch, co.ws.root, co.pixinsight)
+    srv = _serve(co, s)
+    try:
+        from .test_web_part2 import mcp_call
+        out, err = mcp_call(srv, "settings")
+        assert not err and out["settings"]["workdir"] == co.ws.root and "mcp_token" not in out["settings"]
+        out, err = mcp_call(srv, "settings", {"changes": {"analysis_workers": 3}})
+        assert not err and out["settings"]["analysis_workers"] == 3 and co.workers == 3
+        out, err = mcp_call(srv, "settings", {"changes": {"mcp_token": "x"}})
+        assert err
+        st, names, _ = call(srv, "POST", "mcp", {"jsonrpc": "2.0", "id": 9, "method": "tools/list"},
+                            headers={"Authorization": "Bearer " + __import__("tests.test_web", fromlist=["TOKEN"]).TOKEN})
+        tools = {t["name"] for t in names["result"]["tools"]}
+        assert {"selftest", "open_in_pixinsight", "settings", "calibration_library"} <= tools
+        assert not any("delete" in t for t in tools)
+    finally:
+        _stop(srv)

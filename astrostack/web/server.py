@@ -103,7 +103,7 @@ class WebServer(ThreadingHTTPServer):
         """MCP über HTTP: Werkzeuge direkt auf ``Core`` (``web/mcp_tools.py``)."""
         if self._mcp is None:
             from . import mcp_tools
-            self._mcp = mcp_tools.handler(lambda: self.core)
+            self._mcp = mcp_tools.handler(lambda: self.core, self)
         return self._mcp
 
 
@@ -487,6 +487,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(c.backups())
         if api == ["library"]:
             return self._json(c.calibration_library())
+        if api == ["selftest"]:
+            return self._json(c.selftest_reports())
         if len(api) == 3 and api[0] == "stacks" and api[2] == "preview":
             path, version = self._file(c.stack_preview, self._fid(api[1]))
             return self._image(path, version, immutable=_str(q, "v") == version)
@@ -588,6 +590,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"paths": dialogs_web().pick_images(_text(b, "initial"))})
             except RuntimeError as e:
                 raise ValueError(str(e)) from None
+        if api == ["selftest"]:
+            return self._json(c.selftest(_text(b, "folder")))
         if len(api) == 3 and api[0] == "library" and api[2] == "delete":
             return self._json(c.delete_master(self._fid(api[1])))
         if api == ["clear-temp"]:
@@ -663,6 +667,8 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("asset_id: Zahl oder null")
                 c.set_cover(pid, int(aid) if aid is not None else None)
                 return self._json({"ok": True})
+            if len(rest) == 3 and rest[0] == "stacks" and rest[2] == "open-pixinsight":
+                return self._json(c.open_in_pixinsight(pid, self._stack(pid, rest[1])))
             if len(rest) == 3 and rest[0] == "stacks" and rest[2] in ("note", "delete"):
                 sid = self._stack(pid, rest[1])
                 if rest[2] == "note":
