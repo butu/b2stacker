@@ -52,13 +52,61 @@ def _lights(db: dbm.Database, ids: list[int]) -> list[dict]:
         return []
     q = ",".join("?" * len(ids))
     out = []
-    for r in db.query("SELECT f.id, f.night, f.width, f.height, f.exposure, m.nstars, m.fwhm, m.ecc, m.data_json "
-                      "FROM files f LEFT JOIN frame_metrics m ON m.file_id = f.id WHERE f.id IN (%s)" % q, ids):
+    for r in db.query("SELECT f.id, f.path, f.night, f.date_obs, f.width, f.height, f.exposure, m.nstars, m.fwhm, m.ecc, "
+                      "m.snr, m.data_json FROM files f LEFT JOIN frame_metrics m ON m.file_id = f.id WHERE f.id IN (%s)"
+                      % q, ids):
         d = json.loads(r["data_json"]) if r["data_json"] else {}
-        out.append(dict(id=r["id"], night=r["night"], width=r["width"], height=r["height"], exp=r["exposure"],
-                        nstars=r["nstars"], fwhm=r["fwhm"], ecc=r["ecc"], pixscale=d.get("pixscale"),
+        out.append(dict(id=r["id"], name=r["path"].replace("\\", "/").rsplit("/", 1)[-1], night=r["night"],
+                        date_obs=r["date_obs"], width=r["width"], height=r["height"], exp=r["exposure"],
+                        nstars=r["nstars"], fwhm=r["fwhm"], ecc=r["ecc"], snr=r["snr"], pixscale=d.get("pixscale"),
                         hot=d.get("hotpixels")))
     return out
+
+
+def rank_lights(lights: list[dict]) -> list[dict]:
+    """Lights nach Qualität, beste zuerst: Signal/Rauschen (Hintergrund ÷ Rauschen) mal Schärfe (1/FWHM²) –
+    wie „nur die besten X %“ in 0.10. Frames ohne Messwerte kommen ans Ende."""
+    def score(x):
+        if not x.get("fwhm") or not x.get("snr"):
+            return -1.0
+        return float(x["snr"]) / float(x["fwhm"]) ** 2
+    return sorted(lights, key=lambda x: (-score(x), x.get("date_obs") or ""))
+
+
+def top_keep(n: int, percent: float) -> int:
+    """Wie viele Lights „die besten X %“ behalten (mindestens 3, sofern vorhanden)."""
+    if percent >= 100:
+        return n
+    return min(n, max(min(n, MIN_LIGHTS), int(-(-n * percent // 100))))
+
+
+def _ref_choices(lights: list[dict], auto_ref) -> list[dict]:
+    """Kandidaten fürs Referenzbild: die automatische Wahl und die schärfsten mit vielen Sternen (höchstens 12)."""
+    cand = [x for x in lights if x["nstars"] and x["fwhm"]]
+    cand.sort(key=lambda x: (x["id"] != auto_ref, x["fwhm"] / max(1, x["nstars"]) ** 0.5))
+    return cand[:12]
+
+
+def _apply_calib_edits(run: dict, ed: dict, lights: list[dict]) -> None:
+    """Kalibrierung von Hand: je Nacht einen anderen Flat-Satz oder keine Flats; Bias/Darks aus."""
+    opts = {o["key"]: o for o in run.get("flat_options") or []}
+    for n in run["nights"]:
+        choice = (ed.get("flats") or {}).get(n["night"] or "")
+        if not choice:
+            continue
+        if choice == "none":
+            n["flats"] = dict(file_ids=[], night=None, reason="von Hand: ohne Flats", quality=None, manual=True,
+                              hints=[])
+        elif choice in opts:
+            o = opts[choice]
+            n["flats"] = dict(file_ids=o["ids"], night=o["night"], quality=None, manual=True, hints=[],
+                              reason="von Hand: Flats vom %s (%s, %d Frames)" % (o["night"], o["filter"] or "–", o["n"]))
+    for kind in ("bias", "darks"):
+        if ed.get(kind) == "none":
+            run[kind] = dict(file_ids=[], reason="von Hand: ohne %s" % ("Bias" if kind == "bias" else "Darks"))
+    run["problems"] = [p for p in run["problems"] if not p.startswith("Nacht ")] + [
+        "Nacht %s: %s" % (n["night"] or "?", n["flats"]["reason"]) for n in run["nights"]
+        if not n["flats"]["file_ids"] and not n["flats"].get("manual")]
 
 
 def best_reference(lights: list[dict]) -> tuple[int | None, str]:
@@ -87,7 +135,13 @@ def build_plan(db: dbm.Database, pid: int, workdir: str, edits: dict | None = No
     peak_disk = peak_ram = 0.0
     for run in sorted(runs_in, key=lambda r: flt.is_narrowband(r.get("filter_kind") or "")):
         rid = _run_id(run)
-        lights = _lights(db, run["light_ids"])
+        run_edit = (edits.get("runs") or {}).get(rid) or {}
+        lights_all = _lights(db, run["light_ids"])
+        ranked = rank_lights(lights_all)
+        top = float(run_edit.get("top_percent") or 100)
+        keep = {x["id"] for x in ranked[:top_keep(len(ranked), top)]}
+        lights = [x for x in lights_all if x["id"] in keep]
+        _apply_calib_edits(run, run_edit, lights)
         is_osc = bool(run.get("bayer"))
         proc = flt.processing_for(run.get("filter_kind") or flt.UNKNOWN, is_osc)
         # Dualband/Schmalband an Farbkamera: WBPP 3.2.0 trennt die Kanäle selbst und registriert jeden einzeln
@@ -100,6 +154,9 @@ def build_plan(db: dbm.Database, pid: int, workdir: str, edits: dict | None = No
         nights = sorted({x["night"] for x in lights if x["night"]})
         stats = light_stats(lights)
         ref_id, ref_why = best_reference(lights)
+        auto_ref = ref_id
+        if run_edit.get("reference") and run_edit["reference"] in keep:
+            ref_id, ref_why = run_edit["reference"], "von Hand gewählt"
         has_darks = bool(run["darks"]["file_ids"])
         fwhm_med = stats["fwhm_med"] if stats else None
         stars_med = stats["nstars_med"] if stats else None
@@ -131,31 +188,52 @@ def build_plan(db: dbm.Database, pid: int, workdir: str, edits: dict | None = No
                   if fwhm_med else "Keine FWHM-Daten."))
         s.append(("autocrop", False, "Masters bleiben gleich groß und deckungsgleich; Zuschneiden in der Bearbeitung."))
         sd = star_detection(stats)
-        if sd:
-            s.append(("star_detection", sd["params"], "Sternerkennung angepasst: " + sd["why"] + "."))
-        run_edit = (edits.get("runs") or {}).get(rid) or {}
+        s.append(("star_detection", sd["params"] if sd else {},
+                  ("Sternerkennung angepasst: " + sd["why"] + ".") if sd else
+                  "Voreinstellungen von PixInsight passen zu den gemessenen Sternen."))
         settings = []
         for key, value, why in s:
             user = run_edit.get(key, opt_edit.get(key))
+            if key == "star_detection":                 # einzelne Werte überschreibbar, der Rest bleibt automatisch
+                user = {k: v for k, v in (user or {}).items() if v not in (None, "")}
+                merged = dict(value, **user)
+                changed = bool(user) and merged != value
+                settings.append(dict(key=key, value=merged, auto=value, why=why, edited=changed,
+                                     edited_keys=sorted(user)))
+                continue
             changed = user is not None and user != value
             settings.append(dict(key=key, value=user if changed else value, auto=value, why=why, edited=changed))
         disk = system.estimate_disk_gb(n, w, h, is_osc, mode)
         ram = system.estimate_ram_gb(n, w, h, 3 if mode == "debayer" else 1)
-        enabled = run_edit.get("enabled", n >= MIN_LIGHTS and not run["problems"])
+        no_flats = run["nights"] and not any(x["flats"]["file_ids"] or x["flats"].get("manual") for x in run["nights"])
+        # einzelne Nächte ohne Flats: Hinweis; gar keine Flats: Lauf bleibt aus, bis man ihn bewusst einschaltet
+        blocking = [p for p in run["problems"] if not p.startswith("Nacht ") or no_flats]
+        enabled = run_edit.get("enabled", n >= MIN_LIGHTS and not blocking)
         why_off = None
         if n < MIN_LIGHTS:
             why_off = "Nur %d Light%s – mindestens %d nötig." % (n, "" if n == 1 else "s", MIN_LIGHTS)
-        elif run["problems"]:
-            why_off = "; ".join(run["problems"])
+        elif blocking:
+            why_off = "; ".join(blocking)
         if enabled:
             peak_disk, peak_ram = max(peak_disk, disk), max(peak_ram, ram)
         runs.append(dict(
-            id=rid, name=run["filter"] or "?", filter=run["filter"], filter_kind=run.get("filter_kind"),
+            id=rid, name=run_edit.get("label") or run["filter"] or "?", label=run_edit.get("label"),
+            filter=run["filter"], filter_kind=run.get("filter_kind"),
             mode=proc.mode, stack_mode=mode, outputs=list(proc.outputs), channel_map=proc.channel_map,
-            processing=proc.note, lights=n, light_ids=run["light_ids"], hours=round(run["exposure_s"] / 3600, 2),
-            nights=nights, reference_id=ref_id, reference_why=ref_why,
+            processing=proc.note, lights=n, light_ids=[x["id"] for x in lights],
+            hours=round(sum(x["exp"] or 0 for x in lights) / 3600, 2),
+            lights_all=len(lights_all), hours_all=round(run["exposure_s"] / 3600, 2), top_percent=top,
+            rank_exp=[round(x["exp"] or 0, 1) for x in ranked],
+            nights=nights, reference_id=ref_id, reference_why=ref_why, reference_auto=auto_ref,
+            reference_edited=bool(run_edit.get("reference") and ref_id != auto_ref),
+            reference_choices=[dict(id=x["id"], name=x["name"], night=x["night"], fwhm=x["fwhm"], nstars=x["nstars"])
+                               for x in _ref_choices(lights, auto_ref)],
             flats=[dict(night=x["night"], file_ids=x["flats"]["file_ids"], reason=x["flats"]["reason"],
-                        verdict=(x["flats"].get("quality") or {}).get("verdict")) for x in run["nights"]],
+                        verdict=(x["flats"].get("quality") or {}).get("verdict"), hints=x["flats"].get("hints") or [],
+                        days=x["flats"].get("days"), manual=x["flats"].get("manual"), lights=x.get("lights"))
+                   for x in run["nights"]],
+            flat_options=[{k: o[k] for k in ("key", "filter", "night", "n", "master")} for o in run.get("flat_options") or []],
+            calib_edits={k: run_edit[k] for k in ("flats", "bias", "darks") if k in run_edit},
             bias=run["bias"], darks=run["darks"], problems=run["problems"], settings=settings,
             enabled=bool(enabled), why_off=why_off, disk_gb=round(disk, 1), ram_gb=round(ram, 1),
             light_stats=stats))
@@ -170,9 +248,16 @@ def build_plan(db: dbm.Database, pid: int, workdir: str, edits: dict | None = No
         notes.append("Alle Läufe werden auf das Master von %s ausgerichtet – die Ergebnisse liegen pixelgenau "
                      "übereinander." % first["name"])
     free_disk = system.free_disk_gb(workdir)
+    try:
+        import shutil
+        total_disk = shutil.disk_usage(workdir).total / 1024 ** 3
+    except OSError:
+        total_disk = None
+    drive = (__import__("os").path.splitdrive(__import__("os").path.abspath(workdir))[0] or workdir)
     free_ram, total_ram = system.ram_gb()
     return dict(version=PLAN_VERSION, created=dbm.now(), runs=runs, notes=notes,
                 need_gb=round(peak_disk + 2, 1) if runs else 0, free_gb=None if free_disk is None else round(free_disk, 1),
+                total_gb=None if total_disk is None else round(total_disk, 1), drive=drive,
                 need_ram_gb=round(peak_ram, 1), free_ram_gb=None if not free_ram else round(free_ram, 1),
                 total_ram_gb=None if not total_ram else round(total_ram, 1),
                 ready=any(r["enabled"] for r in runs))
@@ -204,7 +289,8 @@ def load_edits(db: dbm.Database, pid: int) -> dict:
 def edit_plan(db: dbm.Database, pid: int, workdir: str, options: dict | None = None,
               runs: dict | None = None, reset: bool = False) -> dict:
     """Änderungen des Nutzers speichern (``None`` als Wert = zurück zur Automatik) und den Plan neu berechnen."""
-    known = set(DEFAULT_OPTIONS) | {"star_detection", "enabled"}
+    known = set(DEFAULT_OPTIONS) | {"star_detection", "enabled", "top_percent", "reference", "label", "flats",
+                                    "bias", "darks"}
     edits = {} if reset else load_edits(db, pid)
     for scope, data in (("options", options), ("runs", runs)):
         if not data:
@@ -272,8 +358,18 @@ def wbpp_values(run: dict) -> dict:
     if v.get("fast_integration"):
         p["autoIntegrationMode"] = True              # bewusste Wahl für einen schnellen Probe-Stack
     for k, val in (v.get("star_detection") or {}).items():
-        p[k] = val
+        p[k] = _number(val)                       # WBPP-Engine erwartet Zahlen (Weg B setzt Eigenschaften direkt)
     return p
+
+
+def _number(v):
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return v
+    try:
+        f = float(str(v).replace(",", "."))
+    except ValueError:
+        return v
+    return int(f) if f.is_integer() and "." not in str(v) else f
 
 
 def explain(plan: dict) -> list[str]:

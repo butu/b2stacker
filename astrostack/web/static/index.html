@@ -25,8 +25,11 @@
   --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
 }
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:#fff;height:100%}
-body{display:flex;flex-direction:column;overflow:hidden;
+/* UI-Zoom wie in 0.10: html wird skaliert, die Höhe zurückgerechnet, damit alles genau ins Fenster passt */
+:root{--z:1}
+html{zoom:var(--z)}
+html,body{margin:0;background:var(--bg);color:#fff}
+body{height:calc(100vh / var(--z));display:flex;flex-direction:column;overflow:hidden;
   font:15px/1.45 "SF Pro Text",-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
   -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -125,7 +128,20 @@ header.hb{flex:none;position:relative;z-index:20;height:48px;display:flex;align-
 #popBack{position:fixed;inset:0;z-index:25}
 .pop{position:fixed;z-index:30;background:var(--pop);border-radius:12px;box-shadow:var(--shadow-pop);padding:6px;display:flex;flex-direction:column;max-width:calc(100vw - 16px);max-height:min(70vh,560px);overflow:auto}
 .pop .mi{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;font-size:14px;cursor:pointer;border:0;background:none;color:inherit;text-align:left;width:100%}
-.pop .mi:hover{background:rgba(255,255,255,.1)}
+.pop .mi:hover,.pop .mi:focus-visible{background:rgba(255,255,255,.1);outline:0}
+.pop .mi:disabled{opacity:.4;cursor:default}
+/* gestaltete Auswahlboxen (wie 0.10): das native <select> bleibt die Quelle, sichtbar ist ein Knopf mit Liste */
+select[data-ui]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;margin:0}
+.sel{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;height:34px;padding:0 10px 0 12px;border:0;border-radius:6px;background:var(--fill);color:#fff;
+  font-size:14px;cursor:pointer;max-width:100%;min-width:0;text-align:left}
+.sel:hover{background:var(--fill-2)}
+.sel:focus-visible{box-shadow:0 0 0 2px rgba(53,132,228,.6);outline:0}
+.sel:disabled{opacity:.4;cursor:not-allowed}
+.sel svg{opacity:.6;flex:none}
+.fbar2 .sel{height:32px;font-size:13.5px}
+.zoomctl{display:inline-flex;align-items:center;gap:0;border-radius:6px;background:transparent}
+.zoomctl button{height:30px;min-width:28px;border:0;background:transparent;color:#fff;border-radius:6px;cursor:pointer;font-size:13px;opacity:.75}
+.zoomctl button:hover{background:var(--fill);opacity:1}
 .pop .sep{height:1px;background:var(--fill);margin:4px 6px}
 .pop .ph{font-size:12px;font-weight:700;opacity:.5;padding:8px 10px 4px;text-transform:uppercase;letter-spacing:.05em}
 .trow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;padding:10px;border-radius:8px;align-items:center}
@@ -564,7 +580,9 @@ details>summary{cursor:pointer}
   <button class="hbtn upd" id="updBtn" hidden title="Neue Version verfügbar"></button>
   <a class="hbtn" id="libBtn" href="#/kalibrierung" title="Kalibrier-Bibliothek: gespeicherte Master-Bias, -Darks und -Flats"></a>
   <a class="hbtn" id="histBtn" href="#/verlauf" title="Verlauf aller Projekte"></a>
+  <span class="zoomctl" id="zoomCtl" title="Größe der Oberfläche (Strg + / Strg − / Strg 0)"><button id="zOut" aria-label="kleiner">−</button><button id="zVal" aria-label="Größe zurücksetzen">100 %</button><button id="zIn" aria-label="größer">+</button></span>
   <button class="hbtn icon" id="setBtn" title="Einstellungen" aria-label="Einstellungen"></button>
+  <div class="pop" id="selPop" hidden role="listbox"></div>
 </header>
 <main class="view" id="view"></main>
 
@@ -848,13 +866,66 @@ function renderTaskPop(){
     (S.finished.length?`<div class="sep"></div><div class="ph">Zuletzt</div>${S.finished.slice(0,6).map(row).join('')}`:'');
   $$('#taskPop [data-cancel]').forEach(x=>x.onclick=()=>busy(x,async()=>{const t=await api('/api/tasks/'+encodeURIComponent(x.dataset.cancel)+'/cancel',{});onTask(t);}));
 }
-function openPop(id,anchor){
+function openPop(id,anchor,alignLeft){
   const p=$('#'+id);closePops();
   p.hidden=false;$('#popBack').hidden=false;
-  const r=anchor.getBoundingClientRect(),w=p.offsetWidth;
-  p.style.top=(r.bottom+6)+'px';p.style.left=Math.max(8,Math.min(window.innerWidth-w-8,r.right-w))+'px';
+  const z=uiZoom(),r=anchor.getBoundingClientRect(),w=p.offsetWidth,W=window.innerWidth/z;
+  const left=alignLeft?r.left/z:r.right/z-w;
+  p.style.top=(r.bottom/z+6)+'px';p.style.left=Math.max(8,Math.min(W-w-8,left))+'px';
+  const h=p.offsetHeight,H=window.innerHeight/z;
+  if(r.bottom/z+6+h>H-8&&r.top/z-6-h>8)p.style.top=(r.top/z-6-h)+'px';   // unten kein Platz → nach oben
   return p;
 }
+// ---------- UI-Zoom (Strg +/−/0, Strg + Mausrad, Knöpfe oben)
+const ZSTEPS=[0.67,0.75,0.8,0.9,1,1.1,1.2,1.25,1.4,1.6,1.8,2];
+let ZOOM=(()=>{try{return parseFloat(localStorage.getItem('b2-zoom'))||1;}catch(e){return 1;}})();
+function uiZoom(){return ZOOM||1;}
+function setZoom(z){
+  ZOOM=Math.min(2,Math.max(0.67,Math.round(z*100)/100));
+  document.documentElement.style.setProperty('--z',ZOOM);
+  const v=$('#zVal');if(v)v.textContent=Math.round(ZOOM*100)+' %';
+  try{localStorage.setItem('b2-zoom',String(ZOOM));}catch(e){}
+  if(typeof layoutGrid==='function'&&$('#vgrid'))layoutGrid(true);
+}
+const zStep=d=>{const i=ZSTEPS.findIndex(x=>x>=ZOOM-0.001);const j=Math.min(ZSTEPS.length-1,Math.max(0,(i<0?ZSTEPS.length-1:i)+d));setZoom(ZSTEPS[j]);};
+// ---------- Auswahllisten: natives <select> bleibt die Quelle (Wert + change-Ereignis), sichtbar ist ein Knopf mit Liste
+function enhanceSelects(root){
+  (root||document).querySelectorAll('select:not([data-ui])').forEach(sel=>{
+    if(sel.closest('dialog')||sel.closest('.nosel'))return;
+    sel.dataset.ui='1';
+    const b=document.createElement('button');b.type='button';b.className='sel';b.setAttribute('aria-haspopup','listbox');
+    if(sel.getAttribute('aria-label'))b.setAttribute('aria-label',sel.getAttribute('aria-label'));
+    if(sel.id)b.dataset.for=sel.id;
+    if(sel.title)b.title=sel.title;
+    if(sel.style.maxWidth)b.style.maxWidth=sel.style.maxWidth;
+    const sync=()=>{const o=sel.options[sel.selectedIndex];b.innerHTML=`<span class="ell">${esc(o?o.text:'')}</span>${ic('down','s14')}`;b.disabled=sel.disabled;};
+    sync();sel.addEventListener('change',sync);sel._sync=sync;
+    sel.after(b);
+    const pick=i=>{if(i<0||i>=sel.options.length||sel.options[i].disabled||i===sel.selectedIndex)return;sel.selectedIndex=i;sel.dispatchEvent(new Event('change',{bubbles:true}));};
+    b.onclick=()=>openSelect(sel,b,pick);
+    b.onkeydown=e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();openSelect(sel,b,pick);}};
+  });
+}
+function openSelect(sel,b,pick){
+  const p=$('#selPop');
+  p.innerHTML=[...sel.options].map((o,i)=>`<button type="button" class="mi" role="option" data-i="${i}" ${o.disabled?'disabled':''} aria-selected="${i===sel.selectedIndex}">
+    <span class="grow">${esc(o.text)}</span>${i===sel.selectedIndex?`<span class="infoc" style="display:inline-flex">${ic('check')}</span>`:''}</button>`).join('');
+  p.style.minWidth=Math.max(160,b.offsetWidth)+'px';
+  openPop('selPop',b,true);
+  const items=[...p.querySelectorAll('[data-i]')];
+  items.forEach(x=>x.onclick=()=>{closePops();pick(+x.dataset.i);b.focus();});
+  p.onkeydown=e=>{const k=items.indexOf(document.activeElement);
+    if(e.key==='ArrowDown'){e.preventDefault();(items[k+1]||items[0]).focus();}
+    else if(e.key==='ArrowUp'){e.preventDefault();(items[k-1]||items[items.length-1]).focus();}
+    else if(e.key==='Escape'||e.key==='Tab'){closePops();b.focus();}};
+  const cur=items[sel.selectedIndex]||items[0];if(cur){cur.focus();cur.scrollIntoView({block:'nearest'});}
+}
+new MutationObserver(()=>{if(!enhanceSelects.q){enhanceSelects.q=requestAnimationFrame(()=>{enhanceSelects.q=0;enhanceSelects();});}}).observe(document.body,{childList:true,subtree:true});
+$('#zIn').onclick=()=>zStep(1);$('#zOut').onclick=()=>zStep(-1);$('#zVal').onclick=()=>setZoom(1);
+window.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;
+  if(e.key==='+'||e.key==='='){e.preventDefault();zStep(1);}else if(e.key==='-'){e.preventDefault();zStep(-1);}else if(e.key==='0'){e.preventDefault();setZoom(1);}});
+window.addEventListener('wheel',e=>{if(!e.ctrlKey)return;e.preventDefault();zStep(e.deltaY<0?1:-1);},{passive:false});
+setZoom(ZOOM);
 function closePops(){$$('.pop').forEach(p=>p.hidden=true);$('#popBack').hidden=true;}
 $('#popBack').onclick=closePops;
 $('#tind').onclick=()=>{S.finished.forEach(t=>t._seen=true);renderTaskPop();openPop('taskPop',$('#tind'));renderTaskIndicator();};
@@ -1399,6 +1470,7 @@ function fillFrameFilters(){
   a.innerHTML=`<option value="">Alle Filter</option>`+[...fl].sort().map(([k,n])=>`<option value="${esc(k)}" ${k===FV.filt?'selected':''}>${esc(k||'ohne Filter')} (${int(n)})</option>`).join('');
   b.innerHTML=`<option value="">Alle Nächte</option>`+[...nl].sort((x,y)=>x[0]<y[0]?1:-1).map(([k,n])=>`<option value="${esc(k)}" ${k===FV.night?'selected':''}>${k?ymd(k):'ohne Datum'} (${int(n)})</option>`).join('');
   a.parentElement.hidden=fl.size<2&&!FV.filt;b.parentElement.hidden=nl.size<2&&!FV.night;
+  for(const x of [a,b])if(x._sync)x._sync();
   if(typeof enhanceSelects==='function')enhanceSelects($('#fbar2'));
 }
 function renderFrameSummary(){
@@ -1452,7 +1524,7 @@ function layoutGrid(reset){
 }
 function renderVisible(){
   const g=$('#vgrid'),G=FV.geo;if(!g||!G)return;
-  const v=$('#view'),top=g.getBoundingClientRect().top-v.getBoundingClientRect().top;   // Abstand Raster ↔ sichtbarer Bereich
+  const v=$('#view'),top=(g.getBoundingClientRect().top-v.getBoundingClientRect().top)/uiZoom();   // Abstand Raster ↔ sichtbarer Bereich
   const y0=-top-2*G.rh,y1=-top+v.clientHeight+2*G.rh,P=FV.pos;
   // erste sichtbare Kachel per Binärsuche (pos ist nach y sortiert)
   let lo=0,hi=P.length;while(lo<hi){const m=(lo+hi)>>1;if(P[m][1]+G.th<y0)lo=m+1;else hi=m;}
@@ -1522,7 +1594,7 @@ async function decide(ids,decision){
 // ---------- Zoom: Mausrad oder zwei Finger, ziehen verschiebt, Doppelklick wechselt Einpassen ↔ 1:1
 function makeZoom(host,target,o){
   const Z={s:1,x:0,y:0,max:o.max||8,ptr:new Map(),pan:null,pinch:null};
-  const lay=()=>{const r=target.getBoundingClientRect();return {l:r.left-Z.x,t:r.top-Z.y};};
+  const lay=()=>{const z=uiZoom(),r=target.getBoundingClientRect();return {l:r.left/z-Z.x,t:r.top/z-Z.y};};
   const apply=()=>{
     if(Z.s<=1.001){Z.s=1;Z.x=0;Z.y=0;}
     target.style.transform=Z.s===1?'':`translate(${Z.x}px,${Z.y}px) scale(${Z.s})`;
@@ -1530,8 +1602,9 @@ function makeZoom(host,target,o){
     if(o.info){const el=o.info();if(el){el.hidden=Z.s===1;el.textContent=o.label?o.label(Z.s):Math.round(Z.s*100)+' %';}}
     if(o.onChange)o.onChange(Z.s);
   };
-  Z.to=(s,cx,cy)=>{s=Math.max(1,Math.min(Z.max,s));const L=lay();
+  Z.to=(s,cx,cy)=>{s=Math.max(1,Math.min(Z.max,s));const L=lay(),z=uiZoom();
     if(cx==null){const r=host.getBoundingClientRect();cx=r.left+r.width/2;cy=r.top+r.height/2;}
+    cx/=z;cy/=z;
     const ux=(cx-L.l-Z.x)/Z.s,uy=(cy-L.t-Z.y)/Z.s;Z.x=cx-L.l-s*ux;Z.y=cy-L.t-s*uy;Z.s=s;apply();};
   Z.reset=()=>{Z.s=1;apply();};
   host.addEventListener('wheel',e=>{if(o.enabled&&!o.enabled())return;e.preventDefault();Z.to(Z.s*Math.exp(-e.deltaY*(e.deltaMode===1?0.05:0.0016)),e.clientX,e.clientY);},{passive:false});
@@ -1549,7 +1622,7 @@ function makeZoom(host,target,o){
     if(Z.s>1&&(!o.panOk||o.panOk(e))){Z.pan={x:e.clientX,y:e.clientY,ox:Z.x,oy:Z.y};host.setPointerCapture(e.pointerId);e.stopPropagation();}},true);
   host.addEventListener('pointermove',e=>{if(!Z.ptr.has(e.pointerId))return;Z.ptr.set(e.pointerId,{x:e.clientX,y:e.clientY});
     if(Z.pinch&&Z.ptr.size===2){const [a,b]=[...Z.ptr.values()];Z.to(Z.pinch.s*Math.hypot(a.x-b.x,a.y-b.y)/Math.max(1,Z.pinch.d),(a.x+b.x)/2,(a.y+b.y)/2);e.stopPropagation();return;}
-    if(Z.pan){Z.x=Z.pan.ox+e.clientX-Z.pan.x;Z.y=Z.pan.oy+e.clientY-Z.pan.y;apply();e.stopPropagation();}},true);
+    if(Z.pan){const z=uiZoom();Z.x=Z.pan.ox+(e.clientX-Z.pan.x)/z;Z.y=Z.pan.oy+(e.clientY-Z.pan.y)/z;apply();e.stopPropagation();}},true);
   const up=e=>{Z.ptr.delete(e.pointerId);if(Z.ptr.size<2)Z.pinch=null;if(!Z.ptr.size)Z.pan=null;};
   host.addEventListener('pointerup',up,true);host.addEventListener('pointercancel',up,true);
   return Z;

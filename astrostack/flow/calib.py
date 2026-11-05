@@ -6,7 +6,8 @@ pro Lauf ein Bias- und ggf. ein Dark-Satz. Jede Wahl und jedes Fehlen hat einen 
 
 Regeln (aus der Praxis, siehe docs/ERKENNTNISSE.md):
 - Flats: gleicher Filter (RGB-Lights nur mit RGB-Flats), gleiche Einstellungen, möglichst dieselbe Nacht,
-  sonst die zeitlich nächste innerhalb von ``FLAT_MAX_DAYS``. Qualität aus den gespeicherten Messwerten.
+  sonst die zeitlich nächste. Liegt sie mehr als ``FLAT_WARN_DAYS`` entfernt, ist das nur ein Hinweis (Staub kann
+  gewandert sein) – kein Ausschluss. Qualität aus den gespeicherten Messwerten, mit Befund in Klartext.
 - Bias: gleiche Einstellungen, der neueste Satz.
 - Darks: gleiche Einstellungen, Belichtung ±1 s, Temperatur ±2 °C.
 - Master-Dateien zählen als vollständiger Satz.
@@ -20,7 +21,7 @@ from collections import defaultdict
 from .. import calibcheck
 from .. import db as dbm
 
-FLAT_MAX_DAYS = 60
+FLAT_WARN_DAYS = 30               # Flats weiter entfernt → Hinweis (nicht Ausschluss)
 DARK_EXP_TOL = 1.0
 DARK_TEMP_TOL = 2.0
 MIN_FRAMES = 3                     # WBPP braucht mindestens 3 Rohframes für einen Master
@@ -122,6 +123,7 @@ def match_project(db: dbm.Database, pid: int, th: calibcheck.Thresholds | None =
         for night, nf in sorted(nights.items()):
             run["nights"].append(dict(night=night, lights=len(nf), flats=_pick_flats(flt, settings, night, ref,
                                                                                     flats, th)))
+        run["flat_options"] = flat_options(flats, ref)
         run["bias"] = _pick_simple(calib, "bias", ref, None)
         run["darks"] = _pick_simple(calib, "dark", ref, frames)
         for n in run["nights"]:
@@ -156,20 +158,42 @@ def _pick_flats(flt, settings, night, ref, flats, th) -> dict:
             reason += " (andere Filter gibt es, passen aber nicht)"
         return dict(file_ids=[], night=None, reason=reason, quality=None)
     days, n2, frames = min(cands, key=lambda c: (c[0], c[1]))
-    if days > FLAT_MAX_DAYS:
-        return dict(file_ids=[], night=n2, quality=None,
-                    reason="nächste Flats (%s) liegen %d Tage entfernt – zu alt" % (n2, days))
-    return _flat_choice(frames, "Flats vom %s (%d Tag%s entfernt)" % (n2, days, "" if days == 1 else "e"), th)
+    ch = _flat_choice(frames, "Flats vom %s (%d Tag%s entfernt)" % (n2, days, "" if days == 1 else "e"), th)
+    ch["days"] = days
+    if days > FLAT_WARN_DAYS:
+        ch.setdefault("hints", []).append(dict(
+            level="warning", title="Flats %d Tage entfernt" % days,
+            text="Für diese Nacht gibt es keine eigenen Flats; die nächsten passenden sind vom %s. Das geht gut, "
+                 "solange am Aufbau nichts verändert wurde (Kamera nicht gedreht, kein neuer Staub). Bei Staubringen "
+                 "oder Vignettierung im Stack: Flats der Nacht nachholen oder unter „Kalibrierung“ andere wählen."
+                 % n2))
+    return ch
 
 
 def _flat_choice(frames, why, th) -> dict:
     q = _flat_quality(frames, th)
     usable = len(frames) >= MIN_FRAMES or any(f["is_master"] for f in frames)
     reason = why + ", " + _label(frames)
+    hints = [dict(level=f.get("level"), title=f.get("title"), text=f.get("text")) for f in (q or {}).get("findings") or []
+             if f.get("level") in ("warning", "critical")]
     if not usable:
         reason += " – zu wenige (WBPP braucht mindestens %d)" % MIN_FRAMES
     return dict(file_ids=[f["id"] for f in frames] if usable else [], night=frames[0]["night"], reason=reason,
-                quality=q, frames=len(frames))
+                quality=q, frames=len(frames), hints=hints)
+
+
+def flat_options(flats: dict, ref) -> list[dict]:
+    """Alle Flat-Sätze, die man für diesen Lauf von Hand wählen kann (gleiche Kamera-Einstellungen), passender
+    Filter zuerst."""
+    out = []
+    for (f2, _s2, n2), frames in flats.items():
+        if _same_settings(ref, frames[0]):
+            continue
+        out.append(dict(key="%s|%s" % (f2, n2), filter=frames[0]["filter"], night=n2, n=len(frames),
+                        ids=[f["id"] for f in frames], master=any(f["is_master"] for f in frames)))
+    flt = (ref["filter"] or "").lower()
+    out.sort(key=lambda o: ((o["filter"] or "").lower() != flt, o["night"]), reverse=False)
+    return out
 
 
 def _pick_simple(calib, kind, ref, lights) -> dict:

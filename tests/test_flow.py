@@ -271,13 +271,15 @@ def test_calibration_too_few_and_old(env):
     assert run["nights"][0]["flats"]["file_ids"] == [] and "zu wenige" in run["nights"][0]["flats"]["reason"]
     assert run["bias"]["file_ids"] == [] and "nur 1 Bias" in run["bias"]["reason"]
     assert len(run["problems"]) == 2
-    old = calib.FLAT_MAX_DAYS
-    try:
-        calib.FLAT_MAX_DAYS = 5
-        run = calib.match_project(db, pid)[0]
-        assert "zu alt" in run["nights"][0]["flats"]["reason"]
+    old = calib.FLAT_WARN_DAYS
+    try:                                                             # weit entfernte Flats: Hinweis, kein Ausschluss
+        calib.FLAT_WARN_DAYS = 5
+        fl = calib.match_project(db, pid)[0]["nights"][0]["flats"]
+        assert fl.get("days", 0) > 5 or "zu wenige" in fl["reason"]
+        if fl.get("days", 0) > 5:
+            assert any("Tage entfernt" in h["title"] for h in fl["hints"])
     finally:
-        calib.FLAT_MAX_DAYS = old
+        calib.FLAT_WARN_DAYS = old
 
 
 def test_plan_settings_reasons_and_edits(env):
@@ -328,3 +330,33 @@ def test_rejection_rules():
     assert fp.rejection_for(5)[0] == "percentile"
     assert fp.rejection_for(7)[0] == "winsorized" and fp.rejection_for(14)[0] == "winsorized"
     assert fp.rejection_for(15)[0] == "esd" and fp.rejection_for(400)[0] == "esd"
+
+
+def test_plan_top_percent_reference_label_and_manual_calibration(env):
+    from astrostack.flow import plan as fp
+    ws, db, data = env
+    _calib_tree(data)
+    pid = library.create_project(db, ws, "vdB 131", folders=[data])
+    flow.run_project(db, ws, pid, workers=1)
+    p = fp.update_plan(db, pid, ws.root)
+    ha = next(r for r in p["runs"] if r["filter"] == "HaO3")
+    assert ha["lights_all"] == ha["lights"] == 3 and len(ha["rank_exp"]) == 3 and ha["top_percent"] == 100
+    assert ha["reference_choices"] and ha["reference_choices"][0]["id"] == ha["reference_auto"]
+    other = next(c["id"] for c in ha["reference_choices"] if c["id"] != ha["reference_auto"])
+    assert fp.top_keep(100, 10) == 10 and fp.top_keep(10, 10) == 3 and fp.top_keep(2, 10) == 2
+    p2 = fp.edit_plan(db, pid, ws.root, runs={ha["id"]: {"label": "Ha+OIII", "reference": other,
+                                                         "flats": {"2026-10-12": "none"}, "bias": "none",
+                                                         "star_detection": {"minStructureSize": 7}}})
+    h2 = next(r for r in p2["runs"] if r["id"] == ha["id"])
+    assert h2["name"] == "Ha+OIII" and h2["reference_id"] == other and h2["reference_edited"]
+    assert h2["flats"][0]["file_ids"] == [] and h2["flats"][0]["manual"] and "ohne Flats" in h2["flats"][0]["reason"]
+    assert h2["bias"]["file_ids"] == [] and "von Hand" in h2["bias"]["reason"]
+    sd = next(s for s in h2["settings"] if s["key"] == "star_detection")
+    assert sd["value"]["minStructureSize"] == 7 and sd["edited"] and sd["edited_keys"] == ["minStructureSize"]
+    assert fp.wbpp_values(h2)["minStructureSize"] == 7
+    opt = h2["flat_options"][0]["key"]
+    p3 = fp.edit_plan(db, pid, ws.root, runs={ha["id"]: {"flats": {"2026-10-12": opt}, "bias": None,
+                                                         "top_percent": 34}})
+    h3 = next(r for r in p3["runs"] if r["id"] == ha["id"])
+    assert h3["flats"][0]["file_ids"] and h3["flats"][0]["manual"] and h3["lights"] == 3   # mind. 3 Lights bleiben
+    assert fp._number("0.52") == 0.52 and fp._number("4") == 4

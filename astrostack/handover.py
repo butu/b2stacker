@@ -179,6 +179,8 @@ def build_job(db: dbm.Database, run: dict, out_dir: str, reference_path: str | N
                status=pi_path(os.path.join(out_dir, "b2-status.json")), sessionKeyword=SESSION_KEYWORD,
                params=params, indexed=indexed, files=files, masterKeys=keys, reusedMasters=reused,
                masterInfo=info)
+    if any(s["key"] == "cosmetic_correction" and s["value"] for s in run.get("settings") or []) and not dark_ids:
+        job["cosmetic"] = True
     if any(s["key"] == "drizzle" and s["value"] for s in run.get("settings") or []):
         job["drizzle"] = dict(enabled=True, scale=2, dropShrink=0.9)       # je Light-Gruppe (WBPP 3.2.0 geprüft)
     return job
@@ -197,6 +199,16 @@ def write_scripts(job: dict, temp_dir: str, pixinsight_exe: str) -> tuple[str, s
     with open(events, "w", encoding="utf-8") as fh:
         fh.write(EVENT_SCRIPT.replace("__STATUS__", job["status"]))
     job = dict(job, eventScript=pi_path(events))
+    if job.get("cosmetic"):                       # Hotpixel ohne Darks: CosmeticCorrection (Auto Detect) in WBPP
+        from .engines.pixinsight import CC_COLD_SIGMA, CC_HOT_SIGMA
+        src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pjsr", "cc_builder.js")
+        with open(src, encoding="utf-8") as fh:
+            cc = fh.read().replace("__HOT__", "%.2f" % CC_HOT_SIGMA).replace("__COLD__", "%.2f" % CC_COLD_SIGMA)
+        cc_path = os.path.join(temp_dir, "b2cc.js")
+        with open(cc_path, "w", encoding="utf-8") as fh:
+            fh.write(cc)
+        job["params"] = dict(job.get("params") or {}, usePipelineBuilderScript=True,
+                             pipelineBuilderScriptFile=pi_path(cc_path))
     with open(job_path, "w", encoding="utf-8") as fh:
         json.dump(job, fh, indent=1, ensure_ascii=False)
     return launcher, job_path
