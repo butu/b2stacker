@@ -564,6 +564,22 @@ class Core:
         for a in out:
             a["thumb_url"] = "/api/assets/%d/thumb?v=%s" % (a["id"], a["version"])
             a["view_url"] = "/api/assets/%d/view?v=%s" % (a["id"], a["version"])
+        # fertige Stacks gehören auch in die Galerie (als Stack gekennzeichnet) – zum direkten Vergleich mit dem
+        # bearbeiteten Bild
+        for st in self.stacks(pid, measure=False):
+            if st["status"] != "done" or not st.get("master_asset_id"):
+                continue
+            master = next((f for f in st["file_info"] if f["id"] == st["master_asset_id"]), None)
+            if master is None:
+                continue
+            out.append(dict(id=st["master_asset_id"], stack=True, stack_id=st["id"], stack_name=st["name"],
+                            name=st["name"], path=master["path"], size=master["size"],
+                            ext=os.path.splitext(master["path"])[1].lower().lstrip("."),
+                            added_at=st["finished_at"] or st["created_at"], cover=st["cover"],
+                            missing=not master["exists"], place="Stack",
+                            version=(st.get("quality") or {}).get("preview") or "",
+                            thumb_url=st["preview_url"], view_url=st["preview_url"]))
+        out.sort(key=lambda a: a.get("added_at") or "", reverse=True)
         return out
 
     def add_images(self, project, paths: list[str], origin: str = "ui") -> dict:

@@ -125,20 +125,20 @@ header.hb{flex:none;position:relative;z-index:20;height:48px;display:flex;align-
 .minibar>span{display:block;height:100%;background:currentColor}
 .conn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:999px;background:var(--warn-bg);color:var(--warn);font-size:13px;font-weight:700}
 /* Popover */
-#popBack{position:fixed;inset:0;z-index:25}
-.pop{position:fixed;z-index:30;background:var(--pop);border-radius:12px;box-shadow:var(--shadow-pop);padding:6px;display:flex;flex-direction:column;max-width:calc(100vw - 16px);max-height:min(70vh,560px);overflow:auto}
+#popBack{position:fixed;inset:0;z-index:65}
+.pop{position:fixed;z-index:70;background:var(--pop);border-radius:12px;box-shadow:var(--shadow-pop);padding:6px;display:flex;flex-direction:column;max-width:calc(100vw - 16px);max-height:min(70vh,560px);overflow:auto}
 .pop .mi{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;font-size:14px;cursor:pointer;border:0;background:none;color:inherit;text-align:left;width:100%}
 .pop .mi:hover,.pop .mi:focus-visible{background:rgba(255,255,255,.1);outline:0}
 .pop .mi:disabled{opacity:.4;cursor:default}
 /* gestaltete Auswahlboxen (wie 0.10): das native <select> bleibt die Quelle, sichtbar ist ein Knopf mit Liste */
 select[data-ui]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;margin:0}
-.sel{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;height:34px;padding:0 10px 0 12px;border:0;border-radius:6px;background:var(--fill);color:#fff;
+.uisel{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;height:34px;padding:0 10px 0 12px;border:0;border-radius:6px;background:var(--fill);color:#fff;
   font-size:14px;cursor:pointer;max-width:100%;min-width:0;text-align:left}
-.sel:hover{background:var(--fill-2)}
-.sel:focus-visible{box-shadow:0 0 0 2px rgba(53,132,228,.6);outline:0}
-.sel:disabled{opacity:.4;cursor:not-allowed}
-.sel svg{opacity:.6;flex:none}
-.fbar2 .sel{height:32px;font-size:13.5px}
+.uisel:hover{background:var(--fill-2)}
+.uisel:focus-visible{box-shadow:0 0 0 2px rgba(53,132,228,.6);outline:0}
+.uisel:disabled{opacity:.4;cursor:not-allowed}
+.uisel svg{opacity:.6;flex:none}
+.fbar2 .uisel{height:32px;font-size:13.5px}
 .zoomctl{display:inline-flex;align-items:center;gap:0;border-radius:6px;background:transparent}
 .zoomctl button{height:30px;min-width:28px;border:0;background:transparent;color:#fff;border-radius:6px;cursor:pointer;font-size:13px;opacity:.75}
 .zoomctl button:hover{background:var(--fill);opacity:1}
@@ -399,7 +399,7 @@ body.remote .hideremote,body.remote #setBtn,body.remote #updBtn,body.remote [dat
 .rbody1.opts{padding:0;gap:0;border-radius:0 0 14px 14px}
 .calrow{grid-template-columns:120px minmax(0,1fr) auto}
 .calrow .cl small{display:block;font-weight:400;opacity:.55;font-size:12px}
-.calrow .cc .sel{height:30px;font-size:13px;max-width:240px}
+.calrow .cc .uisel{height:30px;font-size:13px;max-width:240px}
 .hint{display:flex;gap:8px;align-items:flex-start;margin-top:6px;padding:8px 10px;border-radius:8px;font-size:13px;background:rgba(255,255,255,.04)}
 .hint .hi{display:flex;margin-top:2px}.hint.warn .hi{color:var(--warn)}.hint.err .hi{color:var(--err)}
 .hint b{font-weight:700}.hint div div{opacity:.8;text-wrap:pretty}
@@ -641,11 +641,12 @@ details>summary{cursor:pointer}
   <a class="hbtn" id="histBtn" href="#/verlauf" title="Verlauf aller Projekte"></a>
   <span class="zoomctl" id="zoomCtl" title="Größe der Oberfläche (Strg + / Strg − / Strg 0)"><button id="zOut" aria-label="kleiner">−</button><button id="zVal" aria-label="Größe zurücksetzen">100 %</button><button id="zIn" aria-label="größer">+</button></span>
   <button class="hbtn icon" id="setBtn" title="Einstellungen" aria-label="Einstellungen"></button>
-  <div class="pop" id="selPop" hidden role="listbox"></div>
 </header>
 <main class="view" id="view"></main>
 
 <div id="popBack" hidden></div>
+<!-- Liste der gestalteten Auswahlfelder: außerhalb des Kopfs (der hat z-index 20 und läge unter #popBack) -->
+<div class="pop" id="selPop" hidden role="listbox"></div>
 <div class="pop" id="taskPop" hidden style="width:380px"></div>
 
 <!-- Großansicht eines Frames -->
@@ -661,8 +662,8 @@ details>summary{cursor:pointer}
 </div>
 
 <!-- Vergleich zweier Stacks: übereinander mit Schieber -->
-<div class="cmp" id="cmp" hidden role="dialog" aria-modal="true" aria-label="Stacks vergleichen">
-  <div class="cmptop"><b class="ct">Vergleich</b><select id="cmpA" aria-label="Stack A (links)"></select><span class="vs">gegen</span><select id="cmpB" aria-label="Stack B (rechts)"></select>
+<div class="cmp" id="cmp" hidden role="dialog" aria-modal="true" aria-label="Vergleichen">
+  <div class="cmptop"><b class="ct">Vergleich</b><select id="cmpA" aria-label="Bild A (links)"></select><span class="vs">gegen</span><select id="cmpB" aria-label="Bild B (rechts)"></select>
     <button class="btn sm ghost" id="cmpSwap" title="A und B tauschen">⇄<span class="hl"> tauschen</span></button><span class="grow"></span>
     <button class="hbtn icon" id="cmpClose" title="Schließen (Esc)" aria-label="Schließen"></button></div>
   <div class="cmpimg" id="cmpImg"><div class="zoomi" id="cmpZoomI" hidden></div><div class="cmpbox" id="cmpBox"><img id="cmpIa" class="ca" alt=""><img id="cmpIb" class="cb" alt=""><div class="cmph"></div></div>
@@ -990,7 +991,7 @@ function enhanceSelects(root){
   (root||document).querySelectorAll('select:not([data-ui])').forEach(sel=>{
     if(sel.closest('dialog')||sel.closest('.nosel'))return;
     sel.dataset.ui='1';
-    const b=document.createElement('button');b.type='button';b.className='sel';b.setAttribute('aria-haspopup','listbox');
+    const b=document.createElement('button');b.type='button';b.className='uisel';b.setAttribute('aria-haspopup','listbox');
     if(sel.getAttribute('aria-label'))b.setAttribute('aria-label',sel.getAttribute('aria-label'));
     if(sel.id)b.dataset.for=sel.id;
     if(sel.title)b.title=sel.title;
@@ -2329,7 +2330,7 @@ function stackCard(s){
   const meta=[ymd(s.created_at)+' '+hm(s.created_at),s.run_label,s.frames!=null?plural(s.frames,'Light','Lights'):'',hrs(s.hours)+' h',nights,s.size_bytes?bytes(s.size_bytes):''].filter(Boolean);
   const editing=SV.edit===s.id;
   return `<div class="stk${SV.sel.includes(s.id)?' sel':''}${s.status==='done'?'':' nopv'}" data-sid="${s.id}">
-    <button class="sp" data-open="${s.id}" title="${s.status==='done'?'Vergleichen':''}" ${s.status==='done'?'':'disabled style="cursor:default"'}>
+    <button class="sp" data-open="${s.id}" title="${s.status==='done'?'Groß ansehen':''}" ${s.status==='done'?'':'disabled style="cursor:default"'}>
       ${s.preview_url?`<img loading="lazy" alt="Vorschau ${esc(s.name)}" src="${esc(s.preview_url)}">`:`<span>${s.status==='done'?(s.missing?'Datei fehlt':(s.quality&&s.quality.error?'keine Vorschau':'Vorschau wird berechnet …')):s.status==='failed'?'kein Ergebnis':''}</span>`}
       <div class="badges">${s.cover?`<span class="pill info">${ic('star','tiny')} Projektbild</span>`:'<span></span>'}${s.missing?`<span class="pill err">Datei fehlt</span>`:''}</div></button>
     <div class="sb">
@@ -2354,9 +2355,8 @@ function wireStacks(box){
   const p=S.P;
   $$('[data-pick]',box).forEach(c=>c.onchange=()=>{const id=+c.dataset.pick;
     SV.sel=SV.sel.filter(x=>x!==id);if(c.checked){SV.sel.push(id);if(SV.sel.length>2)SV.sel.shift();}syncStackSel();});
-  $$('[data-open]',box).forEach(b=>b.onclick=()=>{const id=+b.dataset.open,dn=doneStacks();
-    const other=dn.find(x=>x.id!==id&&x.created_at<=dn.find(y=>y.id===id).created_at)||dn.find(x=>x.id!==id);
-    if(other)openCompare(other.id,id);else toast('Zum Vergleichen braucht es einen zweiten Stack.');});
+  $$('[data-open]',box).forEach(b=>b.onclick=()=>{const items=stackItems(),i=items.findIndex(x=>x.stack_id===+b.dataset.open);
+    if(i>=0)openGvList(items,i);});
   $$('[data-note]',box).forEach(b=>b.onclick=()=>{SV.edit=+b.dataset.note;renderTab();const t=$('#noteIn');if(t){t.focus();t.selectionStart=t.value.length;}});
   const ta=$('#noteIn');
   if(ta){
@@ -2412,12 +2412,19 @@ async function openCheat(s){
 
 // ---------- Vergleich: zwei Stacks übereinander, Schieber, gleiche Streckung, Werte nebeneinander
 const CV={a:null,b:null,x:50,data:null,tok:0,drag:false};
-function openCompare(a,b){
-  if(!S.P)return;CV.a=a;CV.b=b;CV.x=50;
-  const dn=doneStacks(),opt=id=>dn.map(s=>`<option value="${s.id}" ${s.id===id?'selected':''}>${esc(s.name)}</option>`).join('');
-  $('#cmpA').innerHTML=opt(a);$('#cmpB').innerHTML=opt(b);
+// Vergleich: zwei Einträge (Stacks oder Galerie-Bilder). Zwei Stacks → ausgerichtet mit Qualitätswerten;
+// sonst die beiden Bilder übereinander mit Schieber und den gemessenen Werten aus den Bild-Infos.
+function stackItems(){return doneStacks().filter(s=>s.master_asset_id).map(s=>({key:'s'+s.id,id:s.master_asset_id,stack:true,stack_id:s.id,
+  name:s.name,thumb_url:s.preview_url,view_url:s.preview_url,cover:s.cover,missing:s.missing,size:s.size_bytes,added_at:s.created_at,place:'Stack',ext:'xisf',version:(s.quality||{}).preview||''}));}
+const itemKey=a=>a.key||(a.stack?'s'+a.stack_id:'g'+a.id);
+function openCompare(a,b){if(!S.P)return;openCompareItems(stackItems(),'s'+a,'s'+b);}
+function openCompareItems(items,ka,kb){
+  CV.items=items;CV.a=ka;CV.b=kb;CV.x=50;
+  const opt=k=>items.map(x=>`<option value="${esc(itemKey(x))}" ${itemKey(x)===k?'selected':''}>${x.stack?'Stack · ':''}${esc(x.name)}</option>`).join('');
+  $('#cmpA').innerHTML=opt(ka);$('#cmpB').innerHTML=opt(kb);
   $('#cmp').hidden=false;setSlider(50);loadCompare();
 }
+const cvItem=k=>(CV.items||[]).find(x=>itemKey(x)===k);
 function closeCompare(){if($('#cmp').hidden)return;$('#cmp').hidden=true;if(CV.zoom)CV.zoom.reset();CV.tok++;CV.data=null;$('#cmpIa').removeAttribute('src');$('#cmpIb').removeAttribute('src');}
 function setSlider(x){CV.x=Math.max(0,Math.min(100,x));$('#cmpBox').style.setProperty('--x',CV.x+'%');const r=$('#cmpRange');if(r)r.value=CV.x;}
 function fitCompare(){
@@ -2429,10 +2436,12 @@ function fitCompare(){
 window.addEventListener('resize',()=>{if(!$('#cmp').hidden)fitCompare();});
 async function loadCompare(){
   const tok=++CV.tok,pid=S.P.id,msg=$('#cmpMsg');if(CV.zoom)CV.zoom.reset();
-  if(CV.a===CV.b){msg.hidden=false;msg.textContent='Bitte zwei verschiedene Stacks wählen.';$('#cmpSide').innerHTML='';return;}
+  if(CV.a===CV.b){msg.hidden=false;msg.textContent='Bitte zwei verschiedene Bilder wählen.';$('#cmpSide').innerHTML='';return;}
+  const A=cvItem(CV.a),B=cvItem(CV.b);if(!A||!B)return;
+  if(!(A.stack&&B.stack))return loadImageCompare(A,B,tok);
   msg.hidden=false;msg.innerHTML=`${ic('spinner','s14 spin')} Stacks werden ausgerichtet …`;
   $('#cmpSide').innerHTML=`<div class="live">${ic('spinner','s14 spin')} Werte werden geladen …</div>`;
-  let d;try{d=await api(`/api/projects/${pid}/compare?a=${CV.a}&b=${CV.b}`);}catch(e){if(tok===CV.tok){msg.textContent=e.message;$('#cmpSide').innerHTML='';}return;}
+  let d;try{d=await api(`/api/projects/${pid}/compare?a=${A.stack_id}&b=${B.stack_id}`);}catch(e){if(tok===CV.tok){msg.textContent=e.message;$('#cmpSide').innerHTML='';}return;}
   if(tok!==CV.tok)return;CV.data=d;
   $('#cmpLa').textContent='A · '+d.a.name;$('#cmpLb').textContent='B · '+d.b.name;
   if(d.image_a){
@@ -2441,6 +2450,29 @@ async function loadCompare(){
     ia.src=d.image_a;ib.src=d.image_b;fitCompare();
   }else{msg.hidden=false;msg.textContent=d.image_error||'Für diese Stacks gibt es noch keine Vorschau.';$('#cmpBox').style.width='0';}
   renderCompareSide();
+}
+async function loadImageCompare(A,B,tok){
+  const msg=$('#cmpMsg');msg.hidden=false;msg.innerHTML=`${ic('spinner','s14 spin')} Bilder werden geladen …`;
+  $('#cmpLa').textContent='A · '+A.name;$('#cmpLb').textContent='B · '+B.name;
+  const ia=$('#cmpIa'),ib=$('#cmpIb');let n=0;
+  const ready=()=>{if(++n<2||tok!==CV.tok)return;msg.hidden=true;CV.data={align:{width:ia.naturalWidth||1,height:ia.naturalHeight||1,aligned:false},img:true};fitCompare();};
+  ia.onload=ib.onload=ready;ia.onerror=ib.onerror=()=>{if(tok===CV.tok)msg.textContent='Für eines der Bilder gibt es keine Vorschau.';};
+  ia.src=A.view_url;ib.src=B.view_url;
+  $('#cmpSide').innerHTML=`<div class="live">${ic('spinner','s14 spin')} Werte werden gemessen …</div>`;
+  let ra={},rb={};try{[ra,rb]=await Promise.all([api('/api/assets/'+A.id+'/info'),api('/api/assets/'+B.id+'/info')]);}catch(e){}
+  if(tok!==CV.tok)return;
+  const ma=ra.measured||{},mb=rb.measured||{};
+  const M=[['fwhm_px','Schärfe (FWHM, px)',-1,2],['stars','Sterne',1,0],['ecc','Sternform',-1,2],['noise','Rauschen (ADU)',-1,1],['gradient_pct','Verlauf (%)',-1,0]];
+  const cell=(v,o,dir,dg)=>{if(v==null)return '<div class="v">–</div>';const better=o!=null&&Math.abs(v-o)>Math.max(Math.abs(o),1e-9)*0.02&&((v-o)*dir>0);
+    const worse=o!=null&&Math.abs(v-o)>Math.max(Math.abs(o),1e-9)*0.02&&((v-o)*dir<0);
+    return `<div class="v ${better?'better':worse?'worse':''}">${num(v,dg)}${better?'<span class="mk">besser</span>':worse?'<span class="mk">schlechter</span>':''}</div>`;};
+  $('#cmpSide').innerHTML=`<input type="range" class="cmprange" id="cmpRange" min="0" max="100" step="0.5" value="${CV.x}" aria-label="Schieber: links A, rechts B">
+    <div class="keys" style="margin-top:-8px"><span class="kbd">←</span><span class="kbd">→</span> Schieber · <span class="kbd">Esc</span> schließen</div>
+    <div class="mtab"><div class="h">Wert</div><div class="h v">A</div><div class="h v">B</div>
+      ${M.map(([k,l,dir,dg])=>`<div>${l}</div>${cell(ma[k],mb[k],dir,dg)}${cell(mb[k],ma[k],dir,dg)}`).join('')}
+      <div>Pixel</div><div class="v">${ra.width?int(ra.width)+'×'+int(ra.height):'–'}</div><div class="v">${rb.width?int(rb.width)+'×'+int(rb.height):'–'}</div></div>
+    <div class="small muted">Die Bilder liegen so übereinander, wie sie sind – ohne Ausrichten und mit ihrer eigenen Streckung. Bei einem bearbeiteten Bild sind Rauschen und Verlauf nur grob vergleichbar. Mausrad oder Doppelklick zoomt.</div>`;
+  $('#cmpRange').oninput=e=>setSlider(+e.target.value);
 }
 function renderCompareSide(){
   const d=CV.data;if(!d)return;
@@ -2465,8 +2497,8 @@ function renderCompareSide(){
 }
 $('#cmpClose').innerHTML=ic('close');
 $('#cmpClose').onclick=()=>{closeCompare();if(S.route.tab==='stacks')renderTab();};
-$('#cmpA').onchange=e=>{CV.a=+e.target.value;loadCompare();};
-$('#cmpB').onchange=e=>{CV.b=+e.target.value;loadCompare();};
+$('#cmpA').onchange=e=>{CV.a=e.target.value;loadCompare();};
+$('#cmpB').onchange=e=>{CV.b=e.target.value;loadCompare();};
 $('#cmpSwap').onclick=()=>{[CV.a,CV.b]=[CV.b,CV.a];$('#cmpA').value=CV.a;$('#cmpB').value=CV.b;loadCompare();};
 (function(){
   const box=$('#cmpBox');
@@ -2511,10 +2543,10 @@ function drawGallery(){
   b.innerHTML=`<div class="gtiles">${l.map((a,i)=>`<div class="gt${a.missing?' miss':''}" data-aid="${a.id}">
       <button class="ph" data-gi="${i}" title="${esc(a.path)}"><span class="noimg">${ic(a.missing?'warn':'image')}<span>${a.missing?'Datei nicht gefunden':esc(EXTN[a.ext]||a.ext.toUpperCase())+' – keine Vorschau'}</span></span>
         <img loading="lazy" alt="" src="${esc(a.thumb_url)}" onerror="this.remove()">
-        <div class="badges">${a.cover?`<span class="pill info">${ic('star','tiny')} Projektbild</span>`:'<span></span>'}${a.missing?'<span class="pill err">Datei fehlt</span>':`<span class="pill neutral">${esc(EXTN[a.ext]||a.ext.toUpperCase())}</span>`}</div></button>
+        <div class="badges">${a.cover?`<span class="pill info">${ic('star','tiny')} Projektbild</span>`:'<span></span>'}${a.missing?'<span class="pill err">Datei fehlt</span>':a.stack?'<span class="pill info">Stack</span>':`<span class="pill neutral">${esc(EXTN[a.ext]||a.ext.toUpperCase())}</span>`}</div></button>
       <div class="ga"><button class="btn sm icon${a.cover?' on':''}" data-gcover="${a.id}" title="${a.cover?'Projektbild zurücksetzen':'Als Projektbild'}" aria-label="Als Projektbild">${ic('star','s14')}</button>
-        <button class="btn sm icon" data-grm="${a.id}" title="Aus der Galerie entfernen (die Datei bleibt)" aria-label="Aus der Galerie entfernen">${ic('close','s14')}</button></div>
-      <div class="gx"><div class="gn">${esc(a.name)}</div><div class="gm" title="${esc(a.path)}">${esc(a.place||'')} · ${bytes(a.size)}</div></div></div>`).join('')}</div>`;
+        ${a.stack?'':`<button class="btn sm icon" data-grm="${a.id}" title="Aus der Galerie entfernen (die Datei bleibt)" aria-label="Aus der Galerie entfernen">${ic('close','s14')}</button>`}</div>
+      <div class="gx"><div class="gn">${esc(a.name)}</div><div class="gm" title="${esc(a.path)}">${a.stack?'Stack aus dem Reiter Stacks':esc(a.place||'')} · ${bytes(a.size)}</div></div></div>`).join('')}</div>`;
   $$('[data-gi]',b).forEach(x=>x.onclick=()=>openGv(+x.dataset.gi));
   $$('[data-gcover]',b).forEach(x=>x.onclick=()=>busy(x,async()=>{const a=l.find(y=>y.id===+x.dataset.gcover);
     await api('/api/projects/'+S.P.id+'/cover',{asset_id:a.cover?null:a.id});toast(a.cover?'Projektbild zurückgesetzt':'Projektbild gesetzt');loadGallery();loadProjects();}));
@@ -2522,27 +2554,39 @@ function drawGallery(){
     if(!await ask('Aus der Galerie entfernen?',a.path+'\n\nNur der Eintrag verschwindet – die Datei selbst bleibt unverändert, wo sie ist.','Entfernen',true))return;
     busy(x,async()=>{await api('/api/projects/'+S.P.id+'/gallery/'+a.id+'/remove',{});loadGallery();});});
 }
-function openGv(i){GV.i=i;$('#gv').hidden=false;renderGv();}
+function openGv(i){GV.view=GV.list;GV.i=i;$('#gv').hidden=false;renderGv();}
+function openGvList(list,i){GV.view=list;GV.i=i;$('#gv').hidden=false;renderGv();}
 function closeGv(){if($('#gv').hidden)return;$('#gv').hidden=true;GV.tok++;$('#gvImg').removeAttribute('src');}
-function gvGo(d){const n=GV.i+d;if(!GV.list||n<0||n>=GV.list.length)return;GV.i=n;renderGv();}
+function gvGo(d){const L=GV.view||[],n=GV.i+d;if(n<0||n>=L.length)return;GV.i=n;renderGv();}
 function renderGv(){
-  const a=(GV.list||[])[GV.i];if(!a||$('#gv').hidden)return;
-  $('#gvTitle').textContent=a.name;$('#gvN').textContent=(GV.i+1)+' von '+GV.list.length;
-  $('#gvPrev').disabled=GV.i===0;$('#gvNext').disabled=GV.i===GV.list.length-1;
+  const L=GV.view||[],a=L[GV.i];if(!a||$('#gv').hidden)return;
+  $('#gvTitle').textContent=a.name;$('#gvN').textContent=(GV.i+1)+' von '+L.length;
+  $('#gvPrev').disabled=GV.i===0;$('#gvNext').disabled=GV.i===L.length-1;
   const img=$('#gvImg'),ld=$('#gvLoad'),tok=++GV.tok;
   ld.classList.toggle('center',!!a.missing);
   if(a.missing){img.removeAttribute('src');ld.hidden=false;ld.innerHTML=`${ic('warn','s14')} Datei fehlt – sie wurde verschoben oder gelöscht.`;}
   else{img.src=a.thumb_url;ld.hidden=false;ld.innerHTML=`${ic('spinner','s14 spin')} große Ansicht wird geladen …`;
     const hi=new Image();hi.onload=()=>{if(tok===GV.tok){img.src=hi.src;ld.hidden=true;}};hi.onerror=()=>{if(tok===GV.tok)ld.innerHTML=`${ic('warn','s14')} Für dieses Format gibt es keine Vorschau.`;};hi.src=a.view_url;}
-  $('#gvSide').innerHTML=`<div class="row" style="gap:8px">${a.cover?`<span class="pill info">${ic('star','tiny')} Projektbild</span>`:''}${a.missing?'<span class="pill err">Datei fehlt</span>':''}<span class="pill neutral">${esc(EXTN[a.ext]||a.ext)}</span></div>
+  $('#gvSide').innerHTML=`<div class="row" style="gap:8px">${a.cover?`<span class="pill info">${ic('star','tiny')} Projektbild</span>`:''}${a.missing?'<span class="pill err">Datei fehlt</span>':''}<span class="pill ${a.stack?'info':'neutral'}">${a.stack?'Stack':esc(EXTN[a.ext]||a.ext)}</span></div>
     <div class="meta"><span>Gehört zu</span><span>${esc(a.stack_name?'Stack '+a.stack_name:'ganzes Projekt')}</span><span>Liegt in</span><span>${esc(a.place||'')}</span><span>Größe</span><span>${bytes(a.size)}</span><span>Hinzugefügt</span><span>${esc(ymd(a.added_at))}</span></div>
     <div class="fpath">${esc(a.path)}</div>
     <div id="gvInfo">${a.missing?'':`<div class="small muted">${ic('spinner','s14 spin')} Bild wird vermessen …</div>`}</div>
-    <div class="dbtns"><button class="dbtn" id="gvCover" ${a.missing&&!a.cover?'disabled style="opacity:.4;cursor:default"':''}>${ic('star')}<span class="g">${a.cover?'Projektbild zurücksetzen':'Als Projektbild'}</span></button></div>
+    <div class="dbtns"><button class="dbtn" id="gvCmp" ${a.missing?'disabled style="opacity:.4;cursor:default"':''}>${ic('layers')}<span class="g">Vergleichen …</span></button><button class="dbtn" id="gvCover" ${a.missing&&!a.cover?'disabled style="opacity:.4;cursor:default"':''}>${ic('star')}<span class="g">${a.cover?'Projektbild zurücksetzen':'Als Projektbild'}</span></button></div>
     <div class="keys lbkeys"><span><span class="kbd">←</span> <span class="kbd">→</span> blättern</span><span><span class="kbd">Esc</span> schließen</span></div>`;
   if(!a.missing)loadGvInfo(a,tok);
+  $('#gvCmp').onclick=e=>pickCompare(a,e.currentTarget);
   $('#gvCover').onclick=e=>busy(e.currentTarget,async()=>{await api('/api/projects/'+S.P.id+'/cover',{asset_id:a.cover?null:a.id});
-    GV.list.forEach(x=>x.cover=false);a.cover=!a.cover;renderGv();drawGallery();loadProjects();});
+    (GV.view||[]).forEach(x=>x.cover=false);a.cover=!a.cover;renderGv();drawGallery();loadProjects();if(S.route.tab==='stacks')reloadProject();});
+}
+// zweites Bild zum Vergleichen wählen: alle Stacks und Galerie-Bilder des Projekts
+async function pickCompare(a,anchor){
+  let all=GV.list;if(!all||GV.pid!==S.P.id){try{all=await api('/api/projects/'+S.P.id+'/gallery');GV.list=all;GV.pid=S.P.id;}catch(e){toast(e.message,true);return;}}
+  const others=all.filter(x=>itemKey(x)!==itemKey(a)&&!x.missing);
+  if(!others.length){toast('Zum Vergleichen braucht es ein zweites Bild oder einen zweiten Stack.');return;}
+  const p=$('#selPop');
+  p.innerHTML=`<div class="small muted" style="padding:6px 10px">Vergleichen mit …</div>`+others.map((x,i)=>`<button type="button" class="mi" data-k="${i}">${x.thumb_url?`<img src="${esc(x.thumb_url)}" alt="" style="width:40px;height:28px;object-fit:cover;border-radius:4px">`:''}<span class="grow ell">${x.stack?'Stack · ':''}${esc(x.name)}</span></button>`).join('');
+  p.style.minWidth='280px';openPop('selPop',anchor,true);
+  $$('[data-k]',p).forEach(b=>b.onclick=()=>{closePops();const o=others[+b.dataset.k];closeGv();openCompareItems(all,itemKey(a),itemKey(o));});
 }
 const GVI=new Map();
 async function loadGvInfo(a,tok){

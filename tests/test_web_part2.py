@@ -424,7 +424,7 @@ def test_http_stack_preview_compare_gallery_cover(stacked2, tmp_path, monkeypatc
         assert call(srv, "GET", "api/projects")[1][0]["cover_url"] == g[0]["thumb_url"]
         assert call(srv, "POST", "api/projects/%d/cover" % pid, {"asset_id": "x"})[0] == 400
         assert call(srv, "POST", "api/projects/%d/gallery/%d/remove" % (pid, g[0]["id"]))[1] == {"ok": True}
-        assert call(srv, "GET", "api/projects/%d/gallery" % pid)[1] == []
+        assert [a for a in call(srv, "GET", "api/projects/%d/gallery" % pid)[1] if not a.get("stack")] == []
         hist = call(srv, "GET", "api/history?project=%d" % pid)[1]
         assert hist[0]["title"] and "icon" in hist[0]
         assert call(srv, "GET", "api/history?raw=1")[1][0]["data_json"]

@@ -494,6 +494,23 @@ def test_compare_overlay_slider_and_values(page, app):
     _wait(lambda: [s for s in app.core.stacks(pid) if s["id"] == a][0]["note"] == "geändert im Vergleich")
     page.keyboard.press("Escape")
     expect(cmp).to_be_hidden()
+    # 0.12.2: Klick aufs Vorschaubild öffnet den Stack groß (statt „braucht einen zweiten Stack“), von dort vergleichen
+    page.locator(".stk[data-sid='%d'] [data-open]" % a).click()
+    expect(page.locator("#gv")).to_be_visible()
+    expect(page.locator("#gvSide .pill.info", has_text="Stack")).to_be_visible()
+    page.click("#gvCmp")
+    page.locator("#selPop [data-k]").first.click()
+    expect(cmp).to_be_visible()
+    expect(page.locator("#cmpSide .mtab")).to_be_visible()
+    page.keyboard.press("Escape")
+    # Haken „zum Vergleich“ lässt die Karte, wie sie ist (früher schrumpfte sie auf 34 px – Klasse .sel doppelt belegt)
+    card = page.locator(".stk[data-sid='%d']" % a)
+    h0 = card.bounding_box()["height"]
+    card.locator("[data-pick]").check()
+    expect(card).to_have_class(re.compile(r"\bsel\b"))
+    assert abs(card.bounding_box()["height"] - h0) < 2
+    card.locator("[data-pick]").uncheck()
+    expect(card).not_to_have_class(re.compile(r"\bsel\b"))
 
 
 def _img(path, color=(180, 60, 60), size=(120, 80)):

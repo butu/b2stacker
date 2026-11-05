@@ -358,3 +358,56 @@ def test_cheat_sheet_for_finished_stack(page, app):
     expect(dlg).to_contain_text("Linear (vor dem Strecken)")
     expect(dlg).to_contain_text("Ha + OIII")                     # HaO3 → Dualband-Schritte
     expect(dlg.locator(".cnum").first).to_have_text("1")
+
+
+def test_every_styled_select_takes_a_click(page, app):
+    """0.12.2: Auswahlfelder übernahmen keine Auswahl. Jede gestaltete Auswahlbox wird per Klick bedient (nicht über
+    das versteckte <select>), und der neue Wert muss ankommen."""
+    pid = pid_of(app, "vdB 131")
+
+    def click_all(where):
+        boxes = page.locator("button.uisel")
+        n = boxes.count()
+        assert n, where
+        for i in range(n):
+            b = boxes.nth(i)
+            if not b.is_visible() or b.is_disabled():
+                continue
+            sel_id = b.get_attribute("data-for")
+            if not sel_id:
+                continue
+            opts = page.locator("#%s option" % sel_id)
+            if opts.count() < 2:
+                continue
+            before = page.eval_on_selector("#" + sel_id, "s => s.selectedIndex")
+            target = 1 if before != 1 else 0
+            text = opts.nth(target).inner_text().strip()
+            b.click()
+            expect(page.locator("#selPop")).to_be_visible()
+            page.locator("#selPop [data-i='%d']" % target).click()
+            page.wait_for_function("([id, t]) => { const s = document.getElementById(id); "
+                                   "return s && s.selectedIndex === t; }", arg=[sel_id, target])
+            expect(page.locator("button.uisel[data-for='%s']" % sel_id)).to_contain_text(text[:12])
+    page.goto(app.url + "#/p/%d/frames" % pid)
+    expect(page.locator("#vgrid .vt").first).to_be_visible()
+    click_all("Frames")
+    page.goto(app.url + "#/p/%d/plan" % pid)
+    page.locator("[data-topt]").first.click()
+    click_all("Plan")
+
+
+def test_selected_frame_keeps_image_and_checkbox(page, app):
+    """0.12.2: ein ausgewählter Frame war grau überdeckt, die Checkbox verschwand (globale Klasse .sel)."""
+    pid = pid_of(app, "vdB 131")
+    page.goto(app.url + "#/p/%d/frames" % pid)
+    t = page.locator("#vgrid .vt[data-i='0']")
+    expect(t).to_be_visible()
+    h0 = t.bounding_box()["height"]
+    t.locator(".cb").click()
+    expect(t).to_have_class(re.compile(r"\bsel\b"))
+    expect(t.locator(".cb")).to_be_visible()
+    assert abs(t.bounding_box()["height"] - h0) < 2
+    bg = t.evaluate("e => getComputedStyle(e).backgroundColor")
+    assert "rgba(255, 255, 255, 0.08)" not in bg                    # nicht mehr das Grau der Auswahlbox
+    t.locator(".cb").click()
+    expect(t).not_to_have_class(re.compile(r"\bsel\b"))
