@@ -8,6 +8,7 @@ Neueste Version oben. Der Abschnitt der aktuellen Version erscheint auch im Upda
 - Claude sieht im Projektüberblick ebenfalls den Grund (`findings`) statt nur den Abstand.
 - **Rig-Hinweise laufen auf echten Daten.** 0.13.0 meldete „array type dtype('float16') not supported“: Die Vorschaubilder sind float16, damit rechnet die Dithering-Erkennung nicht. Sie werden jetzt vorher umgewandelt; ein Test rechnet mit echten Thumbnails statt einer Attrappe. Eine Fehlermeldung an dieser Stelle hat jetzt ein Warnsymbol statt eines grünen Hakens.
 - **Keine leeren Ansichten mehr durch „NaN“.** Fehlt ein Messwert, schrieb der Server „NaN“ ins JSON, und der Browser verwarf die ganze Antwort. Der Server liefert jetzt überall „leer“ statt NaN.
+- Beim Beenden wartet der Server, bis laufende Anfragen fertig sind, bevor die Datenbank geschlossen wird (sonst konnte Windows beim Schließen abstürzen).
 - **Ältere Stacks heißen wie ihr Ordner** (z. B. „2026-11-05 RGB 8h30“ statt „RGB“). Selbst vergebene Namen bleiben.
 
 ## 0.13.0 – 05.11.2026

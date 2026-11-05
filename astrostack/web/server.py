@@ -93,16 +93,31 @@ class WebServer(ThreadingHTTPServer):
         self.watcher = None
         self.swap_lock = threading.Lock()         # Core-Wechsel (Wiederherstellung) nie doppelt
         self.restoring = False
+        self._busy = 0                            # laufende Anfragen (``wait_idle``)
+        self._busy_cv = threading.Condition()
 
     @property
     def url(self) -> str:
         return "http://127.0.0.1:%d/" % self.server_address[1]
 
     def process_request_thread(self, request, client_address):
+        with self._busy_cv:
+            self._busy += 1
         try:
             super().process_request_thread(request, client_address)
         finally:
-            self.core.db.release()            # jede Anfrage hat ihren Thread → Verbindung nicht liegen lassen
+            try:
+                self.core.db.release()        # jede Anfrage hat ihren Thread → Verbindung nicht liegen lassen
+            finally:
+                with self._busy_cv:
+                    self._busy -= 1
+                    self._busy_cv.notify_all()
+
+    def wait_idle(self, timeout: float = 10.0) -> bool:
+        """Warten, bis keine Anfrage mehr läuft. Wer danach die Datenbank schließt, reißt keiner Anfrage die Verbindung
+        unter dem Schreiben weg (Windows: „access violation“ in SQLite)."""
+        with self._busy_cv:
+            return self._busy_cv.wait_for(lambda: self._busy == 0, timeout)
 
     lan_server = None
     lan_error = None
@@ -142,6 +157,7 @@ class WebServer(ThreadingHTTPServer):
             self.watcher.stop()
         self.shutdown()
         self.server_close()
+        self.wait_idle()                           # SSE-Ströme enden über ``stopping``, alles andere läuft zu Ende
 
     def start_watcher(self, interval: float) -> None:
         """Watcher für Quell- und Projektordner (``astrostack/watcher.py``) im Hintergrund starten."""
