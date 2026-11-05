@@ -571,6 +571,13 @@ def test_history_timeline_project_and_global(page, app):
     expect(tl).to_contain_text("Stacken fehlgeschlagen: RGB")
     expect(tl).to_contain_text("Projekt angelegt")
     expect(page.locator(".tli[data-kind='stack_done'] .tw").first).to_contain_text(re.compile(r"Vor \d+ (Tagen|Wochen)"))
+    # Einträge führen direkt zum Inhalt
+    page.locator(".tli[data-kind='stack_done']").first.click()
+    expect(page).to_have_url(re.compile(r"#/p/%d/stacks$" % pid))
+    page.go_back()
+    page.locator(".tli[data-kind='files_discovered']").first.click()
+    expect(page).to_have_url(re.compile(r"#/p/%d/frames$" % pid))
+    page.goto(app.url + "#/p/%d/history" % pid)
     page.locator("#hSeg button", has_text="Stacks").click()
     expect(page.locator(".tli[data-kind='project_created']")).to_have_count(0)
     # allgemeiner Verlauf über die Kopfzeile

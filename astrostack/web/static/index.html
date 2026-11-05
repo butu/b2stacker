@@ -480,6 +480,7 @@ dialog.rep iframe{flex:1;border:0;width:100%;background:#1e1e1e;border-radius:0 
 .ntab .hb{display:inline-block;height:6px;border-radius:3px;background:var(--accent,#3584e4);vertical-align:middle;margin-right:6px}
 .ntab tr.nsub td{white-space:normal;background:rgba(255,255,255,.025);font-size:13px}
 .nscroll{overflow-x:auto}
+.tli.link{cursor:pointer;border-radius:8px}.tli.link:hover{background:rgba(255,255,255,.04)}
 .mrow2{margin:2px 0;line-height:1.5}
 .ntab th.sortable{cursor:pointer;user-select:none}.ntab th.sortable:hover,.ntab th.on{color:#fff}
 .rigchips{display:flex;flex-wrap:wrap;gap:6px;padding:12px 16px 4px}
@@ -2707,6 +2708,17 @@ function dayGroup(at){
   if(days<=0)return 'Heute';if(days===1)return 'Gestern';if(days<7)return 'Diese Woche';if(days<14)return 'Letzte Woche';
   return MONTHS[t.getMonth()]+' '+t.getFullYear();
 }
+// Verlauf verlinken: ein Klick führt direkt zum Inhalt
+const HLINK={files_discovered:'frames',frames_decided:'frames',frames_deleted:'frames',stack_done:'stacks',stack_failed:'stacks',
+  stack_cancelled:'stacks',stack_deleted:'stacks',stack_imported:'stacks',stack_note:'stacks',assets_added:'gallery',cover_set:'gallery',
+  plan_edited:'plan',folder_added:'overview',folder_removed:'overview',project_created:'overview',project_renamed:'overview'};
+function histGo(el){
+  const k=el.dataset.kind,pid=el.dataset.pid,tab=HLINK[k];
+  if(k==='master_deleted'){location.hash='#/kalibrierung';return;}
+  if(!pid||!tab)return;
+  if(tab==='frames'){FV.type='light';FV.filt='';FV.night=k==='files_discovered'?(el.dataset.night||''):'';FV.status=k==='frames_decided'?'manual':'all';}
+  location.hash='#/p/'+pid+'/'+tab;
+}
 function timelineHtml(items,withProject){
   if(!items.length)return `<div class="empty"><div class="t">Noch nichts passiert</div><div class="x">Hier erscheint, was b2stacker findet und tut: neue Aufnahmen je Nacht und Filter, Stacks, deine Entscheidungen.</div></div>`;
   let last='',out='';
@@ -2717,7 +2729,8 @@ function timelineHtml(items,withProject){
     const when=fresh||!/^(Heute|Gestern)$/.test(g)?agoLong(i.at):(g==='Gestern'?'gestern ':'')+String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0');
     // neue Aufnahmen: dazu, wann sie aufgenommen wurden („letzte Nacht“, „vor 3 Nächten“)
     const det=i.detail&&i.night&&/^Nacht vom /.test(i.detail)?i.detail.replace(/^(Nacht vom [\d.]+)/,'$1 ('+nightsAgo(i.night)+')'):i.detail;
-    out+=`<div class="tli" data-kind="${esc(i.kind)}"><span class="tw" title="${esc(ymd(i.at)+' '+hm(i.at))}">${esc(when.charAt(0).toUpperCase()+when.slice(1))}</span>
+    const pidI=i.project_id!=null?i.project_id:(S.P&&S.P.id),linked=(HLINK[i.kind]&&pidI!=null)||i.kind==='master_deleted';
+    out+=`<div class="tli${linked?' link':''}" data-kind="${esc(i.kind)}" data-pid="${pidI!=null?pidI:''}" data-night="${esc(i.night||'')}" ${linked?'role="link" tabindex="0" title="Öffnen"':''}><span class="tw" title="${esc(ymd(i.at)+' '+hm(i.at))}">${esc(when.charAt(0).toUpperCase()+when.slice(1))}</span>
       <span class="tic ${esc(i.tone)}">${ic(i.icon,'s14')}</span>
       <div class="tx"><div class="tt">${withProject&&i.project_id!=null?`<a class="tp" href="#/p/${i.project_id}/history">${esc(i.project||'?')}</a>`:''}${esc(i.title)}</div>
         ${det?`<div class="td">${esc(det)}</div>`:''}</div></div>`;
@@ -2737,6 +2750,7 @@ async function renderProjectHistory(box){
   box.innerHTML=`<div class="sec" style="gap:14px"><div class="toolbar"><div class="seg" id="hSeg">${HFILT.map(([k,l])=>`<button data-k="${k}" class="${HV.filter===k?'on':''}">${l}</button>`).join('')}</div>
     <span class="grow"></span><a class="lnk" href="#/verlauf">Verlauf aller Projekte ${ic('next','s14')}</a></div>
     <div class="card" style="padding:14px 18px">${timelineHtml(hFilter(h),false)}</div></div>`;
+  $$('.tli.link',box).forEach(el=>{el.onclick=e=>{if(!e.target.closest('a'))histGo(el);};el.onkeydown=e=>{if(e.key==='Enter')histGo(el);};});
   $$('#hSeg button').forEach(b=>b.onclick=()=>{HV.filter=b.dataset.k;renderProjectHistory(box);});
 }
 async function renderGlobalHistory(){
@@ -2748,6 +2762,7 @@ async function renderGlobalHistory(){
       <select id="hProj" aria-label="Projekt"><option value="">Alle Projekte</option>${S.projects.map(p=>`<option value="${p.id}" ${String(p.id)===HV.project?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div>
     <div class="card" style="padding:14px 18px">${timelineHtml(hFilter(h),true)}</div>
     ${h.length>=HV.limit?`<button class="btn" id="hMore" style="align-self:center">Ältere Einträge laden</button>`:''}</div>`;
+  $$('#gHist .tli.link').forEach(el=>{el.onclick=e=>{if(!e.target.closest('a'))histGo(el);};el.onkeydown=e=>{if(e.key==='Enter')histGo(el);};});
   $$('#hSeg button').forEach(b=>b.onclick=()=>{HV.filter=b.dataset.k;renderGlobalHistory();});
   $('#hProj').onchange=e=>{HV.project=e.target.value;renderGlobalHistory();};
   const m=$('#hMore');if(m)m.onclick=()=>{HV.limit+=200;renderGlobalHistory();};
