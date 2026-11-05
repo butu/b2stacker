@@ -234,7 +234,7 @@ Hilfe `fake_stack` legt Stacks mit echten Mastern direkt an).
   dieselben Rohframes). Master-Darks werden jetzt auch aufgehoben (nur wenn WBPP genau einen erzeugt).
   `masters.key_json` trägt Eckdaten aus den Headern (`handover.master_info`). Seite `#/kalibrierung`,
   `GET /api/library`, `POST /api/library/<id>/delete` (nur Dateien im Arbeitsverzeichnis), MCP
-  `calibration_library`. **Noch mit echtem PixInsight zu prüfen:** ein Master-Dark als Eingabe von WBPP.
+  `calibration_library`. Mit echtem PixInsight geprüft (0.11.0): WBPP nimmt den gespeicherten Master-Dark an.
 - **Selbsttest der neuen App** (`selftest_neu.py`, `Core.selftest`, Spur `stack`): Testdaten wie bisher, Ablauf
   Schritte 1–5 in eigenem Arbeitsverzeichnis `selbsttest/neu`, zweimal stacken (zweites Mal mit Mastern), Bericht
   `selbsttest/bericht-neu-*.json`. Einstellungen → Wartung, MCP `selftest`.

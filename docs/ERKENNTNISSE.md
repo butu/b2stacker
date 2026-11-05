@@ -50,7 +50,8 @@ je 5 Flats, 5 Bias, Ordnername mit Komma) und 210 kleinen Test-Lights. Skripte: 
 | 8 Event-Script | funktioniert: `onPipelineStart/OperationStart/OperationDone/PipelineEnd` schreiben eine Statusdatei (Index, Name, Endzeit). Index ist lückenhaft (nur verfolgte Schritte) – Fortschritt = Index/Gesamtzahl. Event-Script ohne `#engine` (WBPP kompiliert es). |
 | 9 Abbruch / Recovery | geprüft: Abbruch mitten in der Pipeline beendet PixInsight (Code 1), Ergebnisdatei steht auf Phase „run“, `ok: false`. Der nächste Lauf startet sofort normal, kein Recovery-Dialog (Automatik-Modus speichert keinen Zwischenstand). Achtung: Befehle über die Fernverbindung kommen bis zu ~10 s verzögert an. |
 | 10 Signatur | nicht nötig, solange „Allow execution of unsigned scripts“ an ist (bei Benjamin an). Pflicht ist `#engine v8` als erste Zeile. |
-| 11 NAS/OneDrive | offen. |
+| 11 NAS | geprüft mit 0.11.0 (05.11.2026): Selbsttest der neuen App mit Testdaten auf dem NAS (`A:\test`, Netzlaufwerk) – Einlesen, Vermessen und zweimal Stacken in 44 s, gleich schnell wie lokal (54 s). Pfade mit Komma auf dem Netzlaufwerk gehen direkt an WBPP. |
+| 12 Master wiederverwenden | geprüft mit 0.11.0: Master-Bias, -Dark und zwei Master-Flats aus dem ersten Lauf werden im zweiten Lauf von WBPP angenommen; liegen dieselben Rohdaten zusätzlich auf dem NAS (gleiche Prüfsummen), nimmt auch dieser Stack die gespeicherten Master. |
 
 Weitere Befunde:
 - `engine.rejection[]` enthält ImageIntegration-Konstanten, nicht 0–5: Nummern mit `engine.rejectionFromIndex()`
