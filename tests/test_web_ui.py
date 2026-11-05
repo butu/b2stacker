@@ -312,24 +312,32 @@ def test_plan_setting_persists_and_stack_shows_progress(page, app):
     runs = page.locator(".run")
     expect(runs).to_have_count(2)
     ha = page.locator(".run", has_text="HaO3")
-    expect(ha.locator(".calrow").first).to_contain_text("Flats")
-    # Lokale Normalisierung umschalten → „angepasst“, gespeichert, Zurücksetzen geht
-    sw = ha.locator(".setrow", has_text="Lokale Normalisierung")
-    before = sw.locator("input").is_checked()
-    sw.locator(".switch").click()
-    expect(ha.locator(".setrow", has_text="Lokale Normalisierung").locator(".adj")).to_have_text("angepasst")
+    ha.locator("[data-tcal]").click()
+    expect(ha.locator(".calrow").first).to_contain_text("Nacht")
+    expect(ha.locator("details.help")).to_contain_text("Wie wählt b2stacker")
+    ha.locator("[data-topt]").click()
+    opt = lambda: page.locator(".run", has_text="HaO3").locator(".optrow", has_text="Lokale Normalisierung")  # noqa: E731
+    before = opt().locator("input").is_checked()
+    opt().locator(".switch").click()
+    expect(opt().locator(".adj")).to_have_text("angepasst")
     plan = app.core.plan(pid)
     s = [x for r in plan["runs"] if r["name"] == "HaO3" for x in r["settings"] if x["key"] == "local_normalization"][0]
     assert s["value"] is (not before) and s["edited"]
     page.reload()
-    expect(page.locator(".run", has_text="HaO3").locator(".setrow", has_text="Lokale Normalisierung")
-           .locator(".adj")).to_have_text("angepasst")
-    page.locator(".run", has_text="HaO3").locator(".setrow", has_text="Lokale Normalisierung").locator(".rst").click()
-    expect(page.locator(".run", has_text="HaO3").locator(".adj")).to_have_count(0)
-    # Auswahl: Rejection
+    page.locator(".run", has_text="HaO3").locator("[data-topt]").click()
+    expect(opt().locator(".adj")).to_have_text("angepasst")
+    opt().locator(".rst").click()
+    expect(page.locator(".run", has_text="HaO3").locator(".optrow .adj")).to_have_count(0)
+    # Auswahl: Rejection (gestaltete Auswahlbox, darunter das echte <select>)
     page.locator(".run", has_text="HaO3").locator("select[data-set$='|rejection']").select_option("winsorized")
-    expect(page.locator(".run", has_text="HaO3").locator(".setrow", has_text="Pixel-Rejection").locator(".adj")) \
+    expect(page.locator(".run", has_text="HaO3").locator(".optrow", has_text="Pixel-Rejection").locator(".adj")) \
         .to_have_text("angepasst")
+    # Lauf umbenennen
+    page.locator(".run", has_text="HaO3").locator("[data-rren]").click()
+    page.fill("#txtIn", "Ha+OIII")
+    page.click("#txtOk")
+    expect(page.locator(".run", has_text="Ha+OIII")).to_have_count(1)
+    assert any(r["name"] == "Ha+OIII" for r in app.core.plan(pid)["runs"])
     # Stacken: Auftrag startet, Fortschritt kommt per SSE, am Ende fertig
     go = page.locator("#stackGo")
     expect(go).to_be_enabled()

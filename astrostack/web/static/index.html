@@ -391,6 +391,36 @@ body.remote .hideremote,body.remote #setBtn,body.remote #updBtn,body.remote [dat
 .ro{font-size:13px;opacity:.7}
 .chev{display:inline-flex;opacity:.7;transition:transform .15s}
 .chev.open{transform:rotate(180deg)}
+.rfoot{border-top:1px solid var(--div);display:flex;flex-wrap:wrap;gap:4px;padding:6px 8px}
+.rft{display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:#fff;font-size:14px;cursor:pointer;min-width:0}
+.rft:hover,.rft.open{background:var(--fill)}
+.rft .rfs{opacity:.55;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rbody1{border-top:1px solid var(--div);padding:12px 16px 16px;display:flex;flex-direction:column;gap:8px;background:rgba(0,0,0,.12)}
+.rbody1.opts{padding:0;gap:0;border-radius:0 0 14px 14px}
+.calrow{grid-template-columns:120px minmax(0,1fr) auto}
+.calrow .cl small{display:block;font-weight:400;opacity:.55;font-size:12px}
+.calrow .cc .sel{height:30px;font-size:13px;max-width:240px}
+.hint{display:flex;gap:8px;align-items:flex-start;margin-top:6px;padding:8px 10px;border-radius:8px;font-size:13px;background:rgba(255,255,255,.04)}
+.hint .hi{display:flex;margin-top:2px}.hint.warn .hi{color:var(--warn)}.hint.err .hi{color:var(--err)}
+.hint b{font-weight:700}.hint div div{opacity:.8;text-wrap:pretty}
+details.help{border-radius:8px;background:rgba(255,255,255,.04);font-size:13.5px}
+details.help summary{cursor:pointer;padding:8px 10px;display:flex;align-items:center;gap:6px;color:var(--info);font-weight:700;list-style:none}
+details.help summary::-webkit-details-marker{display:none}
+details.help>div{padding:0 12px 10px;opacity:.85}details.help p{margin:6px 0;text-wrap:pretty}
+.optrow{display:flex;align-items:center;gap:14px;padding:12px 16px;border-top:1px solid var(--div)}
+.optrow:first-child{border-top:0}
+.optrow.col{flex-direction:column;align-items:stretch}
+.optrow .ot{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.optrow .on{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:15px}
+.optrow .od{font-size:13px;opacity:.6;text-wrap:pretty}
+.optrow .oc{display:flex;align-items:center;gap:8px;flex:none}
+.optrow.pending{opacity:.6}
+.topsl{display:flex;flex-direction:column;gap:4px;min-width:240px;flex:0 1 320px}.topsl input{width:100%;accent-color:var(--accent)}
+.sdgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px 16px}
+.sdrow{display:flex;flex-direction:column;gap:4px}.sdrow label{font-size:13.5px;font-weight:700;display:flex;gap:6px;align-items:center}
+.sdrow input{height:32px;border-radius:6px;border:0;background:var(--fill);padding:0 10px;color:#fff}
+.sdrow .od{font-size:12px;opacity:.55}
+.editbtn{border:0;background:none;color:#fff;opacity:.5;cursor:pointer;padding:2px;border-radius:4px;display:inline-flex}.editbtn:hover{opacity:1;background:var(--fill)}
 .meters{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
 .meter{padding:14px 16px;display:flex;flex-direction:column;gap:8px}
 .meter .mt{display:flex;justify-content:space-between;gap:10px;font-size:14px}
@@ -649,6 +679,10 @@ details>summary{cursor:pointer}
   <div class="bd" id="updBody"></div>
 </dialog>
 
+<dialog id="txtDlg"><div class="hd"><h2 id="txtT"></h2></div>
+  <div class="bd"><div class="field"><label for="txtIn" id="txtL"></label><input type="text" id="txtIn" autocomplete="off"><div class="d" id="txtH"></div></div></div>
+  <div class="ft"><button class="btn outline" id="txtNo">Abbrechen</button><button class="btn primary" id="txtOk">Speichern</button></div></dialog>
+
 <dialog id="askDlg" class="ask"><div class="at"><b id="askT"></b><div id="askX"></div></div>
   <div class="af"><button class="btn" id="askNo">Abbrechen</button><button class="btn" id="askOk">OK</button></div></dialog>
 
@@ -734,6 +768,13 @@ const ICONS={
 const ic=(n,cls='')=>{const g=ICONS[n]||ICONS.info;
   return g.startsWith('S|')?`<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round">${g.slice(2)}</svg>`:
     `<svg class="i ${cls}" viewBox="0 0 16 16" aria-hidden="true">${g}</svg>`;};
+ICONS.sliders='S|<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>';
+ICONS.star=ICONS.star||'S|<path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"/>';
+ICONS.hand=ICONS.hand||'S|<path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-6-2.4l-3.6-3.6a2 2 0 0 1 2.8-2.8L7 15"/>';
+ICONS.moon='S|<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>';
+ICONS.target='S|<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>';
+ICONS.report='S|<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 18v-4M12 18v-7M16 18v-2"/>';
+ICONS.note='S|<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/>';
 ICONS.trash='S|<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/><path d="M10 11v5M14 11v5"/>';
 ICONS.gear='<path d="M6.5 0l-.4 2.1a6 6 0 0 0-1.5.9l-2-.7L1.1 4.9l1.6 1.4a6 6 0 0 0 0 1.7L1.1 9.4l1.5 2.6 2-.7c.4.4.9.7 1.5.9L6.5 14h3l.4-2.1c.6-.2 1.1-.5 1.5-.9l2 .7 1.5-2.6-1.6-1.4a6 6 0 0 0 0-1.7l1.6-1.4-1.5-2.6-2 .7a6 6 0 0 0-1.5-.9L9.5 0zM8 4.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5" transform="translate(0 1)"/>';
 ICONS.hand='<path d="M7 1a1 1 0 0 0-1 1v5H5V3a1 1 0 0 0-2 0v6.5L2.2 8.3a1 1 0 0 0-1.6 1.2l2.6 3.8A4 4 0 0 0 6.5 15H9a4 4 0 0 0 4-4V5a1 1 0 0 0-2 0v2h-1V3a1 1 0 0 0-2 0v4H8V2a1 1 0 0 0-1-1"/>';
@@ -772,6 +813,17 @@ async function busy(btn,fn){
   if(btn){btn.classList.add('busy');btn.disabled=true;}
   try{return await fn();}catch(e){toast(e.message,true);return undefined;}
   finally{if(btn&&btn.isConnected){btn.classList.remove('busy');btn.disabled=false;}}
+}
+// Text abfragen im Stil der App; liefert Text oder null
+function askText(title,label,value,hint,ok){
+  return new Promise(res=>{
+    $('#txtT').textContent=title;$('#txtL').textContent=label||'';$('#txtH').textContent=hint||'';$('#txtOk').textContent=ok||'Speichern';
+    const inp=$('#txtIn');inp.value=value||'';const dlg=$('#txtDlg');
+    const done=v=>{dlg.onclose=null;dlg.close();res(v);};
+    $('#txtOk').onclick=()=>done(inp.value.trim());$('#txtNo').onclick=()=>done(null);dlg.onclose=()=>res(null);
+    inp.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();done(inp.value.trim());}};
+    dlg.showModal();inp.focus();inp.select();
+  });
 }
 // Bestätigung im Stil der App; liefert true/false
 function ask(title,text,ok,danger){
@@ -1816,6 +1868,29 @@ const SETL={
 const VERD={good:['gut','ok'],warning:['Hinweis','warn'],critical:['Problem','err']};
 const PENDING=new Set();      // Lauf|Einstellung, die gerade gespeichert wird
 const OPENRUN=new Map();      // Lauf-Id → Details offen? (sonst: offen, wenn der Lauf an ist)
+const UIP={cal:new Set(),opt:new Set(),opts:false};      // offene Bereiche im Plan (je Lauf)
+const STARL={maxStarDistortion:['Max. Sternverzerrung','Sterne, die ovaler sind, ignoriert PixInsight beim Ausrichten (rund = 0,785).'],
+  minStructureSize:['Min. Strukturgröße','Kleinere Strukturen (Hotpixel, Rauschen) zählen nicht als Stern.'],
+  hotPixelFilterRadius:['Hotpixel-Filter','Radius des Filters gegen Hotpixel vor der Sternsuche.'],
+  noiseReductionFilterRadius:['Rauschfilter','Glättet vor der Sternsuche – hilft bei verrauschten Frames.'],
+  structureLayers:['Strukturebenen','Wie groß gesuchte Sterne sein dürfen (mehr Ebenen = größere Sterne).'],
+  sensitivity:['Empfindlichkeit','Wie schwache Sterne noch erkannt werden.']};
+const chev=o=>`<span class="chev${o?' open':''}">${ic('down','s14')}</span>`;
+const lvl=v=>v==='critical'?['err','error','Problem']:v==='warning'?['warn','warn','Hinweis']:v==='good'?['ok','check','gut']:['neutral','info',''];
+function topKeepJS(n,p){return p>=100?n:Math.min(n,Math.max(Math.min(n,3),Math.ceil(n*p/100)));}
+function topHoursJS(r,p){const ex=r.rank_exp||[];const k=topKeepJS(ex.length,p);return ex.slice(0,k).reduce((a,b)=>a+b,0)/3600;}
+function topTextJS(r,p){const n=(r.rank_exp||[]).length,k=topKeepJS(n,p);return p>=100?`alle ${n} Lights · ${hrs(r.hours_all)} h`:`beste ${k} von ${n} Lights · ${hrs(topHoursJS(r,p))} von ${hrs(r.hours_all)} h`;}
+function runCalLevel(r){
+  const f=r.flats||[];
+  if(!f.some(x=>(x.file_ids||[]).length))return 'critical';
+  if(f.some(x=>!(x.file_ids||[]).length&&!x.manual)||f.some(x=>x.verdict==='critical'||(x.hints||[]).length)||!(r.bias.file_ids||[]).length)return 'warning';
+  return 'good';
+}
+// Befund in drei Teilen: was ist los · warum so bewertet · was kann ich tun
+function hintHtml(h){
+  const L=lvl(h.level);
+  return `<div class="hint ${L[0]}"><span class="hi">${ic(L[1],'s14')}</span><div><b>${esc(h.title||'')}</b>${h.text?`<div>${esc(h.text)}</div>`:''}</div></div>`;
+}
 function renderPlan(box){
   const p=S.P,plan=p.plan;
   if(p._partial){box.innerHTML=`<div class="live">${ic('spinner','s14 spin')} Plan wird geladen …</div>`;return;}
@@ -1824,62 +1899,126 @@ function renderPlan(box){
     box.innerHTML=`<div class="empty"><div class="t">${busyNow?'Plan entsteht gerade':'Noch kein Plan'}</div><div class="x">${busyNow?'Sobald die Aufnahmen gelesen und vermessen sind, erscheint hier, was gestackt wird – mit allen Einstellungen und warum.':'Füge in der Übersicht Ordner mit Lights hinzu. Der Plan entsteht dann automatisch.'}</div></div>`;
     return;
   }
-  const anyEdit=plan.runs.some(r=>r.settings.some(s=>s.edited));
-  box.innerHTML=`<div class="sec" style="gap:18px">
+  const runs=plan.runs.slice().sort((a,b)=>(b.enabled?1:0)-(a.enabled?1:0));
+  const anyEdit=plan.runs.some(r=>r.settings.some(s=>s.edited)||r.label||r.top_percent<100||r.reference_edited||Object.keys(r.calib_edits||{}).length);
+  box.innerHTML=`<div class="sec" style="gap:28px">
     <div class="card" id="stackBox"></div>
-    <div class="sechd"><div><h2>Läufe</h2><p class="sub">Jeder Filter (mit gleichem Gain und Setup) wird für sich gestackt. Alle Einstellungen gibt b2stacker WBPP ausdrücklich mit – jeweils mit Grund.</p></div>
+    <section class="sec" style="gap:12px"><div class="sechd"><div><h2>Läufe</h2><p class="sub">b2stacker stackt jeden Filter in einem eigenen Lauf. Schalte aus, was du diesmal nicht brauchst. Unter „Kalibrierung“ und „Optionen“ steht zu jeder Wahl, warum – und was du ändern kannst.</p></div>
       ${anyEdit?`<button class="btn sm" id="planReset">${ic('undo','s14')} Alles auf Automatik</button>`:''}</div>
-    <div class="runs">${plan.runs.slice().sort((a,b)=>(b.enabled?1:0)-(a.enabled?1:0)).map(runCard).join('')}</div>
-    ${(plan.notes||[]).map(n=>`<div class="banner">${ic('info','s18')}<div class="grow bx">${esc(n)}</div></div>`).join('')}
-    <div class="meters">${meter('Speicherplatz (Arbeitsverzeichnis)',plan.need_gb,plan.free_gb,'GB','nötig während des Stackens')}${meter('Arbeitsspeicher',plan.need_ram_gb,plan.free_ram_gb,'GB','geschätzt für den größten Lauf')}</div>
+      <div class="runs">${runs.map(runCard).join('')}</div>
+      ${(plan.notes||[]).map(n=>`<div class="banner">${ic('info','s18')}<div class="grow bx">${esc(n)}</div></div>`).join('')}</section>
+    <section class="sec" style="gap:12px"><div class="sechd"><div><h2>Platz</h2><p class="sub">Zwischendateien entstehen im Temp-Ordner und werden nach jedem Lauf gelöscht – daher zählt der größte Lauf.</p></div></div>
+      <div class="meters">${diskMeter(plan)}${meter('Arbeitsspeicher',plan.need_ram_gb,plan.free_ram_gb,'GB',plan.total_ram_gb?'Gesamt '+num(plan.total_ram_gb,0)+' GB · andere Programme schließen gibt mehr frei':'geschätzt für den größten Lauf')}</div></section>
   </div>`;
   renderStackBox();
-  const pr=$('#planReset');if(pr)pr.onclick=async()=>{if(await ask('Alles auf Automatik?','Alle Änderungen am Plan werden verworfen.','Zurücksetzen',true))busy(pr,()=>editPlan({reset:true}));};
+  const pr=$('#planReset');if(pr)pr.onclick=async()=>{if(await ask('Alles auf Automatik?','Alle Änderungen am Plan werden verworfen: Einstellungen, Namen, Referenz, beste X % und Kalibrierung von Hand.','Zurücksetzen',true))busy(pr,()=>editPlan({reset:true}));};
+  const R=id=>plan.runs.find(r=>r.id===id);
   $$('[data-run-en]',box).forEach(i=>i.onchange=()=>editPlan({runs:{[i.dataset.runEn]:{enabled:i.checked}}},i.dataset.runEn+'|enabled'));
   $$('[data-set]',box).forEach(i=>i.onchange=()=>{const [rid,key]=splitKey(i.dataset.set);const val=i.type==='checkbox'?i.checked:i.value;editPlan({runs:{[rid]:{[key]:val}}},i.dataset.set);});
-  $$('[data-det]',box).forEach(b=>b.onclick=()=>{const run=b.closest('.run'),body=run.querySelector('.rbody'),o=body.hidden;
-    body.hidden=!o;OPENRUN.set(b.dataset.det,o);b.setAttribute('aria-expanded',o);b.innerHTML=(o?'Details ausblenden':'Details')+`<span class="chev${o?' open':''}">${ic('down','s14')}</span>`;});
   $$('[data-reset]',box).forEach(b=>b.onclick=()=>{const [rid,key]=splitKey(b.dataset.reset);editPlan({runs:{[rid]:{[key]:null}}},b.dataset.reset);});
+  $$('[data-tcal]',box).forEach(b=>b.onclick=()=>{const id=b.dataset.tcal;UIP.cal.has(id)?UIP.cal.delete(id):UIP.cal.add(id);renderTab();});
+  $$('[data-topt]',box).forEach(b=>b.onclick=()=>{const id=b.dataset.topt;UIP.opt.has(id)?UIP.opt.delete(id):UIP.opt.add(id);renderTab();});
+  $$('[data-top]',box).forEach(c=>{const r=R(c.dataset.top);
+    c.oninput=()=>{const v=+c.value;$(`[data-topp="${CSS.escape(r.id)}"]`).textContent=v+' %';$(`[data-topt2="${CSS.escape(r.id)}"]`).textContent=topTextJS(r,v);
+      const h=$(`[data-toph="${CSS.escape(r.id)}"]`);if(h)h.textContent=hrs(topHoursJS(r,v))+' h';};
+    c.onchange=()=>editPlan({runs:{[r.id]:{top_percent:+c.value>=100?null:+c.value}}},r.id+'|top');});
+  $$('[data-ref]',box).forEach(c=>c.onchange=()=>editPlan({runs:{[c.dataset.ref]:{reference:c.value==='auto'?null:+c.value}}},c.dataset.ref+'|ref'));
+  $$('[data-flat]',box).forEach(c=>c.onchange=()=>{const [rid,night]=splitKey(c.dataset.flat);const r=R(rid);
+    const cur=Object.assign({},(r.calib_edits||{}).flats||{});if(c.value==='auto')delete cur[night];else cur[night]=c.value;
+    editPlan({runs:{[rid]:{flats:Object.keys(cur).length?cur:null}}},rid+'|flats');});
+  $$('[data-calk]',box).forEach(c=>c.onchange=()=>{const [rid,k]=splitKey(c.dataset.calk);editPlan({runs:{[rid]:{[k]:c.value==='auto'?null:c.value}}},rid+'|'+k);});
+  $$('[data-sd]',box).forEach(inp=>inp.onchange=()=>{const [rid,k]=splitKey(inp.dataset.sd);const r=R(rid);
+    const sd=r.settings.find(x=>x.key==='star_detection')||{value:{},auto:{},edited_keys:[]};
+    const user={};for(const kk of sd.edited_keys||[])user[kk]=sd.value[kk];
+    const v=inp.value.trim().replace(',','.');if(v===''||Number(v)===Number(sd.auto[k]))delete user[k];else if(isNaN(Number(v))){toast('Bitte eine Zahl eingeben',true);return;}else user[k]=Number(v);
+    editPlan({runs:{[rid]:{star_detection:Object.keys(user).length?user:null}}},rid+'|star_detection');});
+  $$('[data-rren]',box).forEach(b=>b.onclick=async()=>{const r=R(b.dataset.rren);
+    const v=await askText('Lauf umbenennen','Name',r.name,`Automatisch erkannt: „${r.filter||'?'}“. Der Name erscheint in der Stack-Liste und im Ordnernamen des Stacks. Leer lassen = automatischer Name.`);
+    if(v===null)return;await editPlan({runs:{[r.id]:{label:v&&v!==r.filter?v:null}}},r.id+'|label');toast(v&&v!==r.filter?'Lauf heißt jetzt „'+v+'“':'Automatischer Name');});
 }
 const splitKey=s=>{const i=s.lastIndexOf('|');return [s.slice(0,i),s.slice(i+1)];};
 function runCard(r){
-  const nights=r.nights||[];
-  const setRows=r.settings.map(s=>{
+  const nights=r.nights||[],cl=runCalLevel(r),L=lvl(cl),co=UIP.cal.has(r.id),oo=UIP.opt.has(r.id);
+  const top=r.top_percent||100,unused=Math.max(0,(r.hours_all||0)-(r.hours||0));
+  const optSum=[top<100?'beste '+top+' %':'',r.reference_edited?'eigene Referenz':'',r.settings.some(s=>s.edited)?'angepasst':''].filter(Boolean).join(' · ')||'empfohlen';
+  return `<div class="run${r.enabled?'':' off'}" data-run="${esc(r.id)}">
+    <div class="rtop"><div class="rn">${fic(r.filter||r.name,true)}<div><div class="row" style="gap:4px"><b>${esc(r.name)}</b><button class="editbtn" data-rren="${esc(r.id)}" title="Lauf umbenennen – z. B. „IR“ in „RGB“" aria-label="Lauf umbenennen">${ic('edit','s14')}</button></div>
+        <div class="pr">${r.label?'erkannt als „'+esc(r.filter||'?')+'“ · ':''}${esc(r.processing||'')}${top<100?` · <span data-topt="${esc(r.id)}" class="infoc">beste ${int(r.lights)} von ${int(r.lights_all)} Lights</span>`:''}${unused>=0.05&&top>=100?'':''}</div></div></div>
+      <div class="facts"><div><span>Belichtung</span><b data-toph="${esc(r.id)}">${hrs(r.hours)} h</b></div><div><span>Lights</span><b>${int(r.lights)}</b></div><div><span>Nächte</span><b>${int(nights.length)}</b></div></div>
+      <label class="tog" title="Diesen Lauf stacken">${r.enabled?'Wird gestackt':'Aus'}<span class="switch"><input type="checkbox" data-run-en="${esc(r.id)}" ${r.enabled?'checked':''} aria-label="Lauf ${esc(r.name)} stacken"><span></span></span></label></div>
+    ${!r.enabled&&r.why_off?`<div class="whyoff">${ic('info')}<span>${esc(r.why_off)}</span></div>`:''}
+    <div class="rfoot"><button class="rft${co?' open':''}" data-tcal="${esc(r.id)}"><span class="${L[0]}c" style="display:flex">${ic(L[1],'s14')}</span>Kalibrierung<span class="rfs">${calSummary(r)}</span>${chev(co)}</button>
+      <button class="rft${oo?' open':''}" data-topt="${esc(r.id)}">${ic('sliders','s14')}Optionen<span class="rfs">${esc(optSum)}</span>${chev(oo)}</button></div>
+    ${co?calBody(r):''}${oo?optBody(r):''}
+  </div>`;
+}
+function calSummary(r){
+  const f=r.flats||[],withF=f.filter(x=>(x.file_ids||[]).length).length;
+  return esc([f.length?`Flats ${withF}/${f.length} Nächte`:'',(r.bias.file_ids||[]).length?'Bias':'',(r.darks.file_ids||[]).length?'Darks':''].filter(Boolean).join(' · '));
+}
+function calBody(r){
+  const opts=r.flat_options||[],ce=(r.calib_edits||{}).flats||{};
+  const flatSel=f=>`<select data-flat="${esc(r.id+'|'+(f.night||''))}" aria-label="Flats für die Nacht ${esc(dm(f.night))}">
+      <option value="auto" ${ce[f.night||'']?'':'selected'}>Automatisch</option><option value="none" ${ce[f.night||'']==='none'?'selected':''}>Keine Flats</option>
+      ${opts.map(o=>`<option value="${esc(o.key)}" ${ce[f.night||'']===o.key?'selected':''}>${esc((o.filter||'ohne Filter')+' · '+ymd(o.night)+' · '+o.n+(o.master?' (Master)':' Flats'))}</option>`).join('')}</select>`;
+  const flatRows=(r.flats||[]).map(f=>{const n=(f.file_ids||[]).length,L=lvl(f.verdict);
+    return `<div class="calrow"><span class="cl">Nacht ${esc(dm(f.night))}<small>${f.lights?plural(f.lights,'Light','Lights'):''}</small></span>
+      <span class="cv">${n?`<span class="pill ${f.verdict?L[0]:'ok'}">${plural(n,'Flat','Flats')}</span> `:f.manual?'':'<span class="pill err">keine Flats</span> '}${esc(f.reason)}
+        ${(f.hints||[]).map(hintHtml).join('')}</span>
+      <span class="cc">${flatSel(f)}</span></div>`;}).join('');
+  const simple=(k,l)=>{const x=r[k]||{},n=(x.file_ids||[]).length,ed=(r.calib_edits||{})[k];
+    return `<div class="calrow"><span class="cl">${l}</span><span class="cv">${n?`<span class="pill ok">${n}</span> `:`<span class="pill neutral">keine</span> `}${esc(x.reason||'')}</span>
+      <span class="cc"><select data-calk="${esc(r.id+'|'+k)}" aria-label="${l}"><option value="auto" ${ed?'':'selected'}>Automatisch</option><option value="none" ${ed==='none'?'selected':''}>Keine ${l}</option></select></span></div>`;};
+  return `<div class="rbody1"><details class="help"><summary>${ic('info','s14')} Wie wählt b2stacker die Kalibrierung?</summary><div>
+      <p><b>Flats</b> entfernen Vignettierung und Staub. Sie müssen zum Filter und zu den Kamera-Einstellungen (Gain, Offset, Binning, Bildgröße) passen – sonst rechnet WBPP falsch. b2stacker liest das aus dem Header, nie aus dem Ordnernamen. Je Nacht nimmt es die Flats derselben Nacht, sonst die zeitlich nächsten. Liegen sie weit weg, ist das nur ein Hinweis: Wurde am Aufbau nichts verändert, passen sie meist.</p>
+      <p><b>Bias</b> ziehen das Ausleserauschen ab – der neueste passende Satz. <b>Darks</b> passend zu Belichtung (±1 s) und Temperatur (±2 °C); ohne Darks entfernt PixInsight Hotpixel automatisch.</p>
+      <p><b>Was du tun kannst:</b> rechts je Nacht andere Flats wählen oder „Keine Flats“. Fehlen passende Flats, nimm sie bei der nächsten Gelegenheit auf oder füge in der Übersicht einen Ordner mit Flats hinzu – sie werden automatisch zugeordnet.</p></div></details>
+    ${flatRows||'<div class="small muted">Keine Nacht mit Lights.</div>'}${simple('bias','Bias')}${simple('darks','Darks')}</div>`;
+}
+function optBody(r){
+  const top=r.top_percent||100;
+  const setRows=r.settings.filter(s=>s.key!=='star_detection').map(s=>{
     const L=SETL[s.key]||[s.key,typeof s.value==='boolean'?'bool':'ro'],k=r.id+'|'+s.key,pend=PENDING.has(k);
     let ctl;
     if(L[1]==='bool')ctl=`<label class="switch"><input type="checkbox" data-set="${esc(k)}" ${s.value?'checked':''} aria-label="${esc(L[0])}"><span></span></label>`;
-    else if(L[1]==='sel'){
-      // Rejection: die vier üblichen Verfahren; ein anderer gespeicherter Wert bleibt sichtbar
-      const base=s.key==='rejection'?L[2].slice(0,4):L[2];
+    else if(L[1]==='sel'){const base=s.key==='rejection'?L[2].slice(0,4):L[2];
       const opts=base.some(o=>o[0]===s.value)?base:base.concat([L[2].find(o=>o[0]===s.value)||[s.value,String(s.value)]]);
       ctl=`<select data-set="${esc(k)}" aria-label="${esc(L[0])}">${opts.map(o=>`<option value="${esc(o[0])}" ${o[0]===s.value?'selected':''}>${esc(o[1])}</option>`).join('')}</select>`;}
-    else ctl=`<span class="ro">${s.value&&typeof s.value==='object'?'eigene Werte':esc(String(s.value))}</span>`;
-    return `<div class="setrow${pend?' pending':''}"><div class="sn">${esc(L[0])}${s.edited?` <span class="adj">angepasst</span><button class="rst" data-reset="${esc(k)}" title="Automatik: ${esc(autoText(L,s.auto))}">zurück auf Automatik</button>`:''}</div>
-      <div class="sc">${ctl}</div><div class="sw">${esc(s.why)}${s.edited?' · Automatik wäre: '+esc(autoText(L,s.auto)):''}</div></div>`;
-  }).join('');
-  const flats=(r.flats||[]).map(f=>{const v=VERD[f.verdict];return `<div class="calrow"><span class="cl">Flats ${esc(dm(f.night))}</span><span class="cv">${f.file_ids&&f.file_ids.length?plural(f.file_ids.length,'Flat','Flats')+' · ':''}${esc(f.reason)}</span>${v?`<span class="pill ${v[1]}">${v[0]}</span>`:(f.file_ids||[]).length?'':'<span class="pill warn">fehlt</span>'}</div>`;}).join('');
-  const cal=(k,l)=>r[k]?`<div class="calrow"><span class="cl">${l}</span><span class="cv">${(r[k].file_ids||[]).length?plural(r[k].file_ids.length,l==='Bias'?'Bias':'Dark',l==='Bias'?'Bias':'Darks')+' · ':''}${esc(r[k].reason||'')}</span><span></span></div>`:'';
-  const open=OPENRUN.has(r.id)?OPENRUN.get(r.id):r.enabled;
-  return `<div class="run${r.enabled?'':' off'}" data-run="${esc(r.id)}">
-    <div class="rtop"><div class="rn">${fic(r.filter||r.name,true)}<div><b>${esc(r.name)}</b><div class="pr">${esc(r.processing||'')}</div></div></div>
-      <div class="facts"><div><span>Lights</span><b>${int(r.lights)}</b></div><div><span>Belichtung</span><b>${hrs(r.hours)} h</b></div><div><span>Nächte</span><b>${int(nights.length)}</b></div><div><span>Platz</span><b>${num(r.disk_gb)} GB</b></div></div>
-      <div class="row" style="margin-left:auto;gap:14px"><button class="btn sm ghost" data-det="${esc(r.id)}" aria-expanded="${open}">${open?'Details ausblenden':'Details'}<span class="chev${open?' open':''}">${ic('down','s14')}</span></button>
-      <label class="tog" title="Diesen Lauf stacken">${r.enabled?'Wird gestackt':'Aus'}<span class="switch"><input type="checkbox" data-run-en="${esc(r.id)}" ${r.enabled?'checked':''} aria-label="Lauf ${esc(r.name)} stacken"><span></span></span></label></div></div>
-    ${!r.enabled&&r.why_off?`<div class="whyoff">${ic('info')}<span>${esc(r.why_off)}</span></div>`:''}
-    ${(r.problems||[]).length&&r.enabled?`<div class="whyoff">${ic('warn')}<span>${esc(r.problems.join(' · '))}</span></div>`:''}
-    <div class="rbody" ${open?'':'hidden'}>
-      <div><span class="rlab">Kalibrierung</span>${flats||'<div class="calrow"><span class="cl">Flats</span><span class="cv">keine Nacht mit Lights</span><span></span></div>'}${cal('bias','Bias')}${cal('darks','Darks')}
-        ${nights.length?`<div class="small muted" style="margin-top:4px">Nächte: ${nights.map(dm).join(', ')}</div>`:''}
-        ${r.reference_why?`<div class="small muted">Referenzbild: ${esc(r.reference_why)}</div>`:''}</div>
-      <div><span class="rlab">Einstellungen</span><div>${setRows}</div></div>
-    </div></div>`;
+    else ctl=`<span class="ro">${esc(String(s.value))}</span>`;
+    return `<div class="optrow${pend?' pending':''}"><div class="ot"><span class="on">${esc(L[0])}${s.edited?` <span class="adj">angepasst</span><button class="rst" data-reset="${esc(k)}">zurück auf Automatik</button>`:''}</span>
+      <span class="od">${esc(s.why)}${s.edited?' · Automatik wäre: '+esc(autoText(L,s.auto)):''}</span></div><div class="oc">${ctl}</div></div>`;}).join('');
+  const sd=r.settings.find(s=>s.key==='star_detection');
+  const sdKeys=[...new Set(['maxStarDistortion','minStructureSize','hotPixelFilterRadius','noiseReductionFilterRadius','structureLayers',...Object.keys((sd&&sd.value)||{})])];
+  const sdRows=sd?sdKeys.map(k=>{const v=sd.value[k],a=sd.auto[k],ed=(sd.edited_keys||[]).includes(k),L=STARL[k]||[k,''];
+    return `<div class="sdrow"><label for="sd_${esc(r.id)}_${k}">${esc(L[0])}${ed?' <span class="adj">eigener Wert</span>':''}</label>
+      <input type="text" inputmode="decimal" id="sd_${esc(r.id)}_${k}" data-sd="${esc(r.id+'|'+k)}" value="${v!=null&&ed?esc(String(v).replace('.',',')):''}" placeholder="${a!=null?'Vorschlag: '+esc(String(a).replace('.',',')):'PixInsight-Standard'}">
+      <span class="od">${esc(L[1])}</span></div>`;}).join(''):'';
+  const refOpts=r.reference_choices||[];
+  return `<div class="rbody1 opts">
+    <div class="optrow"><div class="ot"><span class="on">Nur die besten Frames</span><span class="od">Schiebe nach links, um schwächere Lights wegzulassen – gereiht nach Signal/Rauschen und Sternschärfe aus der Messung. Deine Auswahl unter „Frames“ bleibt unverändert; mindestens 3 Lights bleiben.</span></div>
+      <div class="topsl"><input type="range" min="5" max="100" step="5" value="${top}" data-top="${esc(r.id)}" aria-label="Anteil der besten Lights"><span class="small"><b data-topp="${esc(r.id)}">${top} %</b> · <span data-topt2="${esc(r.id)}">${esc(topTextJS(r,top))}</span></span></div></div>
+    <div class="optrow"><div class="ot"><span class="on">Referenz${r.reference_edited?' <span class="adj">von Hand</span>':''}</span><span class="od">Frame, auf den alle anderen ausgerichtet werden. Automatisch: ${esc(r.reference_why||'')}.${r.align_to?' Weitere Läufe werden danach auf das erste Master ausgerichtet, damit alle Filter deckungsgleich sind.':''}</span></div>
+      <div class="oc"><select data-ref="${esc(r.id)}" aria-label="Referenzbild"><option value="auto" ${r.reference_edited?'':'selected'}>Automatisch (bester Frame)</option>
+        ${refOpts.map(o=>`<option value="${o.id}" ${r.reference_edited&&o.id===r.reference_id?'selected':''}>${esc(o.name)} · FWHM ${num(o.fwhm,2)} · ${int(o.nstars)} Sterne</option>`).join('')}</select></div></div>
+    ${setRows}
+    ${sd?`<div class="optrow col"><div class="ot"><span class="on">Sternerkennung beim Ausrichten${sd.edited?' <span class="adj">angepasst</span><button class="rst" data-reset="'+esc(r.id+'|star_detection')+'">alle zurück auf Automatik</button>':''}</span>
+      <span class="od">${esc(sd.why)} b2stacker misst die Sterne selbst und gibt PixInsight passende Werte mit, damit an echten Sternen statt an Hotpixeln ausgerichtet wird. Leer = Vorschlag verwenden; eine Zahl eintragen = eigener Wert.</span></div>
+      <div class="sdgrid">${sdRows}</div></div>`:''}
+    <div class="optrow"><div class="ot"><span class="on">Platzbedarf</span><span class="od">Zwischendateien und Arbeitsspeicher für diesen Lauf.</span></div><span class="small" style="white-space:nowrap">~${num(r.disk_gb,0)} GB · ~${num(r.ram_gb,0)} GB RAM</span></div>
+  </div>`;
 }
 function autoText(L,v){if(L[1]==='bool')return v?'an':'aus';if(L[1]==='sel'){const o=L[2].find(x=>x[0]===v);return o?o[1]:String(v);}return v&&typeof v==='object'?'eigene Werte':String(v);}
+function diskMeter(plan){
+  const need=plan.need_gb,free=plan.free_gb,bad=free!=null&&need>free,w=free?Math.min(100,100*need/free):0;
+  return `<div class="card meter"><div class="mt"><span>Speicherplatz für den Stack</span><b class="${bad?'errc':''}">braucht etwa ${num(need,need<10?1:0)} GB</b></div>
+    <div class="bar6"><div class="${bad?'bad':''}" style="width:${free?Math.max(2,w):0}%"></div></div>
+    <div class="small muted">${free!=null?`frei auf ${esc(plan.drive||'')}: ${num(free,0)} GB${plan.total_gb?' von '+(plan.total_gb>=1000?num(plan.total_gb/1000,1)+' TB':num(plan.total_gb,0)+' GB'):''}`:''}${bad?' – zu wenig: bitte Platz schaffen oder Läufe abschalten.':''}</div></div>`;
+}
 function meter(title,need,free,u,note){
   if(need==null)return '';
   const bad=free!=null&&need>free,w=free?Math.min(100,100*need/free):0;
-  return `<div class="card meter"><div class="mt"><span>${esc(title)}</span><b class="${bad?'errc':''}">${num(need)} ${u} von ${free!=null?num(free)+' '+u+' frei':'?'}</b></div>
-    <div class="bar6"><div class="${bad?'bad':''}" style="width:${free?Math.max(2,w):0}%"></div></div><div class="small muted">${bad?'Zu wenig – bitte Platz schaffen oder Läufe abschalten.':esc(note)}</div></div>`;
+  return `<div class="card meter"><div class="mt"><span>${esc(title)}</span><b class="${bad?'errc':''}">braucht etwa ${num(need)} ${u}</b></div>
+    <div class="bar6"><div class="${bad?'bad':''}" style="width:${free?Math.max(2,w):0}%"></div></div><div class="small muted">${free!=null?'frei: '+num(free)+' '+u+' · ':''}${bad?'Zu wenig – andere Programme schließen.':esc(note)}</div></div>`;
 }
 async function editPlan(body,key){
   const pid=S.P.id;if(key)PENDING.add(key);
