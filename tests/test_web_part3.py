@@ -1,6 +1,7 @@
 """Neue Oberfläche, Teil 3: Frames löschen, Kalibrier-Bibliothek, Selbsttest/PixInsight/Einstellungen in der neuen App,
 Sternmarkierung und Ausrichten mit Drehung."""
 import os
+import sys
 
 import pytest
 
@@ -56,7 +57,8 @@ def test_delete_needs_matching_confirmation_and_goes_to_trash(proj, tmp_path):
     assert r["deleted"] == 2 and r["trash"] == 2 and r["permanent"] == 0 and not r["failed"]
     for f in fr:
         assert not os.path.exists(f["path"])
-        assert os.path.isfile(tmp_path / "xdg" / "Trash" / "files" / os.path.basename(f["path"]))
+        if sys.platform != "win32":                                  # Windows: echter Papierkorb
+            assert os.path.isfile(tmp_path / "xdg" / "Trash" / "files" / os.path.basename(f["path"]))
     assert all(f["id"] not in ids for f in _lights(co, pid))
     tl = history.timeline(co.db, pid)
     assert tl[0]["kind"] == "frames_deleted" and "2 Frames gelöscht" in tl[0]["title"]

@@ -28,6 +28,10 @@ jobs:
       - name: Szenarien (nachgebautes PixInsight, UNC-Freigabe)
         run: pytest -v -p no:warnings --timeout=300 --timeout-method=thread tests/test_stack_scenarios.py tests/test_flat_groups.py
         timeout-minutes: 15
-      - name: Alle Tests
+      - name: Browser für die Oberflächen-Tests (Playwright + Chromium)
+        run: |
+          pip install playwright
+          python -m playwright install chromium
+      - name: Alle Tests (inkl. Oberfläche im echten Browser)
         run: pytest -q -p no:warnings --timeout=240 --timeout-method=thread
-        timeout-minutes: 20
+        timeout-minutes: 25

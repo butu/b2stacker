@@ -2,6 +2,7 @@
 Selbsttest und „In PixInsight öffnen“, Zoom im Vergleich, Handy-Ansicht."""
 import os
 import re
+import sys
 
 import pytest
 
@@ -85,7 +86,8 @@ def test_mark_and_delete_frames(page, app, tmp_path):
     expect(dlg).to_be_hidden()
     expect(page.locator("#delBan")).to_be_empty()
     _wait(lambda: sum(os.path.isfile(p) for p in paths) == 1)
-    assert len(os.listdir(tmp_path / "xdg" / "Trash" / "files")) == 1
+    if sys.platform != "win32":
+        assert len(os.listdir(tmp_path / "xdg" / "Trash" / "files")) == 1
     page.goto(app.url + "#/p/%d/history" % pid)
     expect(page.locator("#view")).to_contain_text("1 Frame gelöscht")
 
