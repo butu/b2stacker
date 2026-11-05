@@ -297,6 +297,9 @@ h3{margin:0;font-size:16px;font-weight:700}
 .zoomi{position:absolute;left:12px;bottom:12px;z-index:3;padding:3px 10px;border-radius:999px;background:rgba(15,15,15,.85);font-size:12.5px;font-weight:700;pointer-events:none}
 .cmpbox{transform-origin:0 0}
 .hbtn.on{background:rgba(255,255,255,.16)}
+.hbtn.upd{background:var(--info-bg);color:var(--info-2);font-weight:700}
+#updDlg .notes{white-space:pre-wrap;max-height:260px;overflow:auto;background:var(--card);border-radius:8px;padding:10px 12px;font-size:13px}
+.pbar{height:6px;border-radius:3px;background:rgba(255,255,255,.12);overflow:hidden;margin-top:8px}.pbar>div{height:100%;background:var(--accent)}
 .stinfo{font-size:13px;opacity:.75;text-wrap:pretty}
 .touchonly{display:none}
 @media (pointer:coarse){.touchonly{display:inline}.dbtn .kbd,.lbkeys>span:not(.touchonly){display:none}}
@@ -545,6 +548,7 @@ details>summary{cursor:pointer}
   <span class="grow"></span>
   <span id="conn"></span>
   <button class="tind idle" id="tind" title="Aufträge"></button>
+  <button class="hbtn upd" id="updBtn" hidden title="Neue Version verfügbar"></button>
   <a class="hbtn" id="libBtn" href="#/kalibrierung" title="Kalibrier-Bibliothek: gespeicherte Master-Bias, -Darks und -Flats"></a>
   <a class="hbtn" id="histBtn" href="#/verlauf" title="Verlauf aller Projekte"></a>
   <button class="hbtn icon" id="setBtn" title="Einstellungen" aria-label="Einstellungen"></button>
@@ -607,6 +611,11 @@ details>summary{cursor:pointer}
   <div class="hd"><h2>Vorgemerkte Frames löschen</h2><button class="btn ghost icon" data-close aria-label="Schließen"></button></div>
   <div class="bd" id="delBody"></div>
   <div class="ft"><button class="btn outline" data-close>Abbrechen</button><button class="btn dangerfill" id="delOk">Löschen</button></div>
+</dialog>
+
+<dialog id="updDlg">
+  <div class="hd"><h2 id="updTitle">Update</h2><button class="btn ghost icon" data-close aria-label="Schließen"></button></div>
+  <div class="bd" id="updBody"></div>
 </dialog>
 
 <dialog id="askDlg" class="ask"><div class="at"><b id="askT"></b><div id="askX"></div></div>
@@ -1009,6 +1018,8 @@ function renderHome(){
   const b=S.boot||{};
   v.innerHTML=`<div class="wrap">
     ${b.pixinsight_ok===false?`<div class="banner warn">${ic('warn','s18')}<div class="grow bx"><b>PixInsight nicht gefunden.</b> Analysieren geht trotzdem – zum Stacken bitte den Pfad in den Einstellungen angeben.</div><button class="btn sm" id="hPi">Einstellungen</button></div>`:''}
+    ${b.install&&b.install.offer&&!installLater()?`<div class="banner">${ic('disk','s18')}<div class="grow"><div class="bt">b2stacker installieren?</div><div class="bx">Läuft gerade aus <span class="mono">${esc(b.install.exe)}</span>. Installiert liegt es immer unter <span class="mono">${esc(b.install.target)}</span> – Updates funktionieren dann zuverlässig, und im Startmenü gibt es eine Verknüpfung.</div></div>
+      <button class="btn primary sm" id="instBtn">Installieren</button><button class="btn ghost sm" id="instLater">Später</button></div>`:''}
     ${(b.settings_problems||[]).length?`<div class="banner warn">${ic('warn','s18')}<div class="grow bx">${esc(b.settings_problems.join(' · '))}</div></div>`:''}
     <div class="homehd"><div><h1>Projekte</h1><p class="sub" id="homeSub"></p></div>
       <button class="btn primary" id="newBtn">${ic('plus')} Neues Projekt</button></div>
@@ -1020,6 +1031,9 @@ function renderHome(){
     <div id="tiles" class="sec" style="gap:18px"></div></div>`;
   $('#newBtn').onclick=()=>openNewProject();
   const hp=$('#hPi');if(hp)hp.onclick=()=>openSettings();
+  const ib=$('#instBtn');if(ib)ib.onclick=()=>busy(ib,async()=>{const r=await api('/api/install',{});
+    document.body.innerHTML=`<div style="display:grid;place-items:center;height:100vh;text-align:center;padding:24px"><div><div style="font-size:20px;font-weight:700;margin-bottom:10px">Installiert</div><div style="opacity:.75;max-width:520px">${esc(r.text)}</div></div></div>`;});
+  const il=$('#instLater');if(il)il.onclick=()=>{try{localStorage.setItem('b2-install-later',S.boot.version);}catch(e){}renderHome();};
   $('#q').oninput=e=>{S.home.q=e.target.value;renderTiles();};
   $('#sort').onchange=e=>{S.home.sort=e.target.value;saveHome();renderTiles();};
   $('#grp').onchange=e=>{S.home.group=e.target.checked;saveHome();renderTiles();};
@@ -2023,6 +2037,44 @@ async function renderGlobalHistory(){
   const m=$('#hMore');if(m)m.onclick=()=>{HV.limit+=200;renderGlobalHistory();};
 }
 
+// ---------- Installation und Update
+function installLater(){try{return localStorage.getItem('b2-install-later')===(S.boot&&S.boot.version);}catch(e){return false;}}
+let UPD=null,updTold=false;
+async function pollUpdate(){
+  clearTimeout(pollUpdate.t);
+  try{UPD=await api('/api/update');}catch(e){UPD=null;}
+  const b=$('#updBtn');b.hidden=!(UPD&&UPD.newer);if(UPD&&UPD.newer)b.innerHTML=ic('down-arrow','s14')+' Update '+esc(UPD.latest);
+  if(UPD&&UPD.updated_from&&!updTold){updTold=true;toast('Aktualisiert: '+UPD.updated_from+' → '+UPD.current);}
+  const dl=UPD&&UPD.download;
+  if(dl&&['download','restart'].includes(dl.state)){renderUpdate();pollUpdate.t=setTimeout(pollUpdate,700);return;}
+  if($('#updDlg').open)renderUpdate();
+  pollUpdate.t=setTimeout(pollUpdate,UPD&&UPD.latest?30*60000:60000);
+}
+function renderUpdate(){
+  const u=UPD||{},d=u.download,act=[...S.tasks.values()].length>0;
+  $('#updTitle').textContent=u.newer?`Version ${u.latest} ist da`:'b2stacker';
+  let h=`<div class="meta" style="border:0;padding:0;max-width:360px"><span>Installiert</span><span><b>${esc(u.current||(S.boot&&S.boot.version)||'?')}</b></span>${u.latest?`<span>Neueste</span><span>${esc(u.latest)}${u.published?' · '+ymd(u.published):''}</span>`:''}</div>`;
+  if(u.notes)h+=`<div class="notes">${esc(u.notes)}</div>`;
+  if(d&&d.state==='download'){const pc=d.total?Math.round(100*d.done/d.total):0;
+    h+=`<div>Lade neue Version … ${pc} % (${num(d.done/1048576,0)} von ${num((d.total||0)/1048576,0)} MB)<div class="pbar"><div style="width:${pc}%"></div></div></div>`;}
+  else if(d&&d.state==='restart')h+=`<div><b>Starte neu …</b> Ein kleines Fenster zeigt den Austausch; b2stacker öffnet sich gleich in der neuen Version.</div>`;
+  else{
+    if(d&&d.state==='error')h+=`<div class="errc">Update fehlgeschlagen: ${esc(d.error||'')}</div>`;
+    if(u.newer&&!u.can_install)h+=`<div class="small muted">Aus dem Quellcode gestartet – bitte mit <span class="mono">git pull</span> aktualisieren.</div>`;
+    else if(u.newer&&act)h+=`<div class="small muted">Gerade läuft ein Auftrag – das Update geht, sobald er fertig ist.</div>`;
+    else if(u.latest&&!u.newer)h+=`<div class="okc">${ic('check','s14')} Du hast die neueste Version.</div>`;
+    h+=`<div class="row" style="gap:8px">${u.newer&&u.can_install?`<button class="btn primary" id="updGo" ${act?'disabled':''}>Jetzt aktualisieren und neu starten</button>`:''}
+      <button class="btn" id="updChk">${ic('refresh','s14')} Nach Updates suchen</button></div>`;
+    if(u.error)h+=`<div class="small muted">Prüfung nicht möglich: ${esc(u.error)}</div>`;
+  }
+  $('#updBody').innerHTML=h;
+  const g=$('#updGo');if(g)g.onclick=()=>busy(g,async()=>{const r=await api('/api/update/install',{});UPD=Object.assign(UPD||{},{download:r});renderUpdate();pollUpdate.t=setTimeout(pollUpdate,700);});
+  const c=$('#updChk');if(c)c.onclick=()=>busy(c,async()=>{UPD=await api('/api/update/check',{});updTold=true;$('#updBtn').hidden=!UPD.newer;renderUpdate();});
+}
+function openUpdate(){renderUpdate();$('#updDlg').showModal();}
+$('#updBtn').onclick=openUpdate;
+setTimeout(pollUpdate,1500);
+
 // ---------- Kalibrier-Bibliothek (alle Projekte)
 const MTYPE={bias:['Master-Bias','Bias'],dark:['Master-Darks','Dark'],flat:['Master-Flats','Flat'],darkflat:['Master-Darkflats','Darkflat']};
 async function renderLibrary(){
@@ -2132,7 +2184,7 @@ function openSettings(){
         <div class="small" style="margin:8px 0 4px">Claude Code (Terminal):</div><textarea id="mcpCc" class="mono" readonly rows="2" style="font-size:12px"></textarea>
         <div class="small" style="margin:8px 0 4px">Andere (mcpServers-Format):</div><textarea id="mcpGen" class="mono" readonly rows="6" style="font-size:12px"></textarea></details>
       <div class="d">MCP über HTTP, nur auf diesem Rechner erreichbar. Den Schlüssel wie ein Passwort behandeln.</div></div>`+
-    `<div class="row" style="border-top:1px solid var(--div);padding-top:14px"><div class="small grow muted">Version ${esc(S.boot?S.boot.version:'')} · Arbeitsverzeichnis jetzt: <span class="mono">${esc(S.boot?S.boot.workdir:'')}</span></div>
+    `<div class="row" style="border-top:1px solid var(--div);padding-top:14px"><div class="small grow muted">Version ${esc(S.boot?S.boot.version:'')} (<button class="lnk small" type="button" id="setUpd">nach Updates suchen</button>) · Arbeitsverzeichnis jetzt: <span class="mono">${esc(S.boot?S.boot.workdir:'')}</span></div>
       <button class="btn sm danger" id="quitBtn" type="button">b2stacker beenden</button></div>`;
   $$('#setBody [data-pick]').forEach(b=>b.onclick=()=>busy(b,async()=>{const inp=$('#set_'+b.dataset.pick)||$('#'+b.dataset.pick);
     const r=await api(b.dataset.kind==='file'?'/api/pick-file':'/api/pick-folder',{initial:inp.value});if(r.path){inp.value=r.path;if(b.dataset.kind==='file')checkPi(inp,$('#piCheck'));}}));
@@ -2146,6 +2198,7 @@ function openSettings(){
     try{await api('/api/quit',{});}catch(e){}
     if(ES)ES.close();clearTimeout(esRetry);
     document.body.innerHTML='<div style="display:grid;place-items:center;height:100vh;opacity:.6">b2stacker wurde beendet. Dieses Fenster kann geschlossen werden.</div>';};
+  $('#setUpd').onclick=()=>{setDlg.close();openUpdate();};
   mcpInfo();
   setDlg.showModal();
 }

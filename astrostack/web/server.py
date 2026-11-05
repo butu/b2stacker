@@ -127,6 +127,7 @@ def create(port: int = PORT, settings: Settings | None = None, core: Core | None
             core.close()
         raise RuntimeError("Kein freier Port ab %d" % port)
     if refresh:
+        startup_chores()
         core.refresh_all()
     if refresh if watch is None else watch:
         srv.start_watcher(watch_interval or s.watch_interval_s)
@@ -134,6 +135,30 @@ def create(port: int = PORT, settings: Settings | None = None, core: Core | None
 
 
 # ------------------------------------------------------------------ Aktionen
+
+def startup_chores() -> None:
+    """Beim Programmstart (wie die alte App): Reste eines Updates aufräumen, den Claude-Eintrag auf die installierte
+    Datei halten und die Update-Prüfung im Hintergrund anstoßen."""
+    from .. import updater
+    try:
+        updater.cleanup_after_update()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from .. import claude_link, install
+        if install.is_installed():
+            st = claude_link.status()
+            if st.get("installed") and not st.get("current"):
+                claude_link.install()
+                logbook.event("claude_link", action="repoint", files=st.get("files"))
+    except Exception:  # noqa: BLE001
+        pass
+    if not os.environ.get("B2_NO_UPDATE_CHECK"):
+        try:
+            updater.status()
+        except Exception:  # noqa: BLE001
+            pass
+
 
 def save_settings(srv: WebServer, data: dict) -> dict:
     """Einstellungen prüfen (gleiche Regeln wie die alte App) und speichern; PixInsight-Pfad und Anzahl der
@@ -475,6 +500,11 @@ class Handler(BaseHTTPRequestHandler):
         api = parts[1:]
         if api == ["bootstrap"]:
             return self._json(bootstrap(self.server))
+        if api == ["update"]:
+            from .. import updater
+            return self._json(updater.status())
+        if api == ["ping"]:                       # appclient.find (MCP über stdio, CLI) erkennt die neue App
+            return self._json({"app": "b2stacker", "ui": "neu", "version": __version__})
         if api == ["projects"]:
             return self._json(c.projects())
         if api == ["history"]:
@@ -596,6 +626,23 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(c.selftest(_text(b, "folder")))
         if len(api) == 3 and api[0] == "library" and api[2] == "delete":
             return self._json(c.delete_master(self._fid(api[1])))
+        if api == ["update", "check"]:
+            from .. import updater
+            return self._json(updater.check(force=True))
+        if api == ["update", "install"]:
+            from .. import updater
+            srv = self.server
+            try:
+                return self._json(updater.start_install(lambda: quit_server(srv), busy_fn=lambda: bool(c.tasks.active())))
+            except RuntimeError as e:
+                raise ValueError(str(e)) from None
+        if api == ["install"]:
+            from .. import install
+            srv = self.server
+            try:
+                return self._json(install.install(quit_fn=lambda: threading.Timer(1.5, quit_server, (srv,)).start()))
+            except (RuntimeError, OSError) as e:
+                raise ValueError(str(e)) from None
         if api == ["clear-temp"]:
             return self._json({"removed": c.clear_temp()})
         if api == ["quit"]:

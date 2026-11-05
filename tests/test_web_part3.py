@@ -280,3 +280,43 @@ def test_frame_stars_endpoint(proj, tmp_path, monkeypatch):
         assert st == 404
     finally:
         _stop(srv)
+
+
+def test_appclient_finds_new_app_and_stdio_mcp_forwards(proj, tmp_path, monkeypatch):
+    co, pid, _ = proj
+    from astrostack import appclient, mcp
+    s = _settings(tmp_path, monkeypatch, co.ws.root, co.pixinsight)
+    srv = _serve(co, s)
+    try:
+        port = srv.server_address[1]
+        monkeypatch.delenv("B2_APP_URL", raising=False)
+        monkeypatch.setattr(appclient, "PORTS", [port])
+        assert appclient.find() == srv.url
+        fwd = mcp.app_forwarder(appclient.Client(autostart=False))
+        r = fwd({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+        assert "calibration_library" in {t["name"] for t in r["result"]["tools"]}
+    finally:
+        _stop(srv)
+
+
+def test_update_and_install_endpoints(proj, tmp_path, monkeypatch):
+    co, pid, _ = proj
+    from astrostack import install, updater
+    s = _settings(tmp_path, monkeypatch, co.ws.root, co.pixinsight)
+    srv = _serve(co, s)
+    try:
+        monkeypatch.setattr(updater, "check", lambda force=False: {"current": "0.10.2", "latest": "0.11.0",
+                                                                   "newer": True, "can_install": False})
+        st, r, _ = call(srv, "POST", "/api/update/check")
+        assert st == 200 and r["newer"] and r["latest"] == "0.11.0"
+        st, r, _ = call(srv, "GET", "/api/update")
+        assert st == 200 and "current" in r
+        st, r, _ = call(srv, "POST", "/api/update/install")
+        assert st == 400 and "Quellcode" in r["error"]                     # nicht als exe gestartet
+        st, r, _ = call(srv, "POST", "/api/install")
+        assert st == 400 and "exe" in r["error"]
+        monkeypatch.setattr(install, "install", lambda quit_fn=None: dict(text="Installiert nach X"))
+        st, r, _ = call(srv, "POST", "/api/install")
+        assert st == 200 and r["text"].startswith("Installiert")
+    finally:
+        _stop(srv)

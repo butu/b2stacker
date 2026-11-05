@@ -73,7 +73,8 @@ def run():
     if len(sys.argv) >= 2 and sys.argv[1] == "_selftest":
         sys.exit(selftest())
     if len(sys.argv) == 1 or sys.argv[1:] == ["app"]:      # Doppelklick → eigenes Programmfenster
-        if os.environ.get("B2_NEW_UI", "").strip() == "1":  # Neubau: neue Oberfläche im Fenster
+        from .cli import new_ui
+        if new_ui():                                       # neue Oberfläche (Standard); B2_OLD_UI=1 → alte App
             from .web import window as webwin
             webwin.run()
             return

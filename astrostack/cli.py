@@ -66,8 +66,8 @@ def cmd_report(args, s: Settings):
 
 
 def new_ui() -> bool:
-    """``B2_NEW_UI=1``: der normale Start (``gui``) nimmt den neuen Server statt der alten App."""
-    return os.environ.get("B2_NEW_UI", "").strip() == "1"
+    """Die neue Oberfläche ist Standard. ``B2_OLD_UI=1`` (oder ``B2_NEW_UI=0``) startet noch die alte App."""
+    return not (os.environ.get("B2_OLD_UI", "").strip() == "1" or os.environ.get("B2_NEW_UI", "").strip() == "0")
 
 
 def cmd_gui(args, s: Settings):

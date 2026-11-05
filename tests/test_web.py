@@ -376,11 +376,11 @@ def test_cli_web_and_new_ui_switch(monkeypatch, tmp_path):
     from astrostack.app import server as old
     monkeypatch.setattr(old, "main", lambda port, open_browser: calls.append(("old", port, open_browser)))
     _settings(tmp_path, monkeypatch, str(tmp_path / "work"))
-    monkeypatch.delenv("B2_NEW_UI", raising=False)
+    monkeypatch.setenv("B2_OLD_UI", "1")
     cli.main(["gui", "--no-browser"])
     cli.main(["web", "--no-browser"])
     cli.main(["web", "--port", "9000"])
-    monkeypatch.setenv("B2_NEW_UI", "1")
+    monkeypatch.delenv("B2_OLD_UI")
     cli.main(["gui", "--no-browser"])
     assert calls == [("old", 8765, False), ("web", 8775, False), ("web", 9000, True), ("web", 8775, False)]
 
@@ -424,7 +424,7 @@ def test_mcp_info_and_new_token(bare):
     assert call(bare, "POST", "mcp", init, headers={"Authorization": "Bearer " + info["token"]})[0] == 200
 
 
-def test_double_click_opens_new_window_only_with_switch(monkeypatch):
+def test_double_click_opens_new_window_unless_old_switch(monkeypatch):
     import sys
 
     from astrostack import __main__ as entry
@@ -434,9 +434,9 @@ def test_double_click_opens_new_window_only_with_switch(monkeypatch):
     monkeypatch.setattr(oldwin, "run", lambda *a, **k: calls.append("alt"))
     monkeypatch.setattr(webwin, "run", lambda *a, **k: calls.append("neu"))
     monkeypatch.setattr(sys, "argv", ["b2stacker.exe"])
-    monkeypatch.delenv("B2_NEW_UI", raising=False)
+    monkeypatch.setenv("B2_OLD_UI", "1")
     entry.run()
-    monkeypatch.setenv("B2_NEW_UI", "1")
+    monkeypatch.delenv("B2_OLD_UI")
     entry.run()
     assert calls == ["alt", "neu"]
 

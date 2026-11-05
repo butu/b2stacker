@@ -42,6 +42,14 @@ def find() -> str | None:
     if env:
         url = env.rstrip("/") + "/"
         return url if _probe(url, 2.0) is not None else None
+    for port in PORTS:                               # zuerst die neue App (antwortet auf /api/ping)
+        url = "http://127.0.0.1:%d/" % port
+        try:
+            with urllib.request.urlopen(url + "api/ping", timeout=0.6) as r:
+                if (json.loads(r.read() or b"{}") or {}).get("app") == "b2stacker":
+                    return url
+        except Exception:  # noqa: BLE001 – kein Server, alte App (404), anderer Dienst
+            continue
     for port in PORTS:
         url = "http://127.0.0.1:%d/" % port
         if _probe(url) is not None:
