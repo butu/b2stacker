@@ -8,6 +8,7 @@ Läuft nicht während eines Stackings und nicht aus dem Quellcode (dort: git pul
 """
 from __future__ import annotations
 
+import glob
 import json
 import os
 import subprocess
@@ -82,7 +83,8 @@ def status() -> dict:
     with _LOCK:
         stale = time.time() - _STATE["checked"] > CHECK_EVERY_S
         out = dict(_STATE["info"] or {"current": __version__, "newer": False, "can_install": frozen()},
-                   download=_STATE["dl"], updated_from=_STATE.get("updated_from"))
+                   download=_STATE["dl"], updated_from=_STATE.get("updated_from"),
+                   update_failed=_STATE.get("failed"))
     if stale and not _STATE.get("checking"):
         _STATE["checking"] = True
 
@@ -108,6 +110,7 @@ set "EXE={exe}"
 set "NEW={new}"
 set "OLD={old}"
 set "CUR={cur_exe}"
+set "WHY=b2stacker hat sich nicht beendet"
 set N=0
 :wait
 tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul
@@ -123,10 +126,14 @@ goto wait
 :swap
 ping -n 2 127.0.0.1 >nul
 if exist "%OLD%" del /f /q "%OLD%" >nul 2>&1
+rem alte exe noch in Benutzung (z. B. MCP-Server einer früheren Version) - dann eigener Name
+if exist "%OLD%" set "OLD={old_alt}"
 if not exist "%EXE%" goto place
+set "WHY=b2stacker.exe liess sich nicht umbenennen"
 move /y "%EXE%" "%OLD%" >nul 2>&1
 if errorlevel 1 goto fail
 :place
+set "WHY=neue Version liess sich nicht an ihren Platz legen"
 move /y "%NEW%" "%EXE%" >nul 2>&1
 if errorlevel 1 (
   move /y "%OLD%" "%EXE%" >nul 2>&1
@@ -138,7 +145,8 @@ start "" "%EXE%"
 ping -n 3 127.0.0.1 >nul
 goto end
 :fail
-echo   Update fehlgeschlagen - die bisherige Version wird gestartet.
+echo   Update fehlgeschlagen (%WHY%) - die bisherige Version wird gestartet.
+>"{failfile}" echo %WHY%
 ping -n 4 127.0.0.1 >nul
 if exist "%EXE%" goto startexe
 start "" "%CUR%"
@@ -228,7 +236,8 @@ def start_install(quit_fn, busy_fn=lambda: None, downloader=_download) -> dict:
             # onefile: der Starter (Elternprozess) hält die exe offen – auf beide warten
             ppid = os.getppid() if _onefile() else os.getpid()
             text = SWAP_CMD.format(exe=exe, new=new, old=old, pid=os.getpid(), ppid=ppid, cur=__version__,
-                                   new_version=info["latest"], cur_exe=exe_path() or exe)
+                                   new_version=info["latest"], cur_exe=exe_path() or exe,
+                                   old_alt="%s.old-%d.exe" % (base, int(time.time())), failfile=fail_file())
             _write_cmd(cmd, text)
             flags = 0x00000010 if sys.platform == "win32" else 0   # eigenes, sichtbares Fenster mit Hinweis
             from .appclient import independent_env
@@ -251,6 +260,10 @@ def start_install(quit_fn, busy_fn=lambda: None, downloader=_download) -> dict:
     return dict(_STATE["dl"])
 
 
+def fail_file() -> str:
+    return os.path.join(tempfile.gettempdir(), "b2stacker_update_failed.txt")
+
+
 def cleanup_after_update():
     """Beim Start: Reste eines Updates entfernen (alte exe), erfolgreiches Update protokollieren."""
     exe = exe_path()
@@ -261,11 +274,25 @@ def cleanup_after_update():
         logbook.event("update_done", previous=frm, current=__version__)
         with _LOCK:
             _STATE["updated_from"] = frm
-    old = os.path.splitext(exe)[0] + ".old.exe"
+    try:                                        # Grund eines gescheiterten Austauschs (vom Update-Skript)
+        with open(fail_file(), encoding="oem" if sys.platform == "win32" else "utf-8", errors="replace") as fh:
+            why = fh.read().strip()
+        os.remove(fail_file())
+        logbook.event("update_failed", reason=why, current=__version__)
+        with _LOCK:
+            _STATE["failed"] = why
+    except OSError:
+        pass
+    base = os.path.splitext(exe)[0]
+    olds = glob.glob(glob.escape(base) + ".old*.exe")
     for _ in range(5):
-        try:
-            if os.path.exists(old):
+        left = []
+        for old in olds:
+            try:
                 os.remove(old)
+            except OSError:
+                left.append(old)       # läuft noch (z. B. alter MCP-Server) – beim nächsten Start wieder
+        if not left:
             return
-        except OSError:
-            time.sleep(1)
+        olds = left
+        time.sleep(1)

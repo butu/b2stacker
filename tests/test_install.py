@@ -70,8 +70,12 @@ def test_update_script_targets_fixed_location(fake_win, monkeypatch):
     tmp, dl, cfg = fake_win
     text = updater.SWAP_CMD.format(exe=install.install_exe(), new=install.install_exe()[:-4] + ".new.exe",
                                    old=install.install_exe()[:-4] + ".old.exe", pid=1, ppid=1, cur="0.10.2",
-                                   new_version="0.11.0", cur_exe=str(dl))
+                                   new_version="0.11.0", cur_exe=str(dl), old_alt="X.old-123.exe",
+                                   failfile="F.txt")
     assert "wird auf Version 0.11.0 aktualisiert" in text
+    # alte exe noch von einem Prozess belegt (z. B. MCP-Server der Vorversion) → ausweichen statt scheitern
+    assert 'if exist "%OLD%" set "OLD=X.old-123.exe"' in text
+    assert '>"F.txt" echo %WHY%' in text
     assert 'if not exist "%EXE%" goto place' in text                 # erste Installation über das Update
     assert 'start "" "%CUR%"' in text and str(dl) in text            # Fehler: alte Version startet wieder
     assert text.count("(") == text.count(")")
@@ -79,3 +83,18 @@ def test_update_script_targets_fixed_location(fake_win, monkeypatch):
 
 def test_claude_link_command_override(tmp_path, monkeypatch):
     assert claude_link.server_entry("C:/x/b2stacker.exe") == {"command": "C:/x/b2stacker.exe", "args": ["mcp"]}
+
+
+def test_cleanup_removes_all_old_exes_and_reports_failed_swap(tmp_path, monkeypatch):
+    exe = tmp_path / "b2stacker.exe"
+    exe.write_bytes(b"MZ")
+    for n in ("b2stacker.old.exe", "b2stacker.old-0.11.0.exe", "b2stacker.old-17.exe"):
+        (tmp_path / n).write_bytes(b"MZ")
+    monkeypatch.setattr(updater, "exe_path", lambda: str(exe))
+    monkeypatch.setattr(updater.tempfile, "gettempdir", lambda: str(tmp_path))
+    (tmp_path / "b2stacker_update_failed.txt").write_text("b2stacker.exe liess sich nicht umbenennen\n")
+    monkeypatch.delenv("B2_UPDATED_FROM", raising=False)
+    updater.cleanup_after_update()
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["b2stacker.exe"]
+    assert updater.status()["update_failed"] == "b2stacker.exe liess sich nicht umbenennen"
+    updater._STATE.pop("failed", None)

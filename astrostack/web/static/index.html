@@ -2388,12 +2388,13 @@ async function renderGlobalHistory(){
 
 // ---------- Installation und Update
 function installLater(){try{return localStorage.getItem('b2-install-later')===(S.boot&&S.boot.version);}catch(e){return false;}}
-let UPD=null,updTold=false;
+let UPD=null,updTold=false,updFailTold=false;
 async function pollUpdate(){
   clearTimeout(pollUpdate.t);
   try{UPD=await api('/api/update');}catch(e){UPD=null;}
   const b=$('#updBtn');b.hidden=!(UPD&&UPD.newer);if(UPD&&UPD.newer)b.innerHTML=ic('down-arrow','s14')+' Update '+esc(UPD.latest);
   if(UPD&&UPD.updated_from&&!updTold){updTold=true;toast('Aktualisiert: '+UPD.updated_from+' → '+UPD.current);}
+  if(UPD&&UPD.update_failed&&!updFailTold){updFailTold=true;toast('Update hat nicht geklappt: '+UPD.update_failed+'. Es läuft weiter '+UPD.current+' – einfach nochmal versuchen.',true);}
   const dl=UPD&&UPD.download;
   if(dl&&['download','restart'].includes(dl.state)){renderUpdate();pollUpdate.t=setTimeout(pollUpdate,700);return;}
   if($('#updDlg').open)renderUpdate();
