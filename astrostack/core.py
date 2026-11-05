@@ -773,6 +773,52 @@ class Core:
                             stacks=nstacks, projects=[dict(u) for u in used]))
         return out
 
+    def calibration_frames(self) -> list[dict]:
+        """Alle rohen Kalibrierframes (Flats, Bias, Darks, Dark-Flats) aus allen Projekten, gruppiert wie sie
+        zusammenpassen: Typ, Kamera, Gain/Offset, Belichtung, Binning, Temperatur – Flats zusätzlich je Filter
+        und Nacht. Je Gruppe: Anzahl, Nächte, Projekte, Größe, fehlende Dateien."""
+        rows = self.db.query(
+            "SELECT f.id, f.type, f.filter, f.exposure, f.gain, f.\"offset\", f.binning, f.ccd_temp, f.night, f.size, "
+            "f.missing_since, f.width, f.height, f.date_obs, COALESCE(s.camera, '') AS camera, "
+            "GROUP_CONCAT(DISTINCT p.name) AS projects "
+            "FROM files f LEFT JOIN setups s ON s.id = f.setup_id "
+            "LEFT JOIN project_files pf ON pf.file_id = f.id LEFT JOIN projects p ON p.id = pf.project_id "
+            "WHERE f.type IN ('flat', 'bias', 'dark', 'darkflat') AND f.is_master = 0 GROUP BY f.id")
+        groups: dict = {}
+        for r in rows:
+            temp = None if r["ccd_temp"] is None else round(r["ccd_temp"])
+            exp = None if r["exposure"] is None else round(r["exposure"], 3)
+            key = (r["type"], r["camera"], r["gain"], r["offset"], r["binning"], exp,
+                   temp if r["type"] in ("dark", "darkflat", "bias") else None,
+                   (r["filter"] or "") if r["type"] == "flat" else "", r["night"] if r["type"] == "flat" else "")
+            g = groups.get(key)
+            if g is None:
+                g = groups[key] = dict(type=r["type"], camera=r["camera"], gain=r["gain"], offset=r["offset"],
+                                       binning=r["binning"], exposure=exp, temp=temp, filter=r["filter"] or "",
+                                       night=r["night"] or "", size=0, count=0, missing=0, nights=set(),
+                                       projects=set(), first=r["date_obs"], last=r["date_obs"],
+                                       width=r["width"], height=r["height"])
+            g["count"] += 1
+            g["size"] += r["size"] or 0
+            g["missing"] += 1 if r["missing_since"] else 0
+            if r["night"]:
+                g["nights"].add(r["night"])
+            for pn in (r["projects"] or "").split(","):
+                if pn:
+                    g["projects"].add(pn)
+            if r["date_obs"]:
+                g["first"] = min(filter(None, (g["first"], r["date_obs"])))
+                g["last"] = max(filter(None, (g["last"], r["date_obs"])))
+        order = {"flat": 0, "bias": 1, "dark": 2, "darkflat": 3}
+        out = []
+        for g in groups.values():
+            g["nights"] = sorted(g["nights"])
+            g["projects"] = sorted(g["projects"])
+            out.append(g)
+        out.sort(key=lambda g: g["last"] or "", reverse=True)          # neueste zuerst …
+        out.sort(key=lambda g: (order.get(g["type"], 9), g["camera"]))   # … innerhalb von Typ und Kamera
+        return out
+
     def delete_master(self, master_id: int) -> dict:
         """Gespeicherten Master vergessen und seine Datei löschen (eine von b2stacker erzeugte Datei, keine Rohdaten).
         Beim nächsten Stack entsteht er bei Bedarf neu aus den Rohframes."""

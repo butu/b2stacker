@@ -632,6 +632,8 @@ class Handler(BaseHTTPRequestHandler):
             from .. import checklist
             outs = checklist.outputs_for(_str(q, "run") or "")
             return self._json(dict(outputs=outs, items=checklist.items(outs)))
+        if api == ["library", "frames"]:
+            return self._json(c.calibration_frames())
         if api == ["library"]:
             return self._json(c.calibration_library())
         if api == ["selftest"]:

@@ -130,6 +130,14 @@ def test_library_page_and_delete_master(page, app):
     rows.first.locator("[data-mdel]").click()
     page.click("#askOk")
     expect(rows).to_have_count(n - 1)
+    # Rohframes: alle Kalibrierframes gruppiert (Flats je Filter und Nacht, Bias je Gain/Temperatur …)
+    page.locator("#libSeg button", has_text="Rohframes").click()
+    groups = app.core.calibration_frames()
+    assert {g["type"] for g in groups} >= {"flat", "bias"}
+    assert sum(g["count"] for g in groups if g["type"] == "flat") == 8
+    expect(page.locator("#libBox .mrow")).to_have_count(len(groups))
+    expect(page.locator("#libBox")).to_contain_text("in vdB 131")
+    shot(page, "kalibrier-rohframes")
 
 
 def test_stack_open_in_pixinsight_and_selftest_settings(page, app, monkeypatch):

@@ -2666,17 +2666,23 @@ setTimeout(pollUpdate,1500);
 
 // ---------- Kalibrier-Bibliothek (alle Projekte)
 const MTYPE={bias:['Master-Bias','Bias'],dark:['Master-Darks','Dark'],flat:['Master-Flats','Flat'],darkflat:['Master-Darkflats','Darkflat']};
+const LIB={tab:'masters'};
+try{LIB.tab=localStorage.getItem('b2-lib')||'masters';}catch(e){}
 async function renderLibrary(){
   const v=$('#view');
   if(!v.querySelector('#libBox'))v.innerHTML=`<div class="wrap"><div class="homehd"><div><h1>Kalibrier-Bibliothek</h1>
-    <p class="sub">Master, die b2stacker beim Stacken aufgehoben hat. Braucht ein Stack – in irgendeinem Projekt – genau dieselben Kalibrierframes, wird der fertige Master genommen statt ihn neu zu rechnen.</p></div></div>
+    <p class="sub">Alle Kalibrierdaten über alle Projekte: die fertigen Master, die b2stacker beim Stacken aufgehoben hat, und die Rohframes (Flats, Bias, Darks), aus denen sie entstehen.</p></div></div>
+    <div class="seg" id="libSeg" style="align-self:flex-start;margin-bottom:16px"><button data-k="masters">Master</button><button data-k="frames">Rohframes</button></div>
     <div id="libBox"><div class="live">${ic('spinner','s14 spin')} wird geladen …</div></div></div>`;
+  $$('#libSeg button').forEach(b=>{b.classList.toggle('on',b.dataset.k===LIB.tab);b.onclick=()=>{LIB.tab=b.dataset.k;try{localStorage.setItem('b2-lib',LIB.tab);}catch(e){}renderLibrary();};});
+  if(LIB.tab==='frames')return renderLibFrames();
   let list;try{list=await api('/api/library');}catch(e){$('#libBox').innerHTML=`<div class="banner err">${esc(e.message)}</div>`;return;}
-  if(S.route.view!=='library')return;
-  if(!list.length){$('#libBox').innerHTML=`<div class="empty"><div class="t">Noch keine Master</div><div class="x">Nach dem ersten Stack mit Bias, Darks oder Flats erscheinen die Master hier.</div></div>`;return;}
+  if(S.route.view!=='library'||LIB.tab!=='masters')return;
+  if(!list.length){$('#libBox').innerHTML=`<div class="empty"><div class="t">Noch keine Master</div><div class="x">Nach dem ersten Stack mit Bias, Darks oder Flats erscheinen die Master hier. Braucht ein Stack – in irgendeinem Projekt – genau dieselben Kalibrierframes, wird der fertige Master genommen statt ihn neu zu rechnen.</div></div>`;return;}
   const total=list.reduce((a,m)=>a+(m.size||0),0);
   const groups=Object.keys(MTYPE).map(k=>[k,list.filter(m=>m.type===k)]).filter(g=>g[1].length);
   $('#libBox').innerHTML=`<div class="sec" style="gap:18px"><div class="fsum"><span>${plural(list.length,'Master','Master')}</span><span>${gb(total)}</span><span>${plural(new Set(list.map(m=>m.project_id)).size,'Projekt','Projekte')}</span></div>
+    <div class="small muted">Braucht ein Stack – in irgendeinem Projekt – genau dieselben Kalibrierframes, wird der fertige Master genommen statt ihn neu zu rechnen.</div>
     ${groups.map(([k,ms])=>`<div class="sec" style="gap:8px"><h3 class="lh">${MTYPE[k][0]} <span class="n">${ms.length}</span></h3><div class="card mlist">${ms.map(mRow).join('')}</div></div>`).join('')}
     <div class="keys">${ic('info','s14')} Entfernen löscht nur den gespeicherten Master (eine von b2stacker erzeugte Datei). Die Kalibrier-Rohframes bleiben; beim nächsten Stack entsteht der Master bei Bedarf neu.</div></div>`;
   $$('[data-mdel]').forEach(b=>b.onclick=async()=>{
@@ -2684,6 +2690,28 @@ async function renderLibrary(){
     if(!await ask('Master entfernen?',`${MTYPE[m.type][1]}-Master „${m.name}“ (${m.size?gb(m.size):'Datei fehlt'}) wird gelöscht. Die Rohframes bleiben.`,'Entfernen',true))return;
     busy(b,async()=>{await api('/api/library/'+m.id+'/delete',{});renderLibrary();});
   });
+}
+async function renderLibFrames(){
+  let list;try{list=await api('/api/library/frames');}catch(e){$('#libBox').innerHTML=`<div class="banner err">${esc(e.message)}</div>`;return;}
+  if(S.route.view!=='library'||LIB.tab!=='frames')return;
+  if(!list.length){$('#libBox').innerHTML=`<div class="empty"><div class="t">Keine Kalibrierframes gefunden</div><div class="x">Liegen Flats, Bias oder Darks in den Quellordnern eines Projekts, erscheinen sie hier – gruppiert danach, wie sie zusammenpassen.</div></div>`;return;}
+  const T={flat:'Flats',bias:'Bias',dark:'Darks',darkflat:'Dark-Flats'};
+  const n=list.reduce((a,g)=>a+g.count,0),size=list.reduce((a,g)=>a+g.size,0);
+  const types=Object.keys(T).map(k=>[k,list.filter(g=>g.type===k)]).filter(x=>x[1].length);
+  const row=g=>{const bits=[];
+    if(g.type==='flat')bits.push(esc(g.filter||'ohne Filter'));
+    if(g.exposure!=null&&g.type!=='bias')bits.push(num(g.exposure,g.exposure<10?2:0)+' s');
+    if(g.gain!=null)bits.push('Gain '+int(g.gain));if(g.offset!=null)bits.push('Offset '+int(g.offset));
+    if(g.temp!=null&&g.type!=='flat')bits.push(num(g.temp,0)+' °C');if(g.binning&&g.binning>1)bits.push('Bin '+int(g.binning));
+    const nights=g.nights.length?(g.nights.length===1?'Nacht '+ymd(g.nights[0]):`${g.nights.length} Nächte, ${ymd(g.nights[0])} – ${ymd(g.nights[g.nights.length-1])}`):'';
+    return `<div class="mrow ${g.missing===g.count?'off':''}"><div class="mi">${ic(g.missing?'warn':'image')}</div>
+      <div class="mt"><div class="mn">${plural(g.count,'Frame','Frames')} · ${bits.join(' · ')}</div>
+        <div class="mx">${g.camera?esc(g.camera)+' · ':''}${nights}${g.width?' · '+int(g.width)+'×'+int(g.height):''}${g.missing?` · <span class="errc">${g.missing} fehlen</span>`:''}</div>
+        <div class="mx">${g.projects.length?'in '+g.projects.map(esc).join(', '):'in keinem Projekt'}</div></div>
+      <div class="ms">${gb(g.size)}</div></div>`;};
+  $('#libBox').innerHTML=`<div class="sec" style="gap:18px"><div class="fsum"><span>${plural(n,'Frame','Frames')}</span><span>${plural(list.length,'Gruppe','Gruppen')}</span><span>${gb(size)}</span></div>
+    <div class="small muted">Eine Gruppe = Frames, die zusammen einen Master ergeben: gleicher Typ, gleiche Kamera, Gain/Offset, Belichtung und Binning; Bias und Darks zusätzlich gleiche Temperatur, Flats je Filter und Nacht. Die Rohframes bleiben immer, wo sie sind.</div>
+    ${types.map(([k,gs])=>`<div class="sec" style="gap:8px"><h3 class="lh">${T[k]} <span class="n">${gs.reduce((a,g)=>a+g.count,0)}</span></h3><div class="card mlist">${gs.map(row).join('')}</div></div>`).join('')}</div>`;
 }
 function mRow(m){
   const i=m.info||{},bits=[];
