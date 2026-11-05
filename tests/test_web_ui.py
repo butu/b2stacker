@@ -374,3 +374,200 @@ def test_first_start_setup_and_settings(browser, tmp_path, monkeypatch):
         ctx.close()
     finally:
         a.stop()
+
+
+# ---------------------------------------------------------------- Teil 2: Stacks, Vergleich, Galerie, Verlauf
+
+def fake_stack(co, pid: int, run: str, img, hours: float, frames: int, created_at: str, note: str = "",
+               status: str = "done", error: str | None = None) -> int:
+    """Fertigen Stack mit echtem XISF-Master direkt anlegen und vermessen (Qualität + Vorschau)."""
+    from astrostack import stackview, xisf
+    from astrostack.stacking import stack_name
+    import datetime
+    db, ws = co.db, co.ws
+    pdir = ws.project_dir(db.value("SELECT folder FROM projects WHERE id = ?", (pid,)))
+    name = stack_name(dict(name=run, hours=hours), datetime.date.fromisoformat(created_at[:10]))
+    files = []
+    if status == "done":
+        os.makedirs(os.path.join(pdir, name), exist_ok=True)
+        files = [os.path.join(pdir, name, "masterLight_%s.xisf" % run)]
+        xisf.write_image(files[0], img)
+    with db.transaction():
+        cur = db.execute("INSERT INTO stacks (project_id, name, folder, status, created_at, finished_at, run_label, frames, "
+                         "exposure_s, nights, settings_json, note, error, size_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, "
+                         "?, ?, '{}', ?, ?, ?)", (pid, name, name if files else "", status, created_at, created_at, run,
+                                                  frames, hours * 3600, 3, note, error,
+                                                  sum(os.path.getsize(f) for f in files)))
+        sid = int(cur.lastrowid)
+        for f in files:
+            db.execute("INSERT INTO assets (project_id, stack_id, path, size, added_at, owned) VALUES (?, ?, ?, ?, ?, 1)",
+                       (pid, sid, f, os.path.getsize(f), created_at))
+        db.event("stack_" + status, pid, json.dumps(dict(stack=sid, run=run, lights=frames, hours=hours, error=error)))
+        db.execute("UPDATE events SET at = ? WHERE id = (SELECT MAX(id) FROM events)", (created_at,))
+        if status == "done":
+            db.execute("UPDATE projects SET stacked_at = MAX(COALESCE(stacked_at, ''), ?) WHERE id = ?", (created_at, pid))
+    if status == "done":
+        stackview.measure(db, ws, sid)
+    return sid
+
+
+def with_stacks(co, pid):
+    from .test_web_part2 import star_image
+    a = fake_stack(co, pid, "HaO3", star_image(1, noise=0.005, fwhm=3.0), 6.5, 78, "2026-09-02T22:10:00Z",
+                   note="Erster Versuch, Mond hell")
+    b = fake_stack(co, pid, "HaO3", star_image(2, shift=(5, -7), noise=0.0025, fwhm=2.3), 12.5, 150,
+                   "2026-10-14T21:30:00Z", note="Mit den Oktobernächten")
+    c = fake_stack(co, pid, "RGB", None, 1.2, 20, "2026-10-20T20:00:00Z", status="failed",
+                   error="WBPP hat kein Master erzeugt.")
+    return a, b, c
+
+
+def test_stacks_list_note_cover_and_delete(page, app):
+    pid = pid_of(app, "vdB 131")
+    a, b, c = with_stacks(app.core, pid)
+    page.goto(app.url + "#/p/%d/stacks" % pid)
+    cards = page.locator(".stk[data-sid]")
+    expect(cards).to_have_count(3)
+    expect(cards.first).to_contain_text("fehlgeschlagen")                          # neuester zuerst
+    good = page.locator(".stk[data-sid='%d']" % b)
+    expect(good.locator(".qv")).to_contain_text("Schärfe (FWHM)")
+    expect(good.locator(".sp img")).to_be_visible()
+    expect(good.locator(".smeta")).to_contain_text("150 Lights")
+    expect(page.locator("#cmpBar")).to_contain_text("3 Stacks")
+    # Notiz
+    good.locator(".snote").click()
+    page.fill("#noteIn", "Lieblingsversion")
+    page.click("#noteOk")
+    expect(good.locator(".snote")).to_have_text("Lieblingsversion")
+    assert [s for s in app.core.stacks(pid) if s["id"] == b][0]["note"] == "Lieblingsversion"
+    # Projektbild → Startseite zeigt die Stack-Vorschau
+    good.locator("[data-cover]").click()
+    expect(good.locator(".pill", has_text="Projektbild")).to_be_visible()
+    page.goto(app.url + "#/")
+    ph = page.locator(".tile[data-pid='%d'] .ph" % pid)
+    expect(ph).to_have_attribute("style", re.compile(r"/api/stacks/%d/preview" % b))
+    # Löschen mit Rückfrage
+    page.goto(app.url + "#/p/%d/stacks" % pid)
+    page.locator(".stk[data-sid='%d'] [data-del]" % c).click()
+    expect(page.locator("#askDlg")).to_be_visible()
+    page.click("#askOk")
+    expect(page.locator(".stk[data-sid]")).to_have_count(2)
+    assert [s["id"] for s in app.core.stacks(pid)] == [b, a]
+
+
+def test_compare_overlay_slider_and_values(page, app):
+    pid = pid_of(app, "vdB 131")
+    a, b, _ = with_stacks(app.core, pid)
+    page.goto(app.url + "#/p/%d/stacks" % pid)
+    page.click("#cmpLatest")
+    cmp = page.locator("#cmp")
+    expect(cmp).to_be_visible()
+    expect(page.locator("#cmpSide .mtab")).to_contain_text("besser")
+    expect(page.locator("#cmpSide .mtab")).to_contain_text("schlechter")
+    page.wait_for_function("() => document.querySelector('#cmpIa').naturalWidth > 0 && "
+                           "document.querySelector('#cmpIb').naturalWidth > 0")
+    assert page.locator("#cmpBox").bounding_box()["width"] > 300
+    expect(page.locator("#cmpLa")).to_contain_text("A · ")
+    expect(page.locator("#cmpSide")).to_contain_text("wird noch nicht ausgeglichen")
+    expect(page.locator("[data-cnote='a']")).to_have_value("Erster Versuch, Mond hell")
+    # Schieber per Tastatur und Maus
+    page.keyboard.press("ArrowLeft")
+    assert page.locator("#cmpBox").evaluate("e => e.style.getPropertyValue('--x')") == "45%"
+    box = page.locator("#cmpBox").bounding_box()
+    page.mouse.click(box["x"] + box["width"] * 0.8, box["y"] + box["height"] / 2)
+    x = float(page.locator("#cmpBox").evaluate("e => e.style.getPropertyValue('--x')").rstrip("%"))
+    assert 78 < x < 82
+    # A/B tauschen, Notiz im Vergleich ändern
+    page.click("#cmpSwap")
+    expect(page.locator("#cmpLa")).to_contain_text("12h30")
+    page.locator("[data-cnote='b']").fill("geändert im Vergleich")
+    page.locator("[data-cnote='b']").blur()
+    _wait(lambda: [s for s in app.core.stacks(pid) if s["id"] == a][0]["note"] == "geändert im Vergleich")
+    page.keyboard.press("Escape")
+    expect(cmp).to_be_hidden()
+
+
+def _img(path, color=(180, 60, 60), size=(120, 80)):
+    from PIL import Image
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    Image.new("RGB", size, color).save(path)
+    return path
+
+
+def test_gallery_add_folder_cover_on_start_tile_and_missing(page, app, tmp_path):
+    pid = pid_of(app, "vdB 131")
+    d = tmp_path / "Bearbeitet"
+    _img(str(d / "Iris final.jpg"))
+    _img(str(d / "Iris Ha.png"), (40, 160, 200))
+    single = _img(str(tmp_path / "anders.jpg"), (90, 90, 90))
+    page.goto(app.url + "#/p/%d/gallery" % pid)
+    expect(page.locator("#gBody .empty")).to_contain_text("Noch keine Bilder")
+    page.fill("#gPath", str(d))
+    page.click("#gAdd")
+    expect(page.locator(".gt[data-aid]")).to_have_count(2)
+    page.fill("#gPath", single)
+    page.press("#gPath", "Enter")
+    expect(page.locator(".gt[data-aid]")).to_have_count(3)
+    first = page.locator(".gt[data-aid]", has_text="Iris final.jpg")
+    first.hover()
+    first.locator("[data-gcover]").click()
+    expect(first.locator(".pill", has_text="Projektbild")).to_be_visible()
+    # Datei fehlt
+    os.remove(single)
+    from astrostack import gallery
+    gallery.check_missing(app.core.db, pid)
+    page.reload()
+    expect(page.locator(".gt[data-aid]", has_text="anders.jpg").locator(".pill.err")).to_have_text("Datei fehlt")
+    # Großansicht
+    first.locator(".ph").click()
+    expect(page.locator("#gv")).to_be_visible()
+    expect(page.locator("#gvLoad")).to_be_hidden(timeout=10000)
+    page.keyboard.press("Escape")
+    # Startseite: Kachel mit dem gewählten Bild
+    page.goto(app.url + "#/")
+    expect(page.locator(".tile[data-pid='%d'] .ph" % pid)).to_have_attribute("style", re.compile(r"/api/assets/\d+/thumb"))
+    page.wait_for_function("() => [...document.querySelectorAll('.tile .ph')].some(e => e.style.background.includes('/api/assets/'))")
+
+
+def test_history_timeline_project_and_global(page, app):
+    pid = pid_of(app, "vdB 131")
+    with_stacks(app.core, pid)
+    page.goto(app.url + "#/p/%d/history" % pid)
+    tl = page.locator(".tl")
+    expect(tl).to_contain_text("neue Lights")
+    expect(tl).to_contain_text("Gestackt: HaO3 12 h")
+    expect(tl).to_contain_text("Stacken fehlgeschlagen: RGB")
+    expect(tl).to_contain_text("Projekt angelegt")
+    expect(page.locator(".tli[data-kind='stack_done'] .tw").first).to_contain_text(re.compile(r"Vor \d+ (Tagen|Wochen)"))
+    page.locator("#hSeg button", has_text="Stacks").click()
+    expect(page.locator(".tli[data-kind='project_created']")).to_have_count(0)
+    # allgemeiner Verlauf über die Kopfzeile
+    page.click("#histBtn")
+    expect(page.locator("h1")).to_have_text("Verlauf")
+    page.locator("#hSeg button", has_text="Alles").click()
+    expect(page.locator("#gHist .tp").first).to_be_visible()
+    expect(page.locator("#gHist .tl")).to_contain_text("Herz-Nebel")
+    page.select_option("#hProj", str(pid))
+    expect(page.locator("#gHist .tl")).not_to_contain_text("Herz-Nebel")
+    page.locator("#gHist .tp").first.click()
+    expect(page).to_have_url(re.compile(r"#/p/%d/history$" % pid))
+
+
+def test_settings_backup_list_and_restore(page, app, tmp_path):
+    extra = str(tmp_path / "NAS-Sicherung")
+    page.click("#setBtn")
+    page.fill("#set_backup_dir", extra)
+    page.click("#setSave")
+    expect(page.locator("#setDlg")).to_be_hidden()
+    page.click("#setBtn")
+    page.click("#bkBtn")
+    expect(page.locator("#bkList .bkr").first).to_contain_text("am Sicherungsort")
+    assert os.listdir(extra)
+    app.core.create_project("Später angelegt", [])
+    assert app.core.tasks.wait_idle(30)
+    page.locator("#bkList [data-restore]").first.click()
+    expect(page.locator("#askDlg")).to_be_visible()
+    page.click("#askOk")
+    expect(page.locator("#setDlg")).to_be_hidden()
+    expect(page.locator(".tile[data-pid]")).to_have_count(3)                       # „Später angelegt“ ist weg
+    assert app.srv.core is not app.core
