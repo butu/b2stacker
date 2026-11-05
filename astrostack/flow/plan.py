@@ -251,6 +251,13 @@ def build_plan(db: dbm.Database, pid: int, workdir: str, edits: dict | None = No
             bias=run["bias"], darks=run["darks"], problems=run["problems"], settings=settings,
             enabled=bool(enabled), why_off=why_off, disk_gb=round(disk, 1), ram_gb=round(ram, 1),
             light_stats=stats))
+    try:                                                        # Master-Wiederverwendung sichtbar machen
+        from ..handover import masters_plan
+        for r in runs:
+            r["masters"] = masters_plan(db, pid, r)
+    except Exception:  # noqa: BLE001 – Zusatzinfo, darf den Plan nicht verhindern
+        import logging
+        logging.getLogger(__name__).exception("Master-Vorschau")
     names = [r["name"] for r in runs]
     for r in runs:                                              # gleicher Filter, andere Einstellungen
         if names.count(r["name"]) > 1:

@@ -424,6 +424,10 @@ class Core:
                 r["quality"] = {k: v for k, v in stackview.measure(self.db, self.ws, r["stack_id"]).items()
                                 if k in ("fwhm", "fwhm_unit", "noise", "stars", "ecc", "gradient_pct", "error")}
             if done:
+                try:                                             # neue Master → Plan zeigt die Wiederverwendung
+                    fplan.update_plan(self.db, pid, self.ws.root)
+                except Exception:  # noqa: BLE001
+                    pass
                 self._notify("project", id=pid)
                 self._notify("projects")
                 if opts["open_results"]:

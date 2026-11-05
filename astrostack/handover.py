@@ -128,6 +128,55 @@ def _master(db: dbm.Database, pid: int | None, key: str | None) -> str | None:
     return None
 
 
+def masters_plan(db: dbm.Database, pid: int, run: dict) -> list[dict]:
+    """Für den Plan: welche Kalibrier-Master beim Stacken wiederverwendet werden – und warum nicht.
+    Dieselbe Rechnung wie in ``build_job`` (gleicher Schlüssel = genau dieselben Rohframes)."""
+    out = []
+
+    def source(path):
+        r = db.one("SELECT m.created_at, p.name FROM masters m JOIN projects p ON p.id = m.project_id WHERE m.path = ? "
+                   "ORDER BY m.id DESC LIMIT 1", (path,))
+        return ("aus %s, %s" % (r["name"], (r["created_at"] or "")[:10])) if r else ""
+
+    def entry(kind, label, ids, key):
+        if not ids:
+            return None
+        m = _master(db, pid, key)
+        if m:
+            return dict(kind=kind, label=label, reused=True, path=m, frames=len(ids),
+                        why="wird wiederverwendet (%s) – spart das Neuberechnen" % source(m))
+        if key is None:
+            why = "wird neu berechnet – Prüfsummen der Rohframes fehlen noch (Vermessen läuft)"
+        elif db.value("SELECT COUNT(*) FROM masters WHERE type = ?", (kind,)):
+            why = ("wird neu berechnet – die gespeicherten %s stammen aus anderen Rohframes (andere Auswahl, "
+                   "neue oder fehlende Frames)" % {"bias": "Master-Bias", "dark": "Master-Darks",
+                                                    "flat": "Master-Flats"}[kind])
+        else:
+            why = "wird neu berechnet und danach in der Kalibrier-Bibliothek aufgehoben"
+        return dict(kind=kind, label=label, reused=False, frames=len(ids), why=why)
+    bias_ids = (run.get("bias") or {}).get("file_ids") or []
+    bias_key = master_key(db, "bias", bias_ids)
+    for e in (entry("bias", "Bias", bias_ids, bias_key),
+              entry("dark", "Darks", (run.get("darks") or {}).get("file_ids") or [],
+                    master_key(db, "dark", (run.get("darks") or {}).get("file_ids") or []))):
+        if e:
+            out.append(e)
+    seen = {}
+    for fl in run.get("flats") or []:
+        ids = tuple(sorted(fl.get("file_ids") or []))
+        if not ids:
+            continue
+        if ids in seen:
+            seen[ids]["label"] += ", " + (fl.get("night") or "?")[5:].replace("-", ".")
+            continue
+        e = entry("flat", "Flats für %s" % (fl.get("night") or "?")[5:].replace("-", "."), list(ids),
+                  master_key(db, "flat", ids, bias_key or ""))
+        if e:
+            seen[ids] = e
+            out.append(e)
+    return out
+
+
 def build_job(db: dbm.Database, run: dict, out_dir: str, reference_path: str | None = None,
               project_id: int | None = None) -> dict:
     """Auftrag für einen Plan-Lauf. Lights und ihre Flats bekommen denselben Nacht-Schlüssel; Flats, die für

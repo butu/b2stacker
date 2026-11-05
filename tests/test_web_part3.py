@@ -590,3 +590,15 @@ def test_lan_connection_test_page_and_arrivals(proj, tmp_path, monkeypatch):
     finally:
         web.set_lan(srv, False)
         _stop(srv)
+
+
+def test_plan_shows_master_reuse(proj):
+    """Feedback 0.12.2: Der Plan zeigt, welcher Master wiederverwendet wird – oder warum nicht."""
+    co, pid, _ = proj
+    plan = co.plan(pid)
+    ha = next(r for r in plan["runs"] if r["filter"] == "HaO3")
+    assert ha["masters"] and all(not m["reused"] for m in ha["masters"])
+    _stack_ha(co, pid)
+    ha2 = next(r for r in co.plan(pid)["runs"] if r["filter"] == "HaO3")
+    reused = [m for m in ha2["masters"] if m["reused"]]
+    assert reused and all("wiederverwendet" in m["why"] and "vdB 131" in m["why"] for m in reused)

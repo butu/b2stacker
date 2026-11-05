@@ -480,6 +480,7 @@ dialog.rep iframe{flex:1;border:0;width:100%;background:#1e1e1e;border-radius:0 
 .ntab .hb{display:inline-block;height:6px;border-radius:3px;background:var(--accent,#3584e4);vertical-align:middle;margin-right:6px}
 .ntab tr.nsub td{white-space:normal;background:rgba(255,255,255,.025);font-size:13px}
 .nscroll{overflow-x:auto}
+.mrow2{margin:2px 0;line-height:1.5}
 .ntab th.sortable{cursor:pointer;user-select:none}.ntab th.sortable:hover,.ntab th.on{color:#fff}
 .rigchips{display:flex;flex-wrap:wrap;gap:6px;padding:12px 16px 4px}
 .rcheck .ct{font-weight:600}.rcheck .cx2{opacity:.8;margin-top:2px;line-height:1.45}
@@ -2140,7 +2141,8 @@ function runCard(r){
 }
 function calSummary(r){
   const f=r.flats||[],withF=f.filter(x=>(x.file_ids||[]).length).length;
-  return esc([f.length?`Flats ${withF}/${f.length} Nächte`:'',(r.bias.file_ids||[]).length?'Bias':'',(r.darks.file_ids||[]).length?'Darks':''].filter(Boolean).join(' · '));
+  const reused=(r.masters||[]).filter(m=>m.reused).length;
+  return esc([f.length?`Flats ${withF}/${f.length} Nächte`:'',(r.bias.file_ids||[]).length?'Bias':'',(r.darks.file_ids||[]).length?'Darks':'',reused?plural(reused,'Master','Master')+' wiederverwendet':''].filter(Boolean).join(' · '));
 }
 function calBody(r){
   const opts=r.flat_options||[],ce=(r.calib_edits||{}).flats||{};
@@ -2159,7 +2161,8 @@ function calBody(r){
       <p><b>Flats</b> entfernen Vignettierung und Staub. Sie müssen zum Filter und zu den Kamera-Einstellungen (Gain, Offset, Binning, Bildgröße) passen – sonst rechnet WBPP falsch. b2stacker liest das aus dem Header, nie aus dem Ordnernamen. Je Nacht nimmt es die Flats derselben Nacht, sonst die zeitlich nächsten. Liegen sie weit weg, ist das nur ein Hinweis: Wurde am Aufbau nichts verändert, passen sie meist.</p>
       <p><b>Bias</b> ziehen das Ausleserauschen ab – der neueste passende Satz. <b>Darks</b> passend zu Belichtung (±1 s) und Temperatur (±2 °C); ohne Darks entfernt PixInsight Hotpixel automatisch.</p>
       <p><b>Was du tun kannst:</b> rechts je Nacht andere Flats wählen oder „Keine Flats“. Fehlen passende Flats, nimm sie bei der nächsten Gelegenheit auf oder füge in der Übersicht einen Ordner mit Flats hinzu – sie werden automatisch zugeordnet.</p></div></details>
-    ${flatRows||'<div class="small muted">Keine Nacht mit Lights.</div>'}${simple('bias','Bias')}${simple('darks','Darks')}</div>`;
+    ${flatRows||'<div class="small muted">Keine Nacht mit Lights.</div>'}${simple('bias','Bias')}${simple('darks','Darks')}
+    ${(r.masters||[]).length?`<div class="calrow"><span class="cl">Master<small>Kalibrier-Bibliothek</small></span><span class="cv">${r.masters.map(m=>`<div class="mrow2"><span class="pill ${m.reused?'ok':'neutral'}">${m.reused?'wiederverwendet':'neu'}</span> <b>${esc(m.label)}</b> – ${esc(m.why)}</div>`).join('')}</span><span class="cc"></span></div>`:''}</div>`;
 }
 function optBody(r){
   const top=r.top_percent||100;
