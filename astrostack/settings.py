@@ -38,6 +38,9 @@ class Settings:
     backup_dir: str = ""                       # zusätzlicher Ort für Datenbank-Sicherungen (neue Oberfläche); leer = nur system/backup
     watch_interval_s: int = 45                 # Watcher der neuen Oberfläche: so oft werden die Ordner geprüft
     mcp_token: str = ""                        # Schlüssel für MCP über HTTP (OpenCode, Claude Code …); leer = beim ersten Bedarf erzeugen
+    lan_access: bool = False                   # neue Oberfläche auch im Heimnetz (Handy) erreichbar
+    lan_port: int = 8875                       # Port dafür (alle Netzwerkkarten); nur private Adressen dürfen zugreifen
+    lan_key: str = ""                          # Schlüssel der gekoppelten Handys (Cookie); neu erzeugen meldet alle ab
     # Ersatz-Standort, wenn die FITS-Daten keinen enthalten (Mondstand, Objekthöhe, Nachtgrenze)
     site_lat: float | None = None
     site_lon: float | None = None

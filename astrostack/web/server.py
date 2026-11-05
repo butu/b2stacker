@@ -48,7 +48,7 @@ def _json_bytes(data) -> bytes:
 
 def public_settings(s: Settings) -> dict:
     """Einstellungen für die Oberfläche – ohne den MCP-Schlüssel."""
-    return {k: v for k, v in asdict(s).items() if k != "mcp_token"}
+    return {k: v for k, v in asdict(s).items() if k not in ("mcp_token", "lan_key")}
 
 
 class NotFound(Exception):
@@ -85,9 +85,40 @@ class WebServer(ThreadingHTTPServer):
         finally:
             self.core.db.release()            # jede Anfrage hat ihren Thread → Verbindung nicht liegen lassen
 
+    lan_server = None
+    lan_error = None
+    lan_key = ""                                  # Schlüssel der gekoppelten Handys (aus den Einstellungen)
+
+    def start_lan(self, port: int) -> bool:
+        """Zugang fürs Heimnetz öffnen (``web/lan.py``). → läuft?"""
+        from . import lan
+        if self.lan_server is not None:
+            if self.lan_server.server_address[1] == port:
+                return True
+            self.stop_lan()
+        try:
+            ls = lan.LanServer(self, port, Handler)
+        except OSError as e:
+            self.lan_error = "Port %d ist belegt oder gesperrt (%s)" % (port, e)
+            logbook.event("lan_failed", port=port, error=str(e))
+            return False
+        self.lan_server, self.lan_error = ls, None
+        self.lan_key = Settings.load().lan_key
+        threading.Thread(target=ls.serve_forever, daemon=True, name="lan").start()
+        logbook.event("lan_started", port=port, ips=lan.lan_ips())
+        return True
+
+    def stop_lan(self) -> None:
+        ls, self.lan_server = self.lan_server, None
+        if ls is not None:
+            ls.shutdown()
+            ls.server_close()
+            logbook.event("lan_stopped")
+
     def stop(self) -> None:
         """Server beenden: SSE-Ströme enden, ``serve_forever`` kehrt zurück, der Port wird frei."""
         self.stopping.set()
+        self.stop_lan()
         if self.watcher is not None:
             self.watcher.stop()
         self.shutdown()
@@ -131,6 +162,9 @@ def create(port: int = PORT, settings: Settings | None = None, core: Core | None
         core.refresh_all()
     if refresh if watch is None else watch:
         srv.start_watcher(watch_interval or s.watch_interval_s)
+    srv.lan_key = s.lan_key
+    if s.lan_access and s.lan_key and refresh:
+        srv.start_lan(s.lan_port)
     return srv
 
 
@@ -189,6 +223,48 @@ def save_settings(srv: WebServer, data: dict) -> dict:
     moved = os.path.normcase(os.path.abspath(srv.core.ws.root)) != os.path.normcase(os.path.abspath(s.workdir))
     switched = moved and _switch_workdir(srv, s)
     return dict(settings=public_settings(s), restart_needed=moved and not switched, workdir=srv.core.ws.root)
+
+
+def lan_info(srv: WebServer) -> dict:
+    """Heimnetz-Zugang für die Einstellungen: an/aus, Adressen, QR-Code zum Koppeln."""
+    from . import lan
+    s = Settings.load()
+    running = srv.lan_server is not None
+    port = srv.lan_server.server_address[1] if running else s.lan_port
+    ips = lan.lan_ips()
+    urls = ["http://%s:%d/" % (ip, port) for ip in ips]
+    pair = (urls[0] + "pair?k=" + s.lan_key) if (urls and s.lan_key) else None
+    return dict(enabled=s.lan_access, running=running, port=port, urls=urls, pair_url=pair,
+                qr=lan.qr_svg(pair) if (pair and running) else None, error=srv.lan_error)
+
+
+def set_lan(srv: WebServer, enabled: bool) -> dict:
+    from . import lan
+    with SETTINGS_LOCK:
+        s = Settings.load()
+        s.lan_access = bool(enabled)
+        if enabled and not s.lan_key:
+            s.lan_key = lan.new_key()
+        s.save()
+    srv.lan_key = s.lan_key
+    if enabled:
+        srv.start_lan(s.lan_port)
+    else:
+        srv.stop_lan()
+    logbook.event("lan_setting", enabled=bool(enabled))
+    return lan_info(srv)
+
+
+def new_lan_key(srv: WebServer) -> dict:
+    """Neuen Schlüssel erzeugen: alle gekoppelten Handys sind abgemeldet und müssen den QR-Code neu scannen."""
+    from . import lan
+    with SETTINGS_LOCK:
+        s = Settings.load()
+        s.lan_key = lan.new_key()
+        s.save()
+    srv.lan_key = s.lan_key
+    logbook.event("lan_key_renewed")
+    return lan_info(srv)
 
 
 def _switch_workdir(srv: WebServer, s: Settings) -> bool:
@@ -480,10 +556,47 @@ class Handler(BaseHTTPRequestHandler):
             return self._error(500, "Interner Fehler (%s: %s) – Einzelheiten im Protokoll." % (type(e).__name__, e))
 
     # ---------------------------------------------------------------- GET
+    @property
+    def remote(self) -> bool:
+        """Anfrage kommt über den Heimnetz-Zugang (Handy)?"""
+        return bool(getattr(self.server, "lan", False))
+
+    def _remote_ok(self) -> bool:
+        from . import lan
+        return lan.key_ok(self.headers.get("Cookie"), self.server.lan_key)
+
+    def _remote_denied(self):
+        body = ("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
+                "<body style='background:#0b0b0c;color:#fff;font:16px system-ui;padding:24px'>"
+                "<h2>b2stacker</h2><p>Dieses Gerät ist noch nicht gekoppelt. Am Computer in b2stacker unter "
+                "Einstellungen → Handy den QR-Code scannen.</p>").encode("utf-8")
+        if (self.headers.get("Accept") or "").startswith("text/html") or self.path in ("/", "/index.html"):
+            return self._send(401, body, "text/html; charset=utf-8")
+        return self._error(401, "Dieses Gerät ist nicht gekoppelt – QR-Code in den Einstellungen am Computer scannen.")
+
+    def _pair(self, q: dict):
+        from . import lan
+        k = (q.get("k") or [""])[0]
+        if not self.server.lan_key or not k or not lan.key_ok("%s=%s" % (lan.COOKIE, k), self.server.lan_key):
+            logbook.event("lan_pair_refused", client=self.client_address[0])
+            return self._remote_denied()
+        logbook.event("lan_paired", client=self.client_address[0], agent=(self.headers.get("User-Agent") or "")[:120])
+        self.send_response(302)
+        self.send_header("Location", "/")
+        self.send_header("Set-Cookie", lan.cookie(self.server.lan_key))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def do_GET(self):
-        if not self._host_ok():
-            return self._error(403, "Zugriff nur von diesem Rechner.")
         parts, q = self._parts()
+        if self.remote:
+            if parts == ["pair"]:
+                return self._pair(q)
+            if not self._remote_ok():
+                return self._remote_denied()
+        elif not self._host_ok():
+            return self._error(403, "Zugriff nur von diesem Rechner.")
         if parts == ["mcp"]:                      # MCP über HTTP: nur POST
             return self._send(405, b"", "text/plain", headers={"Allow": "POST"})
         if parts == ["api", "events"]:
@@ -499,7 +612,7 @@ class Handler(BaseHTTPRequestHandler):
             raise NotFound("nicht gefunden")
         api = parts[1:]
         if api == ["bootstrap"]:
-            return self._json(bootstrap(self.server))
+            return self._json(dict(bootstrap(self.server), remote=self.remote))
         if api == ["update"]:
             from .. import updater
             return self._json(updater.status())
@@ -593,9 +706,17 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---------------------------------------------------------------- POST
     def do_POST(self):
-        if not self._host_ok():
-            return self._error(403, "Zugriff nur von diesem Rechner.")
         parts, _ = self._parts()
+        if self.remote:
+            from . import lan
+            if not self._remote_ok():
+                return self._remote_denied()
+            api = parts[1:] if parts[:1] == ["api"] else None
+            if api is None or (api and api[0] in lan.BLOCKED_POST) or \
+                    (len(api) >= 3 and api[0] == "projects" and api[2] in lan.BLOCKED_PROJECT_POST):
+                return self._error(403, "Am Handy nicht möglich – bitte am Computer.")
+        elif not self._host_ok():
+            return self._error(403, "Zugriff nur von diesem Rechner.")
         if parts == ["mcp"]:
             return self._mcp_post()
         if self.headers.get("X-Astrostack") != "1":
@@ -656,6 +777,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"path": path})
         if api == ["check-pixinsight"]:
             return self._json(dialogs().check_pixinsight(_text(b, "path")))
+        if api == ["lan-info"]:
+            return self._json(lan_info(self.server))
+        if api == ["lan"]:
+            en = b.get("enabled")
+            if not isinstance(en, bool):
+                raise ValueError("enabled: true oder false")
+            return self._json(set_lan(self.server, en))
+        if api == ["lan-key"]:
+            return self._json(new_lan_key(self.server))
         if api == ["mcp-info"]:
             from .. import mcp_http
             return self._json(mcp_http.info(self.server.url, mcp_http.ensure_token(Settings.load())))

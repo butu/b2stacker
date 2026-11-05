@@ -344,3 +344,72 @@ def test_stack_options_ram_limit_and_open_results(proj, tmp_path, monkeypatch):
     co.result_opener = opened.append
     _stack_ha(co, pid)
     assert opened and opened[0][0] == co.pixinsight
+
+
+# ---------------------------------------------------------------- Handy im Heimnetz
+
+def _lan_call(port, method, path, body=None, cookie=None, follow=False):
+    import http.client
+    import json as _json
+    c = http.client.HTTPConnection("127.0.0.1", port, timeout=20)
+    h = {"Content-Type": "application/json", "Accept": "application/json"}
+    if method == "POST":
+        h["X-Astrostack"] = "1"
+    if cookie:
+        h["Cookie"] = cookie
+    c.request(method, path, body=_json.dumps(body or {}).encode() if method == "POST" else None, headers=h)
+    r = c.getresponse()
+    data = r.read()
+    try:
+        data = _json.loads(data or b"null")
+    except ValueError:
+        pass
+    return r.status, data, dict(r.getheaders())
+
+
+def test_lan_pairing_and_restrictions(proj, tmp_path, monkeypatch):
+    co, pid, _ = proj
+    from astrostack.web import lan
+    from astrostack.web import server as web
+    s = _settings(tmp_path, monkeypatch, co.ws.root, co.pixinsight)
+    s.lan_port = 0
+    s.save()
+    srv = _serve(co, s)
+    try:
+        info = web.set_lan(srv, True)
+        assert info["enabled"] and info["running"]
+        port = srv.lan_server.server_address[1]
+        key = web.Settings.load().lan_key
+        assert key and "lan_key" not in web.public_settings(web.Settings.load())
+        st, _d, _ = _lan_call(port, "GET", "/api/projects")
+        assert st == 401                                                     # nicht gekoppelt
+        assert _lan_call(port, "GET", "/pair?k=falsch")[0] == 401
+        st, _d, h = _lan_call(port, "GET", "/pair?k=" + key)
+        assert st == 302 and "HttpOnly" in h["Set-Cookie"] and "SameSite=Strict" in h["Set-Cookie"]
+        ck = h["Set-Cookie"].split(";")[0]
+        st, boot, _ = _lan_call(port, "GET", "/api/bootstrap", cookie=ck)
+        assert st == 200 and boot["remote"] is True and "lan_key" not in boot["settings"]
+        st, html, _ = _lan_call(port, "GET", "/", cookie=ck)
+        assert st == 200
+        f = [x for x in _lights(co, pid) if x["status"] == "use"][0]
+        st, r, _ = _lan_call(port, "POST", "/api/projects/%d/decide" % pid,
+                             {"file_ids": [f["id"]], "decision": "delete"}, cookie=ck)
+        assert st == 200                                                     # vormerken geht
+        for path, body in (("/api/projects/%d/delete-frames" % pid, {"file_ids": [f["id"]], "confirm_count": 1}),
+                           ("/api/settings", {"analysis_workers": 3}), ("/api/quit", {}), ("/api/lan", {"enabled": False}),
+                           ("/api/mcp-info", {}), ("/mcp", {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+                           ("/api/backups/restore", {"name": "x"}), ("/api/library/1/delete", {})):
+            assert _lan_call(port, "POST", path, body, cookie=ck)[0] == 403, path
+        assert os.path.isfile(f["path"])
+        # lokal: Info mit QR-Code, neuer Schlüssel meldet ab
+        st, li, _ = call(srv, "POST", "/api/lan-info")
+        assert st == 200 and li["running"] and li["qr"] is None or li["qr"].startswith("<svg")
+        st, li, _ = call(srv, "POST", "/api/lan-key")
+        assert st == 200 and _lan_call(port, "GET", "/api/projects", cookie=ck)[0] == 401
+        st, li, _ = call(srv, "POST", "/api/lan", {"enabled": False})
+        assert st == 200 and not li["running"] and srv.lan_server is None
+    finally:
+        _stop(srv)
+    assert lan.private_client("192.168.1.20") and lan.private_client("10.0.0.5") and lan.private_client("fe80::1")
+    assert not lan.private_client("8.8.8.8") and not lan.private_client("2a00:1450::1")
+    assert lan.qr_svg("http://192.168.1.20:8875/pair?k=abc").lstrip().startswith("<svg")

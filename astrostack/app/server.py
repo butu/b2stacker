@@ -128,7 +128,8 @@ def _site_value(k: str, v):
 
 
 SETTING_LIMITS = {"analysis_workers": (1, 32, "Gleichzeitige Analysen"), "min_free_ram_gb": (0, 1024, "Freier RAM"),
-                  "watch_interval_s": (10, 3600, "Prüfabstand für neue Dateien (Sekunden)")}
+                  "watch_interval_s": (10, 3600, "Prüfabstand für neue Dateien (Sekunden)"),
+                  "lan_port": (1024, 65535, "Port fürs Heimnetz")}
 
 
 def _setting_value(k: str, cur, v):

@@ -19,6 +19,7 @@ Hintergrund. Technische Details stehen in [NEUBAU.md](NEUBAU.md), Erfahrungen mi
 10. [Kalibrier-Bibliothek](#10-kalibrier-bibliothek)
 11. [Einstellungen, Sicherung, Selbsttest](#11-einstellungen-sicherung-selbsttest)
 12. [Bedienung durch Claude und andere KI-Werkzeuge](#12-bedienung-durch-claude-und-andere-ki-werkzeuge)
+    · [Am Handy](#am-handy)
 13. [Was b2stacker mit deinen Daten macht – und was nicht](#13-was-b2stacker-mit-deinen-daten-macht--und-was-nicht)
 14. [Wenn etwas schiefgeht](#14-wenn-etwas-schiefgeht)
 
@@ -208,6 +209,18 @@ Einstellungen ändern, den Selbsttest starten und eigene PixInsight-Skripte zur 
 tragen „· per Claude“ im Titel.
 
 **Was die KI nicht kann:** Bilddateien löschen, vormerken, verschieben oder verändern.
+
+### Am Handy
+
+**Einstellungen → Handy (Heimnetz)** einschalten. Es erscheint ein QR-Code: mit der Kamera des Handys scannen, und
+b2stacker öffnet sich im Browser des Handys (Tipp: „Zum Startbildschirm hinzufügen“). Fragt Windows beim ersten Mal
+nach der Firewall, „Private Netzwerke“ erlauben. Der Computer muss laufen und b2stacker offen sein.
+
+- Erreichbar nur im eigenen Netz (private Adressen) und nur für gekoppelte Geräte – wer den QR-Code nicht gescannt
+  hat, sieht nichts. **Alle Handys abmelden** erzeugt einen neuen QR-Code.
+- Am Handy geht: Projekte und Frames ansehen, wischen zum Aussortieren, Plan ändern, Stacken, Stacks vergleichen,
+  Galerie, Verlauf. Frames zum Löschen vormerken geht, **gelöscht wird nur am Computer**. Einstellungen, Sicherung,
+  Update und Beenden gibt es am Handy nicht.
 
 ## 13. Was b2stacker mit deinen Daten macht – und was nicht
 

@@ -2,7 +2,12 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0b0c">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="b2stacker">
 <title>b2stacker</title>
 <style>
 /* Neue Oberfläche (Neubau, Teil 1): Startseite, Projekt, Frames, Plan, Einstellungen, Ersteinrichtung.
@@ -302,6 +307,8 @@ h3{margin:0;font-size:16px;font-weight:700}
 .pbar{height:6px;border-radius:3px;background:rgba(255,255,255,.12);overflow:hidden;margin-top:8px}.pbar>div{height:100%;background:var(--accent)}
 .stinfo{font-size:13px;opacity:.75;text-wrap:pretty}
 .touchonly{display:none}
+body.remote #setBtn,body.remote #updBtn,body.remote [data-mdel],body.remote #instBtn,body.remote #instLater,body.remote #hPi{display:none!important}
+.lanqr{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}.lanqr .qr{background:#fff;border-radius:10px;padding:6px;line-height:0}.lanqr .qr svg{width:168px;height:168px}
 @media (pointer:coarse){.touchonly{display:inline}.dbtn .kbd,.lbkeys>span:not(.touchonly){display:none}}
 .lbnav{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:44px;border:0;border-radius:999px;background:rgba(255,255,255,.1);color:#fff;cursor:pointer;display:grid;place-items:center}
 .lbnav:hover{background:rgba(255,255,255,.2)}
@@ -897,7 +904,7 @@ function onProjectChanged(pid){
 async function reloadAll(first){
   try{
     const b=await api('/api/bootstrap');
-    S.boot=b;S.projects=b.projects;S.lastEvent=b.tasks.last_event;
+    S.boot=b;S.projects=b.projects;S.lastEvent=b.tasks.last_event;document.body.classList.toggle('remote',!!b.remote);
     S.tasks=new Map();[...b.tasks.running,...b.tasks.queued].forEach(t=>S.tasks.set(t.id,t));
     S.finished=b.tasks.finished||[];S.finished.forEach(t=>t._seen=true);
     renderTaskIndicator();connect();
@@ -939,7 +946,7 @@ function parseRoute(){
   if(location.hash==='#/kalibrierung')return {view:'library'};
   return {view:'home'};
 }
-function needsSetup(){const b=S.boot;return b&&!S.setupSkipped&&(b.first_run||!b.pixinsight_ok);}
+function needsSetup(){const b=S.boot;return b&&!b.remote&&!S.setupSkipped&&(b.first_run||!b.pixinsight_ok);}
 function route(force){
   const r=parseRoute(),old=S.route;
   if(r.view==='home'&&needsSetup()&&!S.projects.length){r.view='setup';}
@@ -1328,7 +1335,7 @@ const gb=b=>(b>=1e9?num(b/1e9,1)+' GB':num(b/1e6,b<1e7?1:0)+' MB');
 async function openDelete(){
   const pid=S.P.id;let d;try{d=await api(`/api/projects/${pid}/deletion`);}catch(e){return toast(e.message,true);}
   const ok=d.frames.filter(f=>!f.blocked),bad=d.frames.filter(f=>f.blocked);
-  const touch=matchMedia('(pointer:coarse)').matches&&!matchMedia('(pointer:fine)').matches;
+  const touch=(matchMedia('(pointer:coarse)').matches&&!matchMedia('(pointer:fine)').matches)||!!(S.boot&&S.boot.remote);
   const dlg=$('#delDlg');
   $('#delBody').innerHTML=`<div class="bx">Die Dateien werden ${d.permanent?'– soweit möglich – ':''}in den Papierkorb gelegt. Danach sind sie aus allen Ansichten verschwunden; der Verlauf hält fest, was gelöscht wurde.</div>
     ${d.permanent?`<div class="banner err" style="padding:10px 12px">${ic('warn','s18')}<div style="flex:1"><div class="bt">${plural(d.permanent,'Datei','Dateien')} ohne Papierkorb</div><div class="bx">Sie liegen z. B. auf einem NAS oder USB-Stick und werden <b>endgültig</b> gelöscht – kein Rückgängig.</div>
@@ -2174,6 +2181,9 @@ function openSettings(){
       <div class="frow"><input type="text" class="mono" id="stFolder" style="font-size:13.5px" placeholder="Ordner für die Testdaten (leer = Arbeitsverzeichnis)" aria-label="Ordner für die Testdaten">${pick('stFolder','folder')}<button class="btn" type="button" id="stBtn">Starten</button></div>
       <div class="bkl" id="stList"></div>
       <div class="d">Legt einen kleinen Testdatensatz an (Ordnername mit Komma), liest ihn ein und stackt zweimal mit PixInsight – das zweite Mal mit den gespeicherten Mastern. Für den NAS-Test einen Ordner auf dem NAS wählen. Dauert einige Minuten; deine Projekte bleiben unberührt.</div></div>`+
+    `<div class="dsec">Handy (Heimnetz)</div>
+    <div class="field"><label class="optline"><span class="grow"><div class="t">Vom Handy im Heimnetz erreichbar</div><div class="d">Frames sichten, aussortieren, Plan ändern und Stacken vom Handy oder Tablet im selben WLAN. Nur gekoppelte Geräte mit privater Adresse; Rohdaten löschen und Einstellungen gehen nur hier am Computer.</div></span><span class="switch"><input type="checkbox" id="lanOn"><span></span></span></label>
+      <div id="lanBox"></div></div>`+
     `<div class="dsec">KI-Bedienung (MCP)</div>
     <div class="field"><div class="frow"><input type="text" class="mono" id="mcpUrl" readonly style="font-size:13px" aria-label="MCP-Adresse"><button class="btn sm" type="button" data-copy="mcpUrl">Kopieren</button></div>
       <div class="frow"><input type="password" class="mono" id="mcpTok" readonly style="font-size:13px" aria-label="Schlüssel"><button class="btn sm" type="button" id="mcpShow">Zeigen</button><button class="btn sm" type="button" data-copy="mcpTok">Kopieren</button><button class="btn sm" type="button" id="mcpNew" title="Der alte Schlüssel wird ungültig">Neu erzeugen</button></div>
@@ -2197,8 +2207,27 @@ function openSettings(){
     if(ES)ES.close();clearTimeout(esRetry);
     document.body.innerHTML='<div style="display:grid;place-items:center;height:100vh;opacity:.6">b2stacker wurde beendet. Dieses Fenster kann geschlossen werden.</div>';};
   $('#setUpd').onclick=()=>{setDlg.close();openUpdate();};
+  lanInfo();
+  $('#lanOn').onchange=e=>{const on=e.target.checked;e.target.disabled=true;
+    api('/api/lan',{enabled:on}).then(r=>lanInfo(r)).catch(err=>{toast(err.message,true);e.target.checked=!on;}).finally(()=>{e.target.disabled=false;});};
   mcpInfo();
   setDlg.showModal();
+}
+async function lanInfo(r){
+  const box=$('#lanBox');if(!box)return;
+  try{r=r||await api('/api/lan-info',{});}catch(e){box.innerHTML=`<div class="d errc">${esc(e.message)}</div>`;return;}
+  if(!$('#lanBox'))return;
+  $('#lanOn').checked=!!r.enabled;
+  if(!r.enabled){box.innerHTML='';return;}
+  if(!r.running){box.innerHTML=`<div class="d errc">${ic('warn','s14')} Nicht erreichbar: ${esc(r.error||'Zugang startet nicht')}</div>`;return;}
+  if(!r.urls.length){box.innerHTML=`<div class="d warnc">${ic('warn','s14')} Kein Heimnetz gefunden – ist der Computer per WLAN oder Kabel verbunden?</div>`;return;}
+  box.innerHTML=`<div class="lanqr">${r.qr?`<div class="qr" aria-label="QR-Code zum Koppeln">${r.qr}</div>`:''}
+    <div class="sec" style="gap:8px;flex:1;min-width:220px"><div class="d" style="margin:0">Mit der Kamera des Handys scannen – das Handy ist danach gekoppelt und kann b2stacker unter dieser Adresse öffnen (Tipp: zum Startbildschirm hinzufügen):</div>
+      <div class="mono small">${r.urls.map(esc).join('<br>')}</div>
+      <div class="d" style="margin:0">Fragt Windows beim ersten Mal nach der Firewall, „Private Netzwerke“ erlauben.</div>
+      <div class="row"><button class="btn sm" type="button" id="lanKey" title="Alle gekoppelten Geräte müssen den QR-Code neu scannen">Alle Handys abmelden</button></div></div></div>`;
+  $('#lanKey').onclick=async()=>{if(!await ask('Alle Handys abmelden?','Jedes Gerät muss danach den neuen QR-Code scannen.','Abmelden',true))return;
+    try{lanInfo(await api('/api/lan-key',{}));toast('Neuer QR-Code – alle Handys sind abgemeldet');}catch(e){toast(e.message,true);}};
 }
 async function mcpInfo(r){
   try{r=r||await api('/api/mcp-info',{});}catch(e){$('#mcpUrl').value='nicht verfügbar: '+e.message;return;}

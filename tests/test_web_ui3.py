@@ -211,3 +211,43 @@ def test_phone_layout_swipe_and_no_delete(browser, app):  # noqa: F811
     finally:
         ctx.close()
     assert errors == [], errors
+
+
+def test_phone_pairs_over_lan_and_sees_projects(browser, app, monkeypatch):  # noqa: F811
+    from astrostack.settings import Settings
+    from astrostack.web import server as web
+    s = Settings.load()
+    s.lan_port = 0
+    s.save()
+    web.set_lan(app.srv, True)
+    port = app.srv.lan_server.server_address[1]
+    key = Settings.load().lan_key
+    # Einstellungen am Computer zeigen den QR-Code
+    c, pg, errors = _page(browser, app)
+    try:
+        pg.click("#setBtn")
+        expect(pg.locator("#lanOn")).to_be_checked()
+        expect(pg.locator("#lanBox")).to_contain_text("Alle Handys abmelden")
+        pg.locator("#lanBox").scroll_into_view_if_needed()
+        shot(pg, "einstellungen-handy")
+    finally:
+        c.close()
+    assert errors == [], errors
+    ctx = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+    ph = ctx.new_page()
+    errs = []
+    ph.on("pageerror", lambda e: errs.append(str(e)))
+    try:
+        ph.goto("http://127.0.0.1:%d/" % port)
+        expect(ph.locator("body")).to_contain_text("nicht gekoppelt")
+        ph.goto("http://127.0.0.1:%d/pair?k=%s" % (port, key))
+        expect(ph.locator(".tile[data-pid]")).to_have_count(1)
+        expect(ph.locator("#setBtn")).to_be_hidden()
+        pid = pid_of(app, "vdB 131")
+        ph.goto("http://127.0.0.1:%d/#/p/%d/frames" % (port, pid))
+        expect(ph.locator("#vgrid .vt")).to_have_count(7)
+        ph.wait_for_function("() => [...document.querySelectorAll('#vgrid img')].some(i => i.naturalWidth > 0)")
+        shot(ph, "handy-gekoppelt-frames")
+    finally:
+        ctx.close()
+    assert errs == [], errs

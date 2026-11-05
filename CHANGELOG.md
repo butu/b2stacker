@@ -2,6 +2,15 @@
 
 Neueste Version oben. Der Abschnitt der aktuellen Version erscheint auch im Update-Dialog von b2stacker.
 
+## 0.11.1 – 05.11.2026
+
+**b2stacker am Handy.** Einstellungen → Handy (Heimnetz) einschalten, den QR-Code mit dem Handy scannen – fertig.
+Dann kannst du im ganzen Haus Frames sichten, wischend aussortieren, den Plan ändern, stacken und Stacks vergleichen.
+
+- Nur im eigenen Netz und nur für gekoppelte Geräte; „Alle Handys abmelden“ macht einen neuen QR-Code.
+- Rohdaten löschen, Einstellungen, Sicherung und Update gehen nur am Computer.
+- Windows fragt beim ersten Einschalten nach der Firewall: „Private Netzwerke“ erlauben.
+
 ## 0.11.0 – 05.11.2026
 
 **Die neue b2stacker-Oberfläche.** b2stacker ist von Grund auf neu gebaut: Alles außer dem Stacken passiert jetzt

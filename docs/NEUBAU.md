@@ -250,12 +250,22 @@ Hilfe `fake_stack` legt Stacks mit echten Mastern direkt an).
   Probe gegen Fehltreffer), B wird zurückgedreht und auf die gemeinsame Fläche beschnitten; `align.rotation`.
   `COMPARE_VERSION = 3`.
 - **Handy**: Vergleich, Bibliothek, Löschliste und Großansicht angepasst; Wischen (← → blättern, ↑ verwenden,
-  ↓ nicht verwenden). Der Server lauscht weiter nur auf 127.0.0.1 – Bedienung vom Handy braucht noch eine
-  Entscheidung zum Netzwerkzugang (Konzept Abschnitt 13).
+  ↓ nicht verwenden). Zugang im Heimnetz seit 0.11.1 (siehe unten).
 - **Standard**: Doppelklick und `gui` starten die neue Oberfläche, `B2_OLD_UI=1` die alte. Die neue App räumt nach
   Updates auf, hält den Claude-Eintrag auf die installierte exe, prüft auf Updates (`/api/update…`) und bietet die
   Installation an (`/api/install`). `/api/ping` lässt `appclient.find` (MCP über stdio) die neue App finden.
 - Anleitung und README beschreiben die neue App. Tests: `tests/test_web_part3.py`, `tests/test_web_ui3.py`.
+
+### Handy im Heimnetz (0.11.1, `web/lan.py`)
+
+- Zweiter Zugang `LanServer` auf `0.0.0.0:<lan_port>` (Standard 8875) mit derselben `Core` (Attribute laufen über
+  `__getattr__` zum Hauptserver, also gilt ein Core-Wechsel sofort). `verify_request` lässt nur private Adressen zu.
+- Koppeln: `/pair?k=<lan_key>` setzt das Cookie `b2key` (HttpOnly, SameSite=Strict, 1 Jahr). Ohne gültiges Cookie
+  401 (HTML-Hinweis für den Browser). Neuer Schlüssel (`/api/lan-key`) meldet alle Geräte ab.
+- Gesperrt über den Heimnetz-Zugang: `lan.BLOCKED_POST` (Einstellungen, Sicherung, Beenden, Update, Installation,
+  Dialoge, MCP-Infos, Heimnetz selbst, Temp leeren, Selbsttest, Bibliothek ändern), `delete-frames` und `/mcp`.
+  `bootstrap.remote` blendet das in der Oberfläche aus.
+- Einstellungen `lan_access`, `lan_port`, `lan_key` (nie in `public_settings`). QR-Code mit `segno` als SVG.
 
 ### Bekannte Grenzen
 
