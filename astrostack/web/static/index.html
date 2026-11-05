@@ -271,6 +271,7 @@ h3{margin:0;font-size:16px;font-weight:700}
 .fsel{display:inline-flex;align-items:center;gap:6px}.fsel>svg{opacity:.6}
 .fsize{display:inline-flex;align-items:center;gap:8px;opacity:.85}.fsize input{width:130px;accent-color:#fff}
 .vgh{position:absolute;left:0;right:0;top:0;height:32px;display:flex;align-items:center;gap:12px;padding:0 4px;border:0;border-bottom:1px solid var(--div);font-size:14px;background:none;color:#fff;cursor:pointer;text-align:left;width:100%}
+.mhd.acc{display:flex;align-items:center;gap:6px;border:0;background:none;color:#fff;cursor:pointer;padding:0;text-align:left;font-family:inherit}
 .vgh:hover{background:rgba(255,255,255,.03)}.vgh b{display:inline-flex;align-items:center;gap:6px}
 .vgh span{opacity:.6;font-size:13px}
 .selbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 6px 6px 14px;border-radius:10px;background:var(--info-bg)}
@@ -1253,7 +1254,9 @@ function renderTiles(){
     const groups=new Map();
     for(const p of list){const ms=(p.months||[]).length?p.months:[''];for(const m of ms){if(!groups.has(m))groups.set(m,[]);groups.get(m).push(p);}}
     const keys=[...groups.keys()].sort((a,b)=>!a?1:!b?-1:a<b?1:-1);
-    box.innerHTML=keys.map(k=>`<div class="mhd">${esc(monthName(k))} <span style="opacity:.7;font-weight:400">· ${groups.get(k).length}</span></div><div class="tiles">${groups.get(k).map(tile).join('')}</div>`).join('');
+    S.home.closed=S.home.closed||new Set();
+    box.innerHTML=keys.map(k=>{const cl=S.home.closed.has(k);return `<button type="button" class="mhd acc${cl?' closed':''}" data-mk="${esc(k)}" aria-expanded="${!cl}">${chev(!cl)} ${esc(monthName(k))} <span style="opacity:.7;font-weight:400">· ${plural(groups.get(k).length,'Projekt','Projekte')}</span></button>${cl?'':`<div class="tiles">${groups.get(k).map(tile).join('')}</div>`}`;}).join('');
+    $$('[data-mk]',box).forEach(b=>b.onclick=()=>{const k=b.dataset.mk;S.home.closed.has(k)?S.home.closed.delete(k):S.home.closed.add(k);renderTiles();});
   }else box.innerHTML=`<div class="tiles">${list.map(tile).join('')}${q?'':newTile}</div>`;
   $$('.tile[data-pid]',box).forEach(el=>el.onclick=()=>go('#/p/'+el.dataset.pid));
   const nt=$('#newTile');if(nt)nt.onclick=()=>openNewProject();
