@@ -2,6 +2,11 @@
 
 Neueste Version oben. Der Abschnitt der aktuellen Version erscheint auch im Update-Dialog von b2stacker.
 
+## 0.12.3 – 05.11.2026
+
+- **Rig-Hinweise** in der Übersicht erscheinen jetzt auch mit echten Daten (statt „konnten nicht berechnet
+  werden“): Nachführung, Optik, Fokus, Taupunkt, Kühlung, Offset, Dithering.
+
 ## 0.12.2 – 05.11.2026
 
 **Fehler wie beim RGB-Stack von vdB 131 an der Wurzel verhindert.** Damals ging eine Einstellung als Text statt als

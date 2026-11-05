@@ -547,3 +547,22 @@ def test_lan_vpn_addresses_and_windows_firewall_diagnosis(monkeypatch):
     assert lan.firewall_status("C:/x/b2stacker.exe", 8875)["ok"]
     monkeypatch.setattr(_sys, "platform", "linux")
     assert lan.firewall_status("x", 8875) is None
+
+
+def test_insights_rows_have_fields_of_old_report(proj, monkeypatch):
+    """0.12.0 auf echten Daten: „Rig-Hinweise konnten nicht berechnet werden: 'frame'“ – die alte Diagnose braucht
+    Felder aus metrics.csv, die die neuen Messwerte anders nennen."""
+    from astrostack.flow import insights
+    from astrostack.report import diag
+    co, pid, _ = proj
+    seen = {}
+
+    def fake(rows, scale, thumbs):
+        seen.update(keys=set().union(*(r.keys() for r in rows)), thumb=thumbs(rows[0]))
+        return dict(checks=[dict(level="good", area="Test", title="ok", text="ok")])
+    monkeypatch.setattr(diag, "rig_diagnostics", fake)
+    insights.forget()
+    d = co.insights(pid)
+    assert {"frame", "file", "pier", "status", "night", "t"} <= seen["keys"]
+    assert seen["thumb"].endswith(".npy") and d["checks"][0]["title"] == "ok"
+    assert not any("nicht berechnet" in r for r in d["rec"])

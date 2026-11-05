@@ -55,6 +55,10 @@ def _compute(db: dbm.Database, pid: int, ws) -> dict:
     rows, unusable = _rows(db, pid)
     if not rows:
         return dict(rows=[], nights=[], filters=[], kpi=[], diag=None, sky=None, rec=[], meta={}, unusable=len(unusable))
+    for r in rows:                                 # Felder, die der alte Bericht aus metrics.csv kannte
+        r.setdefault("frame", os.path.basename(r["path"]))
+        r.setdefault("file", os.path.basename(r["path"]))
+        r.setdefault("pier", None)
     filters, ntab = legacy_assess.assess(rows, overrides=_overrides(db, pid, rows))
     rec = legacy_assess.recommendations(rows, ntab, filters)
     scales = [r["pixscale"] for r in rows if r.get("pixscale")]
@@ -73,8 +77,6 @@ def _compute(db: dbm.Database, pid: int, ws) -> dict:
     if meta0 is not None:
         try:
             from ..report.sky import sky_tracks
-            for r in rows:
-                r.setdefault("frame", os.path.basename(r["path"]))
             sky = sky_tracks(rows, meta0)
         except Exception:  # noqa: BLE001 – ohne Standort/Koordinaten keine Bahnen
             sky = None
