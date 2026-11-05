@@ -99,3 +99,23 @@ def test_cleanup_removes_all_old_exes_and_reports_failed_swap(tmp_path, monkeypa
     assert sorted(p.name for p in tmp_path.iterdir()) == ["b2stacker.exe"]
     assert updater.status()["update_failed"] == "b2stacker.exe liess sich nicht umbenennen"
     updater._STATE.pop("failed", None)
+
+
+def test_cleanup_kills_processes_of_old_version(tmp_path, monkeypatch):
+    """0.12.2: nach dem Update liefen zwei Prozesse „b2stacker.old“ weiter (Claude-Verbindung der Vorversion)."""
+    exe = tmp_path / "b2stacker.exe"
+    exe.write_bytes(b"MZ")
+    (tmp_path / "b2stacker.old-17.exe").write_bytes(b"MZ")
+    monkeypatch.setattr(updater, "exe_path", lambda: str(exe))
+    monkeypatch.setattr(updater.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(updater.sys, "platform", "win32")
+    monkeypatch.setattr(updater.time, "sleep", lambda s: None)
+    calls = []
+
+    class R:
+        returncode = 0
+    monkeypatch.setattr(updater.subprocess, "run", lambda cmd, **kw: calls.append(cmd) or R())
+    monkeypatch.delenv("B2_UPDATED_FROM", raising=False)
+    updater.cleanup_after_update()
+    assert calls and calls[0][:4] == ["taskkill", "/F", "/T", "/IM"] and calls[0][4] == "b2stacker.old-17.exe"
+    assert updater._STATE.pop("killed_old") == ["b2stacker.old-17.exe"]

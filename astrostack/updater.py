@@ -84,7 +84,7 @@ def status() -> dict:
         stale = time.time() - _STATE["checked"] > CHECK_EVERY_S
         out = dict(_STATE["info"] or {"current": __version__, "newer": False, "can_install": frozen()},
                    download=_STATE["dl"], updated_from=_STATE.get("updated_from"),
-                   update_failed=_STATE.get("failed"))
+                   update_failed=_STATE.get("failed"), killed_old=_STATE.get("killed_old"))
     if stale and not _STATE.get("checking"):
         _STATE["checking"] = True
 
@@ -285,6 +285,24 @@ def cleanup_after_update():
         pass
     base = os.path.splitext(exe)[0]
     olds = glob.glob(glob.escape(base) + ".old*.exe")
+    if olds and sys.platform == "win32":
+        # Prozesse der Vorversion beenden (z. B. die Claude-Verbindung, die Claude Desktop aus der alten exe gestartet
+        # hat) – sonst laufen sie als „b2stacker.old…“ weiter und halten die Datei fest
+        killed = []
+        for old in olds:
+            name = os.path.basename(old)
+            try:
+                r = subprocess.run(["taskkill", "/F", "/T", "/IM", name], capture_output=True, timeout=15,
+                                   creationflags=0x08000000)
+                if r.returncode == 0:
+                    killed.append(name)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        if killed:
+            logbook.event("update_killed_old", processes=killed)
+            with _LOCK:
+                _STATE["killed_old"] = killed
+            time.sleep(1)
     for _ in range(5):
         left = []
         for old in olds:

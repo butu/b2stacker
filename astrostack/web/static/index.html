@@ -2702,7 +2702,7 @@ async function pollUpdate(){
   clearTimeout(pollUpdate.t);
   try{UPD=await api('/api/update');}catch(e){UPD=null;}
   const b=$('#updBtn');b.hidden=!(UPD&&UPD.newer);if(UPD&&UPD.newer)b.innerHTML=ic('down-arrow','s14')+' Update '+esc(UPD.latest);
-  if(UPD&&UPD.updated_from&&!updTold){updTold=true;toast('Aktualisiert: '+UPD.updated_from+' → '+UPD.current);}
+  if(UPD&&UPD.updated_from&&!updTold){updTold=true;toast('Aktualisiert: '+UPD.updated_from+' → '+UPD.current+(UPD.killed_old?' – alte Version beendet. Nutzt du Claude: die Claude-App einmal neu starten.':''),false);}
   if(UPD&&UPD.update_failed&&!updFailTold){updFailTold=true;toast('Update hat nicht geklappt: '+UPD.update_failed+'. Es läuft weiter '+UPD.current+' – einfach nochmal versuchen.',true);}
   const dl=UPD&&UPD.download;
   if(dl&&['download','restart'].includes(dl.state)){renderUpdate();pollUpdate.t=setTimeout(pollUpdate,700);return;}
