@@ -2,6 +2,40 @@
 
 Neueste Version oben. Der Abschnitt der aktuellen Version erscheint auch im Update-Dialog von b2stacker.
 
+## 0.11.0 – 05.11.2026
+
+**Die neue b2stacker-Oberfläche.** b2stacker ist von Grund auf neu gebaut: Alles außer dem Stacken passiert jetzt
+von selbst im Hintergrund, und gestackt wird mit einem Klick. Deine bisherigen Projekte aus 0.10 werden nicht
+übernommen – lege sie einfach neu an, das Einlesen geht schnell. Die alten Ordner bleiben unangetastet.
+
+**Neu**
+- **Installieren:** Läuft b2stacker aus dem Download-Ordner, bietet die Startseite an, es nach
+  `%LOCALAPPDATA%\b2stacker` zu installieren – mit Startmenü-Verknüpfung. Updates zeigen den Austausch in einem
+  kleinen Fenster; geht etwas schief, startet die bisherige Version.
+- **Automatisch:** Neue Dateien finden, Header lesen, vermessen, bewerten, Flats/Bias/Darks zuordnen und den Plan
+  rechnen – beim Start, beim Öffnen eines Projekts und sobald neue Nächte in deinen Ordnern landen (Watcher).
+  Jede Datei wird nur einmal gelesen. Ein ausgeschaltetes NAS wird übersprungen.
+- **Startseite** mit Kacheln (Stunden je Filter, letzter Stack, neue Nächte), Suche, Sortierung, Monatsgruppen.
+- **Frames sichten** ohne Blättern, auch bei tausenden Frames. Großansicht mit Sternen (S), Zoom (Mausrad,
+  Doppelklick 1:1) und Tastatur (V/N/A). Am Handy: wischen.
+- **Frames löschen:** vormerken, Liste prüfen, bestätigen – in den Papierkorb, auf dem NAS nur nach ausdrücklicher
+  Bestätigung. Die KI kann nie löschen.
+- **Plan:** jede WBPP-Einstellung mit Begründung; deine Änderungen bleiben, auch wenn neue Frames dazukommen.
+- **Stacken** über die neue Übergabe an WBPP: ein Ordner je Stack im Projektordner, alle Filter pixelgenau
+  übereinander, Master werden aufgehoben und wiederverwendet.
+- **Stacks:** Liste mit Qualitätswerten, Notizen, Vorschau, „In PixInsight öffnen“; **Vergleich** zweier Stacks
+  übereinander mit Schieber und Zoom – auch wenn die Kamera gedreht war.
+- **Kalibrier-Bibliothek:** alle aufgehobenen Master-Bias, -Darks und -Flats über alle Projekte; braucht ein Stack
+  dieselben Kalibrierframes, wird der fertige Master genommen.
+- **Galerie** für bearbeitete Bilder, **Projektbild**, **Verlauf** in Klartext.
+- **Sicherung** der Datenbank mit zusätzlichem Sicherungsort und Wiederherstellen ohne Neustart.
+- **Selbsttest** mit PixInsight (auch für das NAS): stackt einen Testdatensatz zweimal, das zweite Mal mit den
+  gespeicherten Mastern.
+- **KI-Bedienung:** In den Einstellungen stehen MCP-Adresse und Schlüssel samt fertiger Einträge für OpenCode,
+  Claude Code und andere Werkzeuge. Die Claude-Desktop-App bekommt ihre Werkzeuge von der laufenden App.
+
+Die alte Oberfläche startet noch mit der Umgebungsvariable `B2_OLD_UI=1`.
+
 ## 0.10.2 – 04.11.2026
 
 **Für die Weiterentwicklung:** Claude kann jetzt eigene PixInsight-Skripte aus dem Arbeitsverzeichnis ausführen
