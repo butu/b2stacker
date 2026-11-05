@@ -42,6 +42,8 @@ open(os.path.join(mdir, "masterLight_HaO3.xisf"), "w").write("x")
 raw = [f for f in job["files"] if "masters" not in f["path"].replace("\\", "/").split("/")]
 if any(f["type"] == "bias" for f in raw):
     open(os.path.join(mdir, "masterBias_BIN-1_128x192.xisf"), "w").write("b")
+if any(f["type"] == "dark" for f in raw):
+    open(os.path.join(mdir, "masterDark_BIN-1_EXPOSURE-300.00s.xisf"), "w").write("d")
 for s in sorted({f.get("session") for f in raw if f["type"] == "flat"}):
     open(os.path.join(mdir, "masterFlat_BIN-1_FILTER-HaO3_CFA_B2SESSION-%s.xisf" % s), "w").write("f")
 out["files"] = job["files"]

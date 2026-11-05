@@ -554,6 +554,45 @@ class Core:
                 return b["path"]
         raise ValueError("Sicherung nicht gefunden: %s" % name)
 
+    # ------------------------------------------------------------ Kalibrier-Bibliothek
+    def calibration_library(self) -> list[dict]:
+        """Alle gespeicherten Master-Bias/-Darks/-Flats über alle Projekte. Ein Master wird in jedem Projekt
+        wiederverwendet, dessen Kalibrierframes genau dieselben Rohdateien sind (gleicher Schlüssel)."""
+        out = []
+        for r in self.db.query("SELECT m.*, p.name AS project FROM masters m JOIN projects p ON p.id = m.project_id "
+                               "ORDER BY m.type, m.created_at DESC"):
+            info = json.loads(r["key_json"] or "{}")
+            used = self.db.query("SELECT DISTINCT p.id, p.name FROM stack_masters sm JOIN stacks s ON s.id = sm.stack_id "
+                                 "JOIN projects p ON p.id = s.project_id WHERE sm.master_id = ? ORDER BY p.name", (r["id"],))
+            nstacks = self.db.value("SELECT COUNT(*) FROM stack_masters WHERE master_id = ?", (r["id"],))
+            exists = os.path.isfile(r["path"])
+            out.append(dict(id=r["id"], type=r["type"], path=r["path"], name=os.path.basename(r["path"]),
+                            project_id=r["project_id"], project=r["project"], created_at=r["created_at"],
+                            exists=exists, size=os.path.getsize(r["path"]) if exists else None, info=info,
+                            stacks=nstacks, projects=[dict(u) for u in used]))
+        return out
+
+    def delete_master(self, master_id: int) -> dict:
+        """Gespeicherten Master vergessen und seine Datei löschen (eine von b2stacker erzeugte Datei, keine Rohdaten).
+        Beim nächsten Stack entsteht er bei Bedarf neu aus den Rohframes."""
+        if [t for t in self.tasks.active() if t.lane == "stack"]:
+            raise ValueError("Während gestackt wird, bleibt die Kalibrier-Bibliothek unverändert.")
+        r = self.db.one("SELECT * FROM masters WHERE id = ?", (int(master_id),))
+        if not r:
+            raise ValueError("Master nicht gefunden.")
+        root = os.path.realpath(self.ws.root)
+        p = os.path.realpath(r["path"])
+        if os.path.isfile(p) and os.path.commonpath([root, p]) == root:   # nur im Arbeitsverzeichnis
+            try:
+                os.remove(p)
+            except PermissionError:
+                raise ValueError("Die Datei ist gerade geöffnet – bitte schließen und erneut versuchen.") from None
+        with self.db.transaction():
+            self.db.execute("DELETE FROM masters WHERE id = ?", (r["id"],))
+            self.db.event("master_deleted", r["project_id"], json.dumps(dict(type=r["type"], name=os.path.basename(p))))
+        self._notify("library")
+        return dict(ok=True)
+
     def clear_temp(self) -> int:
         if [t for t in self.tasks.active() if t.lane == "stack"]:
             raise ValueError("Während gestackt wird, bleibt der Temp-Ordner unangetastet.")

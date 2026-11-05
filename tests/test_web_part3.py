@@ -110,3 +110,62 @@ def test_http_deletion_and_mcp_cannot_mark(proj, tmp_path, monkeypatch):
         assert err
     finally:
         _stop(srv)
+
+
+# ---------------------------------------------------------------- Kalibrier-Bibliothek
+
+def _stack_ha(co, pid):
+    plan = co.plan(pid)
+    ha = next(x["id"] for x in plan["runs"] if x["filter"] == "HaO3")
+    t = co.stack(pid, [ha])
+    assert co.tasks.wait_idle(60)
+    assert co.tasks.get(t["id"]).state == "done", co.tasks.get(t["id"]).error
+    return co.tasks.get(t["id"]).result
+
+
+def test_masters_are_shared_across_projects(proj, tmp_path, monkeypatch):
+    co, pid, data = proj
+    res = _stack_ha(co, pid)
+    kept = res[0]["masters"]
+    assert kept and not any(m["reused"] for m in kept)
+    lib = co.calibration_library()
+    assert {m["type"] for m in lib} >= {"bias", "flat"}
+    b = next(m for m in lib if m["type"] == "bias")
+    assert b["exists"] and b["size"] and b["stacks"] == 1 and b["info"]["frames"] >= 1 and b["info"]["gain"] is not None
+    other = co.create_project("Zweites Projekt", [data])
+    assert co.tasks.wait_idle(60)
+    res2 = _stack_ha(co, other["id"])
+    m2 = res2[0]["masters"]
+    assert m2 and all(m["reused"] for m in m2)                       # Master aus dem ersten Projekt
+    lib = co.calibration_library()
+    assert len(lib) == len(kept)                                     # keine Kopie im zweiten Projekt
+    b = next(m for m in lib if m["type"] == "bias")
+    assert b["stacks"] == 2 and {p["name"] for p in b["projects"]} == {"vdB 131", "Zweites Projekt"}
+
+
+def test_delete_master_from_library(proj):
+    co, pid, _ = proj
+    _stack_ha(co, pid)
+    m = co.calibration_library()[0]
+    co.delete_master(m["id"])
+    assert not os.path.exists(m["path"]) and all(x["id"] != m["id"] for x in co.calibration_library())
+    assert history.timeline(co.db, pid)[0]["kind"] == "master_deleted"
+    res = _stack_ha(co, pid)                                         # entsteht neu aus den Rohframes
+    assert any(not x["reused"] for x in res[0]["masters"])
+
+
+def test_library_http_and_mcp(proj, tmp_path, monkeypatch):
+    co, pid, _ = proj
+    _stack_ha(co, pid)
+    s = _settings(tmp_path, monkeypatch, co.ws.root, co.pixinsight)
+    srv = _serve(co, s)
+    try:
+        st, lib, _ = call(srv, "GET", "/api/library")
+        assert st == 200 and lib and lib[0]["info"]
+        from .test_web_part2 import mcp_call
+        out, err = mcp_call(srv, "calibration_library")
+        assert not err and out["total"] == len(lib) and out["masters"][0]["frames"]
+        st, r, _ = call(srv, "POST", "/api/library/%d/delete" % lib[0]["id"])
+        assert st == 200
+    finally:
+        _stop(srv)

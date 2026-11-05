@@ -485,6 +485,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(c.timeline(project, limit=_int(q, "limit", 100)))
         if api == ["backups"]:
             return self._json(c.backups())
+        if api == ["library"]:
+            return self._json(c.calibration_library())
         if len(api) == 3 and api[0] == "stacks" and api[2] == "preview":
             path, version = self._file(c.stack_preview, self._fid(api[1]))
             return self._image(path, version, immutable=_str(q, "v") == version)
@@ -586,6 +588,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"paths": dialogs_web().pick_images(_text(b, "initial"))})
             except RuntimeError as e:
                 raise ValueError(str(e)) from None
+        if len(api) == 3 and api[0] == "library" and api[2] == "delete":
+            return self._json(c.delete_master(self._fid(api[1])))
         if api == ["clear-temp"]:
             return self._json({"removed": c.clear_temp()})
         if api == ["quit"]:

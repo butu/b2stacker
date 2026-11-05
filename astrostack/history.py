@@ -172,6 +172,8 @@ def describe(kind: str, evs: list[dict]) -> dict:
         out.update(title="%d %s gelöscht (%s GB)" % (d.get("n", 0), "Frame" if d.get("n") == 1 else "Frames",
                                                     ("%.1f" % mb).replace(".", ",")),
                    detail=" · ".join(where + [", ".join(d.get("names") or [])[:300]]), icon="close", tone="warn")
+    elif kind == "master_deleted":
+        out.update(title="Master aus der Kalibrier-Bibliothek entfernt", detail=d.get("name") or "", icon="close")
     elif kind == "stack_note":
         out.update(title="Notiz zu %s" % (d.get("name") or "Stack"), detail=d.get("text") or "", icon="edit")
     else:

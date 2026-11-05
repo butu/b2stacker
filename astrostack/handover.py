@@ -89,11 +89,34 @@ def master_key(db: dbm.Database, kind: str, file_ids, depends_on: str = "") -> s
     return h[:24]
 
 
+def master_info(db: dbm.Database, file_ids) -> dict:
+    """Lesbare Eckdaten eines Masters für die Kalibrier-Bibliothek (aus den Headern der Rohframes)."""
+    ids = sorted(set(file_ids or []))
+    if not ids:
+        return {}
+    rows = db.query("SELECT f.filter, f.exposure, f.gain, f.offset, f.binning, f.ccd_temp, f.night, f.width, f.height, "
+                    "s.camera, s.telescope FROM files f LEFT JOIN setups s ON s.id = f.setup_id WHERE f.id IN (%s)"
+                    % ",".join("?" * len(ids)), ids)
+    if not rows:
+        return {}
+    r = rows[0]
+    temps = [x["ccd_temp"] for x in rows if x["ccd_temp"] is not None]
+    nights = sorted({x["night"] for x in rows if x["night"]})
+    return dict(frames=len(rows), filter=r["filter"], exposure=r["exposure"], gain=r["gain"], offset=r["offset"],
+                binning=r["binning"], temp=round(sum(temps) / len(temps), 1) if temps else None,
+                nights=nights[:20], camera=r["camera"], telescope=r["telescope"],
+                size="%sx%s" % (r["width"], r["height"]) if r["width"] else None)
+
+
 def _master(db: dbm.Database, pid: int | None, key: str | None) -> str | None:
+    """Gespeicherter Master zu diesem Schlüssel – zuerst aus dem eigenen Projekt, sonst aus der Kalibrier-Bibliothek
+    (jedes andere Projekt: gleicher Schlüssel = genau dieselben Rohframes, also derselbe Master)."""
     if pid is None or key is None:
         return None
-    path = db.value("SELECT path FROM masters WHERE project_id = ? AND key = ?", (pid, key))
-    return path if path and os.path.isfile(path) else None
+    for (path,) in db.query("SELECT path FROM masters WHERE key = ? ORDER BY project_id != ?, id DESC", (key, pid)):
+        if path and os.path.isfile(path):
+            return path
+    return None
 
 
 def build_job(db: dbm.Database, run: dict, out_dir: str, reference_path: str | None = None,
@@ -106,9 +129,10 @@ def build_job(db: dbm.Database, run: dict, out_dir: str, reference_path: str | N
     lights = _paths(db, run["light_ids"])
     nights = {int(r[0]): r[1] for r in db.query(
         "SELECT id, night FROM files WHERE id IN (%s)" % ",".join("?" * len(lights)), list(lights))}
-    keys, reused = {}, {}
+    keys, reused, info = {}, {}, {}
     bias_ids = (run.get("bias") or {}).get("file_ids") or []
     keys["bias"] = master_key(db, "bias", bias_ids)
+    info["bias"] = master_info(db, bias_ids)
     files, session_of_set, night_session = [], {}, {}
     bias_master = _master(db, project_id, keys["bias"])
     if bias_master:
@@ -123,6 +147,7 @@ def build_job(db: dbm.Database, run: dict, out_dir: str, reference_path: str | N
         if key not in session_of_set:                # Flat-Satz, der für mehrere Nächte gilt, nur einmal
             sess = session_of_set[key] = "S%d" % (len(session_of_set) + 1)
             keys[sess] = master_key(db, "flat", key, keys["bias"] or "")
+            info[sess] = master_info(db, key)
             m = _master(db, project_id, keys[sess])
             if m:
                 files.append(dict(path=pi_path(m), type="flat", session=sess))
@@ -132,8 +157,15 @@ def build_job(db: dbm.Database, run: dict, out_dir: str, reference_path: str | N
         night_session[fl["night"]] = session_of_set[key]
     for fid, p in sorted(lights.items(), key=lambda kv: kv[1]):
         files.append(dict(path=pi_path(p), type="light", session=night_session.get(nights.get(fid))))
-    files += [dict(path=pi_path(p), type="dark")
-              for p in _paths(db, (run.get("darks") or {}).get("file_ids") or []).values()]
+    dark_ids = (run.get("darks") or {}).get("file_ids") or []
+    keys["dark"] = master_key(db, "dark", dark_ids)
+    info["dark"] = master_info(db, dark_ids)
+    dark_master = _master(db, project_id, keys["dark"])
+    if dark_master:
+        files.append(dict(path=pi_path(dark_master), type="dark"))
+        reused["dark"] = dark_master
+    else:
+        files += [dict(path=pi_path(p), type="dark") for p in _paths(db, dark_ids).values()]
     v = wbpp_values(run)
     indexed = {"rejection": [None, None, None, v.pop("rejection_4")]}
     params = dict(v, groupingKeywordsEnabled=True)
@@ -145,7 +177,8 @@ def build_job(db: dbm.Database, run: dict, out_dir: str, reference_path: str | N
     job = dict(run=run.get("id"), name=run.get("name"), outputDirectory=pi_path(out_dir),
                result=pi_path(os.path.join(out_dir, "b2-result.json")),
                status=pi_path(os.path.join(out_dir, "b2-status.json")), sessionKeyword=SESSION_KEYWORD,
-               params=params, indexed=indexed, files=files, masterKeys=keys, reusedMasters=reused)
+               params=params, indexed=indexed, files=files, masterKeys=keys, reusedMasters=reused,
+               masterInfo=info)
     if any(s["key"] == "drizzle" and s["value"] for s in run.get("settings") or []):
         job["drizzle"] = dict(enabled=True, scale=2, dropShrink=0.9)       # je Light-Gruppe (WBPP 3.2.0 geprüft)
     return job

@@ -61,10 +61,13 @@ def _keep_masters(db: dbm.Database, pid: int, pdir: str, sid: int, job: dict, ma
     keys, reused = job.get("masterKeys") or {}, job.get("reusedMasters") or {}
     out = []
     mdir = os.path.join(pdir, "masters")
+    darks = [m for m in masters if os.path.basename(m).lower().startswith("masterdark")]
     for m in masters:
         name = os.path.basename(m).lower()
         if name.startswith("masterbias"):
             k = "bias"
+        elif name.startswith("masterdark") and len(darks) == 1:      # mehrere Belichtungen → nicht eindeutig
+            k = "dark"
         elif name.startswith("masterflat") and "b2session-" in name:
             k = name.split("b2session-")[1].split("_")[0].split(".")[0].upper()
         else:
@@ -73,17 +76,18 @@ def _keep_masters(db: dbm.Database, pid: int, pdir: str, sid: int, job: dict, ma
         if not key or k in reused:
             continue
         os.makedirs(mdir, exist_ok=True)
-        kind = "bias" if k == "bias" else "flat"
+        kind = k if k in ("bias", "dark") else "flat"
         dst = os.path.join(mdir, "%s_%s.xisf" % (kind, key))
         shutil.move(m, dst)
         db.execute("INSERT INTO masters (project_id, type, path, key, key_json, created_at) VALUES (?, ?, ?, ?, ?, ?) "
                    "ON CONFLICT (project_id, key) DO UPDATE SET path = excluded.path",
-                   (pid, kind, dst, key, json.dumps(dict(kind=kind, set=k, stack=sid)), dbm.now()))
+                   (pid, kind, dst, key, json.dumps(dict((job.get("masterInfo") or {}).get(k) or {}, kind=kind, set=k, stack=sid)), dbm.now()))
         out.append(dict(kind=kind, key=key, path=dst, reused=False))
     for k, path in reused.items():
-        out.append(dict(kind="bias" if k == "bias" else "flat", key=keys.get(k), path=path, reused=True))
-    for o in out:
-        mid = db.value("SELECT id FROM masters WHERE project_id = ? AND key = ?", (pid, o["key"]))
+        out.append(dict(kind=k if k in ("bias", "dark") else "flat", key=keys.get(k), path=path, reused=True))
+    for o in out:                                    # auch Master aus anderen Projekten (Kalibrier-Bibliothek)
+        mid = db.value("SELECT id FROM masters WHERE key = ? AND path = ?", (o["key"], o["path"])) or \
+            db.value("SELECT id FROM masters WHERE key = ? ORDER BY project_id != ?, id DESC", (o["key"], pid))
         if mid:
             db.execute("INSERT OR IGNORE INTO stack_masters (stack_id, master_id) VALUES (?, ?)", (sid, mid))
     return out

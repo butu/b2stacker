@@ -242,6 +242,17 @@ class CoreTools:
         r = self.c.compare(pid, int(a.get("a")), int(a.get("b")))
         return dict(a=r["a"], b=r["b"], metrics=r["metrics"], align=r.get("align"))
 
+    def calibration_library(self, a):
+        out = []
+        for m in self.c.calibration_library():
+            i = m["info"]
+            out.append(dict(id=m["id"], type=m["type"], project=m["project"], exists=m["exists"], size=m["size"],
+                            created_at=m["created_at"], stacks=m["stacks"],
+                            used_in=[p["name"] for p in m["projects"]] or None,
+                            **{k: i.get(k) for k in ("frames", "filter", "exposure", "gain", "offset", "binning",
+                                                     "temp", "camera", "nights") if i.get(k) not in (None, [], "")}))
+        return dict(masters=out[:200], total=len(out))
+
     def run_pixinsight_script(self, a):
         args = a.get("args") or []
         if not isinstance(args, list):
@@ -304,6 +315,9 @@ TOOLS = [
     ("stack_note", "Notiz zu einem Stack setzen (erscheint in der Liste und im Vergleich).",
      {"project": S_PROJECT, "stack_id": {"type": "integer"}, "text": {"type": "string"}},
      ["project", "stack_id", "text"], RW),
+    ("calibration_library", "Kalibrier-Bibliothek: gespeicherte Master-Bias/-Darks/-Flats aller Projekte mit "
+     "Eckdaten (Frames, Filter, Belichtung, Gain, Temperatur, Nächte) und wo sie verwendet wurden. Ein Master wird "
+     "automatisch wiederverwendet, wenn ein Stack genau dieselben Kalibrier-Rohframes braucht.", {}, [], RO),
     ("run_pixinsight_script", "Eigenes PixInsight-Skript (.js/.scp) aus dem Arbeitsverzeichnis im Automatik-Modus "
      "ausführen – für Diagnose. Läuft als Auftrag in der Spur des Stackens (nie parallel), Ausgabe im Ergebnis. "
      ".js braucht „#engine v8“ als erste Zeile.",

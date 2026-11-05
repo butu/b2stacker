@@ -276,6 +276,11 @@ h3{margin:0;font-size:16px;font-weight:700}
 .dl{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto auto;gap:12px;align-items:center;padding:7px 12px;font-size:13.5px;border-top:1px solid var(--card-line)}
 .dl:first-child{border-top:0}.dl .m{opacity:.6;white-space:nowrap}.dl.off{opacity:.55}
 .dbtn.del.on{box-shadow:inset 0 0 0 2px var(--err)}
+.lh{font-size:15px;margin:0;display:flex;gap:8px;align-items:center}.lh .n{opacity:.5;font-weight:600}
+.mlist{display:flex;flex-direction:column}
+.mrow{display:grid;grid-template-columns:28px minmax(0,1fr) auto auto;gap:12px;align-items:center;padding:11px 14px;border-top:1px solid var(--card-line)}
+.mrow:first-child{border-top:0}.mrow.off{opacity:.6}.mrow .mi{opacity:.7;display:grid;place-items:center}
+.mrow .mn{font-weight:700;font-size:14.5px}.mrow .mx{font-size:13px;opacity:.65;margin-top:2px}.mrow .ms{font-size:13px;opacity:.7;white-space:nowrap}
 .keys{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:12.5px;opacity:.55}
 
 /* ---------- Großansicht (Lightbox) */
@@ -511,7 +516,7 @@ details>summary{cursor:pointer}
   .lbside{border-left:0;border-top:1px solid rgba(0,0,0,.5)}
   .fbar{top:-20px}
 }
-@media (max-width:640px){.tind .ell{display:none}.crumb{display:none}#histBtn .hl{display:none}}
+@media (max-width:640px){.tind .ell{display:none}.crumb{display:none}#histBtn .hl,#libBtn .hl{display:none}}
 .hbtn.on{background:rgba(255,255,255,.1)}
 </style>
 </head>
@@ -522,6 +527,7 @@ details>summary{cursor:pointer}
   <span class="grow"></span>
   <span id="conn"></span>
   <button class="tind idle" id="tind" title="Aufträge"></button>
+  <a class="hbtn" id="libBtn" href="#/kalibrierung" title="Kalibrier-Bibliothek: gespeicherte Master-Bias, -Darks und -Flats"></a>
   <a class="hbtn" id="histBtn" href="#/verlauf" title="Verlauf aller Projekte"></a>
   <button class="hbtn icon" id="setBtn" title="Einstellungen" aria-label="Einstellungen"></button>
 </header>
@@ -772,6 +778,7 @@ function liveHtml(pid){
 // ---------- Kopfzeile: Auftrags-Anzeige mit Popover
 $('#setBtn').innerHTML=ic('gear');
 $('#histBtn').innerHTML=ic('clock')+'<span class="hl">Verlauf</span>';
+$('#libBtn').innerHTML=ic('layers')+'<span class="hl">Kalibrierung</span>';
 $('#setBtn').onclick=()=>openSettings();
 function renderTaskIndicator(){
   const b=$('#tind'),act=[...S.tasks.values()].filter(t=>ACTIVE.includes(t.state));
@@ -820,6 +827,7 @@ function connect(){
   ES.addEventListener('task',e=>{seq(e);onTask(JSON.parse(e.data));});
   ES.addEventListener('projects',e=>{seq(e);soon('projects',loadProjects,300);});
   ES.addEventListener('project',e=>{seq(e);const d=JSON.parse(e.data)||{};onProjectChanged(d.id);});
+  ES.addEventListener('library',e=>{seq(e);if(S.route.view==='library')soon('lib',renderLibrary,200);});
   ES.addEventListener('reset',e=>{seq(e);reloadAll();});
   ES.onerror=()=>{
     $('#conn').innerHTML=`<span class="conn">${ic('warn','s14')} Verbindung getrennt – verbinde neu …</span>`;
@@ -853,6 +861,7 @@ function onTask(t){
 function onProjectChanged(pid){
   soon('projects',loadProjects,400);
   if(S.route.view==='history')soon('ghist',renderGlobalHistory,800);
+  if(S.route.view==='library')soon('lib',renderLibrary,800);
   if(S.P&&S.P.id===pid)soon('project',reloadProject,250);
 }
 async function reloadAll(first){
@@ -897,6 +906,7 @@ function parseRoute(){
   if(m)return {view:'project',pid:+m[1],tab:m[2]||'overview'};
   if(location.hash==='#/setup')return {view:'setup'};
   if(location.hash==='#/verlauf')return {view:'history'};
+  if(location.hash==='#/kalibrierung')return {view:'library'};
   return {view:'home'};
 }
 function needsSetup(){const b=S.boot;return b&&!S.setupSkipped&&(b.first_run||!b.pixinsight_ok);}
@@ -910,15 +920,17 @@ function route(force){
     else{renderTabs();renderTab();$('#view').scrollTop=0;}
   }else{
     S.P=null;S.F=null;renderCrumb();
-    if(r.view==='setup')renderSetup();else if(r.view==='history')renderGlobalHistory();else renderHome();
+    if(r.view==='setup')renderSetup();else if(r.view==='history')renderGlobalHistory();else if(r.view==='library')renderLibrary();else renderHome();
   }
 }
 function renderCrumb(){
   const c=$('#crumb');
   if(S.route.view==='project'){const p=S.P||S.projects.find(x=>x.id===S.route.pid);c.innerHTML=p?`${ic('next','tiny')}<b>${esc(p.name)}</b>`:'';}
   else if(S.route.view==='history')c.innerHTML=`${ic('next','tiny')}<b>Verlauf</b>`;
+  else if(S.route.view==='library')c.innerHTML=`${ic('next','tiny')}<b>Kalibrier-Bibliothek</b>`;
   else c.innerHTML='';
   const hb=$('#histBtn');if(hb)hb.classList.toggle('on',S.route.view==='history');
+  const lb=$('#libBtn');if(lb)lb.classList.toggle('on',S.route.view==='library');
 }
 
 /* =====================================================================================================
@@ -1917,6 +1929,45 @@ async function renderGlobalHistory(){
   $$('#hSeg button').forEach(b=>b.onclick=()=>{HV.filter=b.dataset.k;renderGlobalHistory();});
   $('#hProj').onchange=e=>{HV.project=e.target.value;renderGlobalHistory();};
   const m=$('#hMore');if(m)m.onclick=()=>{HV.limit+=200;renderGlobalHistory();};
+}
+
+// ---------- Kalibrier-Bibliothek (alle Projekte)
+const MTYPE={bias:['Master-Bias','Bias'],dark:['Master-Darks','Dark'],flat:['Master-Flats','Flat'],darkflat:['Master-Darkflats','Darkflat']};
+async function renderLibrary(){
+  const v=$('#view');
+  if(!v.querySelector('#libBox'))v.innerHTML=`<div class="wrap"><div class="homehd"><div><h1>Kalibrier-Bibliothek</h1>
+    <p class="sub">Master, die b2stacker beim Stacken aufgehoben hat. Braucht ein Stack – in irgendeinem Projekt – genau dieselben Kalibrierframes, wird der fertige Master genommen statt ihn neu zu rechnen.</p></div></div>
+    <div id="libBox"><div class="live">${ic('spinner','s14 spin')} wird geladen …</div></div></div>`;
+  let list;try{list=await api('/api/library');}catch(e){$('#libBox').innerHTML=`<div class="banner err">${esc(e.message)}</div>`;return;}
+  if(S.route.view!=='library')return;
+  if(!list.length){$('#libBox').innerHTML=`<div class="empty"><div class="t">Noch keine Master</div><div class="x">Nach dem ersten Stack mit Bias, Darks oder Flats erscheinen die Master hier.</div></div>`;return;}
+  const total=list.reduce((a,m)=>a+(m.size||0),0);
+  const groups=Object.keys(MTYPE).map(k=>[k,list.filter(m=>m.type===k)]).filter(g=>g[1].length);
+  $('#libBox').innerHTML=`<div class="sec" style="gap:18px"><div class="fsum"><span>${plural(list.length,'Master','Master')}</span><span>${gb(total)}</span><span>${int(new Set(list.map(m=>m.project_id)).size)} ${list.length===1?'Projekt':'Projekte'}</span></div>
+    ${groups.map(([k,ms])=>`<div class="sec" style="gap:8px"><h3 class="lh">${MTYPE[k][0]} <span class="n">${ms.length}</span></h3><div class="card mlist">${ms.map(mRow).join('')}</div></div>`).join('')}
+    <div class="keys">${ic('info','s14')} Entfernen löscht nur den gespeicherten Master (eine von b2stacker erzeugte Datei). Die Kalibrier-Rohframes bleiben; beim nächsten Stack entsteht der Master bei Bedarf neu.</div></div>`;
+  $$('[data-mdel]').forEach(b=>b.onclick=async()=>{
+    const m=list.find(x=>x.id===+b.dataset.mdel);
+    if(!await ask('Master entfernen?',`${MTYPE[m.type][1]}-Master „${m.name}“ (${m.size?gb(m.size):'Datei fehlt'}) wird gelöscht. Die Rohframes bleiben.`,'Entfernen',true))return;
+    busy(b,async()=>{await api('/api/library/'+m.id+'/delete',{});renderLibrary();});
+  });
+}
+function mRow(m){
+  const i=m.info||{},bits=[];
+  if(i.frames)bits.push(plural(i.frames,'Frame','Frames'));
+  if(i.filter&&m.type==='flat')bits.push(esc(i.filter));
+  if(i.exposure!=null&&m.type!=='bias')bits.push(num(i.exposure,i.exposure<10?2:0)+' s');
+  if(i.gain!=null)bits.push('Gain '+int(i.gain));
+  if(i.offset!=null)bits.push('Offset '+int(i.offset));
+  if(i.temp!=null)bits.push(num(i.temp,0)+' °C');
+  if(i.binning)bits.push('Bin '+esc(i.binning));
+  const nights=(i.nights||[]).length?(i.nights.length===1?'Nacht '+ymd(i.nights[0]):`${i.nights.length} Nächte, ${ymd(i.nights[0])} – ${ymd(i.nights[i.nights.length-1])}`):'';
+  const used=(m.projects||[]).map(p=>`<a class="lnk" href="#/p/${p.id}/stacks">${esc(p.name)}</a>`).join(', ');
+  return `<div class="mrow ${m.exists?'':'off'}"><div class="mi">${ic(m.exists?'layers':'warn')}</div>
+    <div class="mt"><div class="mn ell" title="${esc(m.path)}">${bits.join(' · ')||esc(m.name)}</div>
+      <div class="mx">${i.camera?esc(i.camera)+' · ':''}${nights?nights+' · ':''}angelegt ${ago(m.created_at)} in ${esc(m.project)}${m.exists?'':' · <span class="errc">Datei fehlt</span>'}</div>
+      <div class="mx">${m.stacks?`in ${plural(m.stacks,'Stack','Stacks')} verwendet${used?': '+used:''}`:'noch in keinem Stack'}</div></div>
+    <div class="ms">${m.size?gb(m.size):''}</div><button class="btn sm ghost" data-mdel="${m.id}" title="Master entfernen">${ic('trash','s14')}</button></div>`;
 }
 
 // ---------- Datenbank-Sicherungen (Einstellungen)
