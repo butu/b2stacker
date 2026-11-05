@@ -713,7 +713,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._remote_denied()
             api = parts[1:] if parts[:1] == ["api"] else None
             if api is None or (api and api[0] in lan.BLOCKED_POST) or \
-                    (len(api) >= 3 and api[0] == "projects" and api[2] in lan.BLOCKED_PROJECT_POST):
+                    (len(api) >= 3 and api[0] == "projects" and api[2] in lan.BLOCKED_PROJECT_POST) or \
+                    (len(api) >= 5 and api[0] == "projects" and api[4] in lan.BLOCKED_STACK_POST):
                 return self._error(403, "Am Handy nicht möglich – bitte am Computer.")
         elif not self._host_ok():
             return self._error(403, "Zugriff nur von diesem Rechner.")
@@ -846,6 +847,8 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("asset_id: Zahl oder null")
                 c.set_cover(pid, int(aid) if aid is not None else None)
                 return self._json({"ok": True})
+            if len(rest) == 3 and rest[0] == "stacks" and rest[2] == "open-folder":
+                return self._json({"path": c.open_stack_folder(pid, self._stack(pid, rest[1]))})
             if len(rest) == 3 and rest[0] == "stacks" and rest[2] == "open-pixinsight":
                 return self._json(c.open_in_pixinsight(pid, self._stack(pid, rest[1])))
             if len(rest) == 3 and rest[0] == "stacks" and rest[2] in ("note", "delete"):

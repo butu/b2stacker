@@ -25,6 +25,7 @@ BLOCKED_POST = {"settings", "backups", "backup", "quit", "install", "update", "p
                 "pick-files", "check-pixinsight", "mcp-info", "mcp-token", "lan", "lan-key", "lan-info", "focus",
                 "clear-temp", "selftest", "library"}
 BLOCKED_PROJECT_POST = {"delete-frames"}
+BLOCKED_STACK_POST = {"open-folder"}               # öffnet ein Fenster am Computer – vom Handy sinnlos
 
 
 def private_client(addr: str) -> bool:
@@ -80,8 +81,8 @@ def qr_svg(text: str) -> str:
 
     import segno
     buf = io.BytesIO()
-    segno.make(text, error="m").save(buf, kind="svg", scale=6, border=2, dark="#000", light="#fff",
-                                     xmldecl=False, svgns=True)
+    segno.make(text, error="m").save(buf, kind="svg", border=2, dark="#000", light="#fff", xmldecl=False,
+                                     svgns=True, omitsize=True)      # nur viewBox → skaliert in jede Box
     return buf.getvalue().decode("utf-8")
 
 

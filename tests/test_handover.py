@@ -38,6 +38,14 @@ for i in range(3):
     time.sleep(float(os.environ.get("FAKE_STEP_S", "0.05")))
 mdir = os.path.join(job["outputDirectory"], "master")
 os.makedirs(mdir, exist_ok=True)
+if mode == "nomaster":
+    ldir = os.path.join(job["outputDirectory"], "logs")
+    os.makedirs(ldir, exist_ok=True)
+    open(os.path.join(ldir, "20261105120000.log"), "w").write(
+        "* Begin integration of Light frames\n*** Error: No active frames to be integrated\n")
+    out.update(ok=True, phase="done", groups=[dict(mode="pre", type="Light", n=3)])
+    json.dump(out, open(job["result"], "w"))
+    sys.exit(0)
 open(os.path.join(mdir, "masterLight_HaO3.xisf"), "w").write("x")
 raw = [f for f in job["files"] if "masters" not in f["path"].replace("\\", "/").split("/")]
 if any(f["type"] == "bias" for f in raw):

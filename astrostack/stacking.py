@@ -93,6 +93,47 @@ def _keep_masters(db: dbm.Database, pid: int, pdir: str, sid: int, job: dict, ma
     return out
 
 
+def explain_failure(res: dict, out_dir: str) -> str:
+    """Warum hat WBPP kein Master geliefert? → Klartext aus Ergebnisdatei und WBPP-Protokoll (wichtigstes zuerst)."""
+    from . import wbpplog
+    parts = []
+    found = wbpplog.diagnose(out_dir)
+    causes = [c["text"] for c in found if c.get("level") == "error"] + \
+        [c["text"] for c in found if c.get("level") != "error"]
+    not_added = res.get("notAdded") or []
+    if not_added:
+        parts.append("WBPP hat %d Datei%s nicht angenommen (z. B. %s: %s)." % (
+            len(not_added), "" if len(not_added) == 1 else "en", os.path.basename(not_added[0].get("path") or ""),
+            (not_added[0].get("message") or "").strip()[:160]))
+    groups = res.get("groups") or []
+    if groups and not any(g.get("mode") == "post" for g in groups):
+        parts.append("WBPP hat keine Light-Gruppe zum Integrieren gebildet.")
+    parts += causes
+    err = (res.get("error") or "").strip()
+    if err and err not in parts:
+        parts.append(("Fehler in PixInsight: " + err) if res.get("phase") == "run" else err)
+    if res.get("exit_code") not in (0, None) and not parts:
+        parts.append("PixInsight wurde mit Code %s beendet." % res.get("exit_code"))
+    if not parts:
+        parts.append("WBPP lief durch, hat aber kein Light-Master geschrieben – Details im WBPP-Protokoll.")
+    return " ".join(parts)
+
+
+def _keep_diagnostics(pdir: str, name: str, out_dir: str, temp: str) -> str:
+    """Protokolle eines fehlgeschlagenen Laufs aufheben (temp/ wird gleich geleert). → Ordnername im Projekt"""
+    folder = _unique_dir(pdir, name + " – fehlgeschlagen")
+    dst = os.path.join(pdir, folder, "protokoll")
+    os.makedirs(dst, exist_ok=True)
+    logs = os.path.join(out_dir, "logs")
+    if os.path.isdir(logs):
+        shutil.copytree(logs, dst, dirs_exist_ok=True)
+    for f in (os.path.join(out_dir, "b2-result.json"), os.path.join(out_dir, "b2-status.json"),
+              os.path.join(temp, "b2job.json")):
+        if os.path.isfile(f):
+            shutil.copy2(f, dst)
+    return folder
+
+
 def stack_project(db: dbm.Database, ws: Workspace, pid: int, pixinsight: str, run_ids: list[str] | None = None,
                   progress=None, cancel=None, runner=handover.run, origin: str = "ui") -> list[dict]:
     """Alle aktiven (oder die gewählten) Läufe des gespeicherten Plans stacken. → Ergebnis je Lauf"""
@@ -140,8 +181,20 @@ def stack_project(db: dbm.Database, ws: Workspace, pid: int, pixinsight: str, ru
         elif res.get("ok") and masters:
             status, error = "done", None
         else:
-            status, error = "failed", res.get("error") or "WBPP hat kein Master erzeugt."
+            status, error = "failed", explain_failure(res, out)
         folder, files = "", []
+        try:
+            from . import logbook
+            logbook.event("stack_result", project=pid, run=run["name"], status=status, error=error,
+                          **{k: res.get(k) for k in ("phase", "exit_code", "added", "notAdded", "groups", "wbpp",
+                                                     "pixinsight", "interrupted", "logFile", "error")})
+        except Exception:  # noqa: BLE001
+            pass
+        if status == "failed":
+            try:
+                folder = _keep_diagnostics(pdir, stack_name(run), out, ws.temp)
+            except OSError:
+                folder = ""
         if status == "done":
             folder = _unique_dir(pdir, stack_name(run))
             sdir = os.path.join(pdir, folder)

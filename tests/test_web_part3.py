@@ -413,3 +413,25 @@ def test_lan_pairing_and_restrictions(proj, tmp_path, monkeypatch):
     assert lan.private_client("192.168.1.20") and lan.private_client("10.0.0.5") and lan.private_client("fe80::1")
     assert not lan.private_client("8.8.8.8") and not lan.private_client("2a00:1450::1")
     assert lan.qr_svg("http://192.168.1.20:8875/pair?k=abc").lstrip().startswith("<svg")
+
+
+def test_failed_stack_explains_cause_and_keeps_log(proj, monkeypatch):
+    co, pid, _ = proj
+    monkeypatch.setenv("FAKE_MODE", "nomaster")
+    plan = co.plan(pid)
+    ha = next(x["id"] for x in plan["runs"] if x["filter"] == "HaO3")
+    t = co.stack(pid, [ha])
+    assert co.tasks.wait_idle(60)
+    res = co.tasks.get(t["id"]).result[0]
+    assert res["status"] == "failed"
+    assert "kein Light für die Integration" in res["error"] and "keine Light-Gruppe" in res["error"], res["error"]
+    st = co.stacks(pid)[0]
+    assert st["status"] == "failed" and st["folder"].endswith("fehlgeschlagen")
+    pdir = co.ws.project_dir(co.db.value("SELECT folder FROM projects WHERE id = ?", (pid,)))
+    prot = os.path.join(pdir, st["folder"], "protokoll")
+    assert sorted(os.listdir(prot)) == ["20261105120000.log", "b2-result.json", "b2-status.json", "b2job.json"]
+    opened = []
+    assert co.open_stack_folder(pid, st["id"], opener=opened.append) == os.path.join(pdir, st["folder"])
+    assert opened
+    co.delete_stack(pid, st["id"])                                     # Protokoll-Ordner verschwindet mit
+    assert not os.path.exists(os.path.join(pdir, st["folder"]))

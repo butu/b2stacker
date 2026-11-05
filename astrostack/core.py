@@ -620,6 +620,26 @@ class Core:
                                          ("pixinsight_version", "test_folder", "test_folder_remote")}))
         return out
 
+    def open_stack_folder(self, project, stack_id: int, opener=None) -> str:
+        """Ordner eines Stacks (bei Fehlschlag: mit dem WBPP-Protokoll) im Explorer öffnen."""
+        import subprocess
+        import sys
+        pid = self._pid(project)
+        row = self.db.one("SELECT s.folder, p.folder AS pfolder FROM stacks s JOIN projects p ON p.id = s.project_id "
+                          "WHERE s.id = ? AND s.project_id = ?", (int(stack_id), pid))
+        if not row or not row["folder"]:
+            raise ValueError("Zu diesem Stack gibt es keinen Ordner.")
+        path = os.path.join(self.ws.project_dir(row["pfolder"]), row["folder"])
+        if not os.path.isdir(path):
+            raise ValueError("Ordner nicht gefunden: %s" % path)
+        if opener:
+            opener(path)
+        elif sys.platform == "win32":
+            os.startfile(path)  # noqa: S606 – Explorer öffnen
+        else:
+            subprocess.Popen(["xdg-open", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return path
+
     def open_in_pixinsight(self, project, stack_id: int | None = None, popen=None) -> dict:
         """Die Master eines Stacks (Standard: neuester fertiger) in PixInsight öffnen."""
         import subprocess

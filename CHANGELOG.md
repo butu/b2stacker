@@ -2,6 +2,13 @@
 
 Neueste Version oben. Der Abschnitt der aktuellen Version erscheint auch im Update-Dialog von b2stacker.
 
+## 0.11.2 – 05.11.2026
+
+- Schlägt ein Stack fehl, steht die Ursache in Klartext dabei (aus dem WBPP-Protokoll), und das Protokoll bleibt im
+  Projektordner erhalten („Protokoll öffnen“ in der Stack-Liste).
+- QR-Code fürs Handy wird nicht mehr abgeschnitten.
+- Großansicht: Die Seitenleiste ragt nicht mehr über den Rand; die Wisch-Hinweise erscheinen nur noch am Handy.
+
 ## 0.11.1 – 05.11.2026
 
 **b2stacker am Handy.** Einstellungen → Handy (Heimnetz) einschalten, den QR-Code mit dem Handy scannen – fertig.
