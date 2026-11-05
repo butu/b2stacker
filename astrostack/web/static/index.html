@@ -480,6 +480,7 @@ dialog.rep iframe{flex:1;border:0;width:100%;background:#1e1e1e;border-radius:0 
 .ntab .hb{display:inline-block;height:6px;border-radius:3px;background:var(--accent,#3584e4);vertical-align:middle;margin-right:6px}
 .ntab tr.nsub td{white-space:normal;background:rgba(255,255,255,.025);font-size:13px}
 .nscroll{overflow-x:auto}
+.ntab th.sortable{cursor:pointer;user-select:none}.ntab th.sortable:hover,.ntab th.on{color:#fff}
 .rigchips{display:flex;flex-wrap:wrap;gap:6px;padding:12px 16px 4px}
 .rcheck .ct{font-weight:600}.rcheck .cx2{opacity:.8;margin-top:2px;line-height:1.45}
 .rcheck .ca{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;opacity:.55}
@@ -1439,7 +1440,8 @@ function renderOverview(box){
   if(c.light&&!p._partial)loadInsights(p.id);
 }
 /* ---- Nachtübersicht, Rig-Hinweise und ausführlicher Bericht (wie in 0.10) ---- */
-const INS={pid:null,data:null,open:new Set(),good:false};
+const INS={pid:null,data:null,open:new Set(),good:false,sort:'night',asc:true};
+const NSORT={night:n=>n.night||'',filter:n=>n.filter||'',n:n=>n.n_used,hours:n=>n.used_h,eff:n=>n.eff_h,fwhm:n=>n.fwhm_as,moon:n=>n.moon_illum,alt:n=>n.alt_max,grade:n=>n.quality};
 const LVL={critical:['err','Kritisch','warn'],warning:['warn','Hinweis','warn'],info:['info','Info','info'],good:['ok','Gut','check']};
 async function loadInsights(pid){
   const box=$('#insBox');if(!box)return;
@@ -1451,7 +1453,11 @@ async function loadInsights(pid){
 }
 const nd=n=>n?n.slice(8,10)+'.'+n.slice(5,7)+'.'+n.slice(2,4):'–';
 function renderInsights(box,d){
-  const N=(d.nights||[]).slice().sort((a,b)=>String(a.night).localeCompare(String(b.night))||String(a.filter).localeCompare(String(b.filter)));
+  const sk=NSORT[INS.sort]||NSORT.night;
+  const N=(d.nights||[]).slice().sort((a,b)=>{const x=sk(a),y=sk(b);
+    if(x==null&&y==null)return 0;if(x==null)return 1;if(y==null)return -1;
+    const c=x<y?-1:x>y?1:String(a.night).localeCompare(String(b.night))||String(a.filter).localeCompare(String(b.filter));return INS.asc?c:-c;});
+  const th=(k,l,cls,tip)=>`<th class="${cls||''} sortable${INS.sort===k?' on':''}" data-ns="${k}" title="${esc(tip||'Sortieren')}">${l}${INS.sort===k?(INS.asc?' ▲':' ▼'):''}</th>`;
   const maxH=Math.max(.01,...N.map(n=>n.hours||0));
   const G={A:['ok','Gut'],B:['info','Mittel'],C:['warn','Schwach']};
   const checks=d.checks||[],issues=checks.filter(c=>c.level==='warning'||c.level==='critical'),rest=checks.filter(c=>!(c.level==='warning'||c.level==='critical'));
@@ -1459,28 +1465,29 @@ function renderInsights(box,d){
   const m=d.meta||{},sky=Object.fromEntries((d.sky||[]).map(s=>[s.night,s]));
   const chk=c=>{const L=LVL[c.level]||LVL.info;return `<div class="citem rcheck"><span class="ci ${L[0]}c">${ic(L[2])}</span><div class="cx"><div class="ca">${esc(c.area)}</div><div class="ct">${esc(c.title)}</div><div class="cx2">${esc(c.text)}</div></div></div>`;};
   box.innerHTML=`<div class="sec" style="gap:20px">
-    <div class="card"><div class="cardhd"><h3>Nächte</h3><span class="small muted">${esc([m.camera,m.scale?String(m.scale).replace('.',',')+'″/px':''].filter(Boolean).join(' · '))}</span><span class="grow"></span>
+    <div class="card"><div class="cardhd"><h3>Nächte</h3><span class="grow"></span>
       <button class="btn sm" id="repOpen" title="Alle Nächte, Mond, Qualität, Himmelsbahnen und Diagramme auf einer Seite – wie der Bericht aus 0.10">${ic('report')}Ausführlicher Bericht</button></div>
       <div class="small muted" style="padding:0 16px 10px">Je Nacht und Filter: wie viel belichtet wurde, wie viel davon verwendet wird und wie gut die Nacht war. <b>Effektiv</b> = verwendete Zeit, gewichtet nach Rauschen – so viel ist die Nacht wirklich wert. Klick auf eine Zeile zeigt Begründung und Himmelsbahn; „Frames“ öffnet genau diese Nacht.</div>
-      <div class="nscroll"><table class="ntab"><thead><tr><th>Nacht</th><th>Filter</th><th class="num">Frames</th><th>Belichtung</th><th class="num">Effektiv</th><th class="num">FWHM</th><th class="num">Mond</th><th class="num">Höhe</th><th>Qualität</th><th></th></tr></thead><tbody>
+      <div class="nscroll"><table class="ntab"><thead><tr>${th('night','Nacht')}${th('filter','Filter')}${th('n','Frames','num','verwendete von allen Lights dieser Nacht')}${th('hours','Belichtung','','Balken und erste Zahl: verwendete Belichtung. „von …“: insgesamt aufgenommen (der Rest ist aussortiert).')}${th('eff','Effektiv','num','Verwendete Zeit, gewichtet nach Rauschen: so viel ist die Nacht im Vergleich zur besten wirklich wert.')}${th('fwhm','FWHM','num','Sternschärfe (Median) – kleiner ist schärfer')}${th('moon','Mond','num','Beleuchtung des Mondes')}${th('alt','Höhe','num','Objekthöhe über dem Horizont während der Aufnahmen')}${th('grade','Qualität','','Signal je Stunde im Vergleich zur besten Nacht desselben Filters')}<th></th></tr></thead><tbody>
       ${N.map((n,i)=>{const k=n.night+'|'+n.filter,op=INS.open.has(k),g=G[n.grade]||['info','–'];
         return `<tr class="nrow" data-nk="${esc(k)}"><td>${esc(nd(n.night))}</td><td>${esc(n.filter||'–')}</td><td class="num">${n.n_used}/${n.n}</td>
-          <td><span class="hb" style="width:${Math.max(2,Math.round(70*(n.used_h||0)/maxH))}px"></span>${fmtH(n.used_h)}${n.hours-n.used_h>=.05?` <span class="muted small">von ${fmtH(n.hours)}</span>`:''}</td>
-          <td class="num">${fmtH(n.eff_h)}</td><td class="num">${n.fwhm_as?String(n.fwhm_as.toFixed(1)).replace('.',',')+'″':'–'}</td>
+          <td title="${esc(fmtH(n.used_h)+' verwendet'+(n.hours-n.used_h>=.05?', '+fmtH(n.hours)+' aufgenommen – '+fmtH(n.hours-n.used_h)+' aussortiert':''))}"><span class="hb" style="width:${Math.max(2,Math.round(70*(n.used_h||0)/maxH))}px"></span>${fmtH(n.used_h)} <span class="muted small">verwendet</span>${n.hours-n.used_h>=.05?` <span class="muted small">· ${fmtH(n.hours)} aufgenommen</span>`:''}</td>
+          <td class="num" title="${esc('Effektiv '+fmtH(n.eff_h)+': verwendete Zeit gewichtet nach Rauschen – eine Mond- oder Dunstnacht zählt weniger als eine dunkle, klare Nacht.')}">${fmtH(n.eff_h)}</td><td class="num">${n.fwhm_as?String(n.fwhm_as.toFixed(1)).replace('.',',')+'″':'–'}</td>
           <td class="num" title="${n.moon?'Mond über dem Horizont und mehr als halb beleuchtet':''}">${n.moon_illum!=null?Math.round(n.moon_illum)+' %'+(n.moon?' '+ic('moon','s14'):''):'–'}</td>
           <td class="num">${n.alt_min!=null?Math.round(n.alt_min)+'–'+Math.round(n.alt_max)+'°':'–'}</td>
           <td><span class="pill ${g[0]}" title="${esc(n.why+' '+n.todo)}">${n.grade||''} · ${g[1]}</span></td>
           <td><button class="btn ghost sm" data-ngo="${esc(k)}" title="Frames dieser Nacht ansehen">Frames</button></td></tr>
           ${op?`<tr class="nsub"><td colspan="10"><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start"><div style="flex:1 1 260px;min-width:0"><b>Warum:</b> ${esc(n.why)}<br><b>Was tun:</b> ${esc(n.todo)}${n.temp!=null?`<br><span class="muted">Sensor ${String(Math.round(n.temp*10)/10).replace('.',',')} °C · Hintergrund ${n.bg!=null?Math.round(n.bg):'–'} · Sterne ${n.nstars!=null?Math.round(n.nstars):'–'}</span>`:''}</div>
-            ${sky[n.night]?`<div style="flex:1 1 360px;max-width:460px">${skySvg(sky[n.night])}<div class="small muted" style="margin-top:4px">Blau: Objekthöhe · gestrichelt: Mond (${sky[n.night].illum} % beleuchtet) · grau: Dämmerung · Punkte: Aufnahmen</div></div>`:''}</div></td></tr>`:''}`;}).join('')||'<tr><td colspan="10" class="muted">Noch keine vermessenen Lights.</td></tr>'}
+            ${sky[n.night]?`<div style="flex:1 1 360px;max-width:460px">${skySvg(sky[n.night])}<div class="small muted" style="margin-top:4px">Blau: Objekthöhe · gestrichelt: Mond (${sky[n.night].illum} % beleuchtet) · grau: Dämmerung · Punkte: Aufnahmen (grün verwendet, rot aussortiert)</div></div>`:''}</div></td></tr>`:''}`;}).join('')||'<tr><td colspan="10" class="muted">Noch keine vermessenen Lights.</td></tr>'}
       </tbody></table></div>
       ${(d.rec||[]).length?`<div class="clist" style="border-top:1px solid var(--div)">${d.rec.map(r=>`<div class="citem"><span class="ci infoc">${ic('info')}</span><div class="cx">${esc(r)}</div></div>`).join('')}</div>`:''}
     </div>
-    <div class="card"><div class="cardhd"><h3>Rig-Hinweise</h3><span class="small muted">Schärfe, Nachführung, Fokus, Dithering, Kühlung, Taupunkt – aus den Frames gemessen</span></div>
+    <div class="card"><div class="cardhd"><h3>Rig-Hinweise</h3><span class="small muted">${esc([m.camera,m.scale?String(m.scale).replace('.',',')+'″/px':''].filter(Boolean).join(' · ')||'Schärfe, Nachführung, Fokus, Dithering, Kühlung, Taupunkt – aus den Frames gemessen')}</span></div>
       ${areas.length?`<div class="rigchips">${areas.map(a=>{const L=LVL[a.level]||LVL.info;return `<span class="pill ${L[0]}">${ic(L[2],'s14')}${esc(a.area)}</span>`;}).join('')}</div>`:''}
       <div class="clist">${issues.map(chk).join('')||`<div class="citem"><span class="ci okc">${ic('check')}</span><div class="cx">${checks.length?'Keine Auffälligkeiten – das Rig hat in allen Nächten sauber gearbeitet.':esc(d.diag_note||'Keine Rig-Hinweise.')}</div></div>`}
         ${rest.length?`<button class="lnk" id="rigGood" style="padding:10px 16px;text-align:left">${INS.good?'Unauffällige Prüfungen ausblenden':plural(rest.length,'unauffällige Prüfung','unauffällige Prüfungen')+' anzeigen'}</button>${INS.good?rest.map(chk).join(''):''}`:''}</div></div>
   </div>`;
+  $$('[data-ns]',box).forEach(t=>t.onclick=()=>{const k=t.dataset.ns;if(INS.sort===k)INS.asc=!INS.asc;else{INS.sort=k;INS.asc=k==='night'||k==='filter';}renderInsights(box,d);});
   $$('tr.nrow',box).forEach(tr=>tr.onclick=e=>{if(e.target.closest('[data-ngo]'))return;const k=tr.dataset.nk;INS.open.has(k)?INS.open.delete(k):INS.open.add(k);renderInsights(box,d);});
   $$('[data-ngo]',box).forEach(b=>b.onclick=()=>{const [night,filt]=b.dataset.ngo.split('|');FV.type='light';FV.status='all';FV.night=night;FV.filt=filt;location.hash='#/p/'+S.P.id+'/frames';});
   const g=$('#rigGood');if(g)g.onclick=()=>{INS.good=!INS.good;renderInsights(box,d);};
@@ -1494,7 +1501,7 @@ function skySvg(s){
   const dark=(s.sun||[]).map(v=>v<-18),i0=dark.indexOf(true),i1=dark.lastIndexOf(true);
   const dl=i0>0?X(s.x[i0]):0,dr=i1>=0&&i1<s.x.length-1?X(s.x[i1]):W;
   const ticks=[];for(let h=Math.ceil(x0/2)*2;h<=x1;h+=2)ticks.push(`<text x="${X(h).toFixed(1)}" y="${H+12}" fill="rgba(255,255,255,.45)" font-size="9" text-anchor="middle">${String(Math.floor(h)%24).padStart(2,'0')}</text>`);
-  const fr=(s.frames||[]).map(f=>`<circle cx="${X(f.x).toFixed(1)}" cy="${Y(f.alt).toFixed(1)}" r="1.6" fill="${f.status==='rejected'||f.status==='suggest'?'#e66100':'#8ff0a4'}"/>`).join('');
+  const fr=(s.frames||[]).map(f=>`<circle cx="${X(f.x).toFixed(1)}" cy="${Y(f.alt).toFixed(1)}" r="4" stroke="#0f0f0f" stroke-width="1" fill="${f.status==='rejected'||f.status==='suggest'?'#ff7b63':'#8ff0a4'}"><title>${esc((f.frame||'')+' · '+(f.status==='rejected'||f.status==='suggest'?'aussortiert':'verwendet'))}</title></circle>`).join('');
   return `<svg viewBox="0 0 ${W} ${H+16}" style="width:100%;height:auto;display:block;background:#0f0f0f;border-radius:8px">
     <rect x="0" y="0" width="${dl.toFixed(1)}" height="${H}" fill="rgba(255,255,255,.08)"/><rect x="${dr.toFixed(1)}" y="0" width="${Math.max(0,W-dr).toFixed(1)}" height="${H}" fill="rgba(255,255,255,.08)"/>
     <line x1="0" y1="${H}" x2="${W}" y2="${H}" stroke="rgba(255,255,255,.25)"/><line x1="0" y1="${Y(30)}" x2="${W}" y2="${Y(30)}" stroke="rgba(255,255,255,.07)"/><line x1="0" y1="${Y(60)}" x2="${W}" y2="${Y(60)}" stroke="rgba(255,255,255,.07)"/>

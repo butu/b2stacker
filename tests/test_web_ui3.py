@@ -312,6 +312,13 @@ def test_overview_nights_rig_hints_and_report(page, app):
     rows.first.locator("td").first.click()                       # aufklappen: Warum / Was tun
     expect(page.locator("#insBox tr.nsub")).to_contain_text("Was tun")
     expect(page.locator("#insBox")).to_contain_text("Rig-Hinweise")
+    # sortierbare Spalten: zweiter Klick dreht um
+    page.locator("#insBox th[data-ns='night']").click()
+    expect(page.locator("#insBox th[data-ns='night']")).to_contain_text("▼")
+    page.locator("#insBox th[data-ns='fwhm']").click()
+    expect(page.locator("#insBox th[data-ns='fwhm']")).to_contain_text("▼")
+    page.locator("#insBox th[data-ns='night']").click()
+    rows = page.locator("#insBox .ntab tr.nrow")
     shot(page, "overview-insights")
     page.click("#repOpen")
     expect(page.locator("#repDlg")).to_be_visible()

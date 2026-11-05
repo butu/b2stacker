@@ -61,7 +61,7 @@ def _compute(db: dbm.Database, pid: int, ws) -> dict:
         r.setdefault("file", os.path.basename(r["path"]))
         r.setdefault("pier", None)
     filters, ntab = legacy_assess.assess(rows, overrides=_overrides(db, pid, rows))
-    rec = legacy_assess.recommendations(rows, ntab, filters)
+    rec = concrete_tips(rows, ntab, filters)
     scales = [r["pixscale"] for r in rows if r.get("pixscale")]
     scale = st.median(scales) if scales else None
     diag, diag_note = None, None
@@ -112,6 +112,43 @@ def _compute(db: dbm.Database, pid: int, ws) -> dict:
                 first=nights_sorted[0] if nights_sorted else "", last=nights_sorted[-1] if nights_sorted else "")
     return dict(rows=rows, nights=ntab, filters=filters, kpi=kpi, diag=diag, sky=sky, rec=rec, meta=meta,
                 unusable=len(unusable), diag_note=diag_note)
+
+
+def _de(x, d=1) -> str:
+    return ("%%.%df" % d % x).replace(".", ",")
+
+
+def concrete_tips(rows, ntab, filters) -> list[str]:
+    """Nur Tipps, die man umsetzen kann – sonst keinen. (Feedback: „weitere dunkle Nächte bringen am meisten“ ist zu
+    allgemein.)"""
+    tips = []
+    sug = [r for r in rows if r.get("status") == "suggest"]
+    if sug:
+        tips.append("%d Frames sind zum Aussortieren vorgeschlagen (Wolken, Dämmerung oder Unschärfe) – im Reiter Frames "
+                    "nach Status gruppieren und prüfen." % len(sug))
+    eff = {}
+    for f in filters:
+        nf = [n for n in ntab if n["filter"] == f and n.get("n_used")]
+        eff[f] = sum(n["eff_h"] for n in nf)
+        fw = [n["fwhm_as"] for n in nf if n.get("fwhm_as")]
+        if len(fw) >= 3:
+            med = sorted(fw)[len(fw) // 2]
+            for n in nf:
+                if n.get("fwhm_as") and n["fwhm_as"] > med * 1.3 and n["used_h"] < 0.34 * sum(x["used_h"] for x in nf):
+                    tips.append("%s, Nacht %s: Sterne deutlich unschärfer (FWHM %s″ statt %s″ im Mittel). Diese Nacht "
+                                "im Reiter Frames aussortieren macht den Stack schärfer und kostet %s h."
+                                % (f, _day(n["night"]), _de(n["fwhm_as"]), _de(med), _de(n["used_h"])))
+    if len(eff) >= 2:
+        hi = max(eff, key=eff.get)
+        for f, e in eff.items():
+            if f != hi and eff[hi] > 0 and e < 0.4 * eff[hi]:
+                tips.append("%s hat %s h effektiv, %s %s h. Für ein ausgewogenes Bild fehlen %s etwa %s h dunkle "
+                            "Belichtung." % (f, _de(e), hi, _de(eff[hi]), f, _de(max(0.5, 0.6 * eff[hi] - e))))
+    return tips
+
+
+def _day(n) -> str:
+    return "%s.%s." % (n[8:10], n[5:7]) if n and len(n) >= 10 else "?"
 
 
 def _cached(db: dbm.Database, pid: int, ws) -> dict:
