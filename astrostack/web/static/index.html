@@ -1629,8 +1629,11 @@ function renderTonight(t){
   const box=$('#tonCard');if(!box)return;
   if(!t||!t.available){box.hidden=!t;if(t)box.innerHTML=`<div class="citem"><span class="ci infoc">${ic('moon')}</span><div class="cx"><b>Sichtbarkeit heute Nacht:</b> ${esc(t.why||'nicht verfügbar')}</div></div>`;return;}
   box.hidden=false;
-  const moon=`Mond ${t.illum} %${t.illum>=3&&t.illum<=97?(t.waxing?', zunehmend':', abnehmend'):''}`+
-    [t.moonrise!=null?'Aufgang '+hhmm(t.moonrise):'',t.moonset!=null?'Untergang '+hhmm(t.moonset):''].filter(Boolean).map(x=>' · '+x).join('');
+  // Mond in Klartext, nur Ereignisse im Nachtfenster, in zeitlicher Reihenfolge
+  const ev=[[t.moonrise,'geht um '+hhmm(t.moonrise)+' auf'],[t.moonset,'geht um '+hhmm(t.moonset)+' unter']].filter(e=>e[0]!=null).sort((a,b)=>a[0]-b[0]).map(e=>e[1]);
+  const up=t.moon_up||[];
+  const moon=`Mond ${t.illum} %${t.illum>=3&&t.illum<=97?(t.waxing?', zunehmend':', abnehmend'):''} · `+
+    (ev.length?ev.join(', '):up[0]?'die ganze Nacht über dem Horizont':'die ganze Nacht unter dem Horizont');
   const best=t.best?`<b>Beste Zeit ${hhmm(t.best[0])} – ${hhmm(t.best[1])}</b> <span class="muted">(${num(t.best_h,1)} h dunkel und über ${t.min_alt}°)</span>`:`<b>Heute kein dunkles Fenster über ${t.min_alt}°</b>`;
   box.innerHTML=`<div class="cardhd"><h3 style="display:flex;gap:8px;align-items:center">${tic('tonight','s18')}Sichtbarkeit heute Nacht</h3><span class="small muted">Nacht vom ${esc(dm(t.night))}${t.target?' · '+esc(t.target):''} · Standort aus ${esc(t.site)}</span></div>
     <div class="tonw"><div class="tonc">${tonightSvg(t)}</div>

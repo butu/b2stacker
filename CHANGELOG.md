@@ -2,6 +2,10 @@
 
 Neueste Version oben. Der Abschnitt der aktuellen Version erscheint auch im Update-Dialog von b2stacker.
 
+## 0.14.1 – 07.11.2026
+
+- **Heute Nacht:** Beim Mond stehen nur noch Auf- und Untergang innerhalb der Nacht, in Klartext („geht um 05:03 auf“). Der Untergang am Nachmittag davor verwirrte.
+
 ## 0.14.0 – 06.11.2026
 
 Feedback zu 0.13.1. Grundregel ab jetzt überall: **Ruhe, wenn alles passt** – Hinweise nur, wenn es etwas zu tun oder zu wissen gibt.

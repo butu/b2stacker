@@ -116,7 +116,9 @@ def tonight(lat, lon, elev, ra, dec, night=None, tzname='Europe/Vienna', min_alt
     waxing = bool(illum[min(k + 6, len(illum) - 1)] > illum[k])
     return dict(night=night, t0=int(u0.timestamp() * 1000), x=x, obj=o, moon=m, sun=s,
                 illum=round(float(illum[k]) * 100), waxing=waxing,
-                moonrise=_cross(xs, list(moon), 0, True), moonset=_cross(xs, list(moon), 0, False),
+                # nur Auf-/Untergänge im gezeigten Nachtfenster – ein Monduntergang am Nachmittag davor verwirrt
+                moonrise=_cross(x, m, 0, True), moonset=_cross(x, m, 0, False),
+                moon_up=[bool(m[0] > 0), bool(m[-1] > 0)],
                 dusk=_cross(xs, list(sun), -18, False), dawn=_cross(xs, list(sun), -18, True),
                 civil_dusk=_cross(xs, list(sun), -6, False), civil_dawn=_cross(xs, list(sun), -6, True),
                 obj_max=round(float(max(obj[sl])), 1) if len(o) else None,

@@ -751,6 +751,9 @@ def test_tonight_visibility(proj, tmp_path, monkeypatch):
     assert d["best"] and d["best_h"] > 6 and d["obj_max"] > 60 and 0 <= d["illum"] <= 100
     assert len(d["x"]) == len(d["obj"]) == len(d["moon"]) == len(d["sun"])
     assert isinstance(d["dusk"], float) and isinstance(d["waxing"], bool)
+    for k in ("moonrise", "moonset"):                                # nur im gezeigten Fenster (nicht nachmittags)
+        assert d[k] is None or d["x"][0] <= d[k] <= d["x"][-1]
+    assert d["moonset"] is None and d["moonrise"] and 28 < d["moonrise"] < 30          # 06.11.2026: Aufgang ~05 Uhr
     # Projekt mit RA/DEC im Header: Standort aus den Aufnahmen
     folder = tmp_path / "mitkoord"
     for i in range(3):
