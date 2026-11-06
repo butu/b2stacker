@@ -327,6 +327,27 @@ def _linux_pick_folder(initial: str):
     return os.path.normpath(selected) if selected else None
 
 
+def pick_folders(initial: str = "") -> list[str]:
+    """Mehrere Ordner wählen: im Programmfenster mit Mehrfachauswahl, unter Linux mit zenity --multiple,
+    sonst einer (wie ``pick_folder``)."""
+    from . import window
+    r = window.pick_folders(initial)
+    if r is not False:
+        return r or []
+    if sys.platform.startswith("linux") and shutil.which("zenity"):
+        start = _linux_initial_dir(initial)
+        try:
+            out = subprocess.run(["zenity", "--file-selection", "--directory", "--multiple", "--separator=\n",
+                                  "--title=Ordner wählen", "--filename=%s" % (start.rstrip(os.sep) + os.sep)],
+                                 capture_output=True, text=True, timeout=900)
+            if out.returncode in (0, 1):
+                return [os.path.normpath(x) for x in out.stdout.splitlines() if x.strip()]
+        except Exception:  # noqa: BLE001 – dann eben einzeln
+            pass
+    one = pick_folder(initial)
+    return [one] if one else []
+
+
 def pick_folder(initial: str = "") -> str | None:
     """Nativer Ordner-Dialog: im Programmfenster direkt, sonst über einen Hilfsprozess."""
     from . import window

@@ -196,12 +196,18 @@ def test_start_page_tiles_search_sort_months_and_new_project(page, app, tmp_path
     page.fill("#q", "")
     expect(tiles).to_have_count(3)
     # Nach Monat: vdB 131 erscheint im Juli und im Oktober
+    # Akkordeon im Solo-Modus (Feedback 0.13.1): ein Monat offen, zu Beginn der neueste
     page.locator("label.tog", has_text="Nach Monat").click()
-    expect(page.locator(".mhd")).to_have_count(5)
-    expect(page.locator(".mhd").first).to_contain_text("Oktober 2026")
-    expect(page.locator(".tile[data-pid]", has_text="vdB 131")).to_have_count(2)
+    heads = page.locator(".hmon .acch")
+    expect(heads).to_have_count(5)
+    expect(heads.first).to_contain_text("Oktober 2026")
+    expect(page.locator(".hmon .acch[aria-expanded='true']")).to_have_count(1)
+    expect(page.locator(".tile[data-pid]", has_text="vdB 131")).to_have_count(1)
+    page.locator(".hmon .acch", has_text="Juli 2026").click()
+    expect(page.locator(".hmon .acch[aria-expanded='true']")).to_have_text(re.compile("Juli 2026"))
+    expect(page.locator(".tile[data-pid]", has_text="vdB 131")).to_have_count(1)
     page.locator("label.tog", has_text="Nach Monat").click()
-    expect(page.locator(".mhd")).to_have_count(0)
+    expect(page.locator(".hmon")).to_have_count(0)
 
     # Neues Projekt über den Dialog (Pfad eintippen)
     page.click("#newBtn")
@@ -221,8 +227,13 @@ def test_project_page_rename_describe_and_live_progress(page, app):
     pid = pid_of(app, "vdB 131")
     page.goto(app.url + "#/p/%d" % pid)
     expect(page.locator("#pName")).to_have_text("vdB 131")
-    expect(page.locator(".banner.ok")).to_contain_text("Bereit zum Stacken")
+    # Ruhe, wenn alles passt (Feedback 0.13.1): kein „Bereit zum Stacken“, Quellordner eingeklappt
+    expect(page.locator(".banner.ok")).to_have_count(0)
+    expect(page.locator(".srcrow")).to_have_count(0)
+    expect(page.locator("#srcCard .acch")).to_contain_text("1 Ordner")
+    page.locator("#srcCard .acch").click()
     expect(page.locator(".srcrow")).to_have_count(1)
+    expect(page.locator("#insBox .acch[data-acck='nights']")).to_have_attribute("aria-expanded", "false")  # Solo
     # Umbenennen (Enter) und Beschreibung
     page.click("#pRen")
     page.fill("#renIn", "Iris")
@@ -243,7 +254,8 @@ def test_project_page_rename_describe_and_live_progress(page, app):
 def test_frames_virtualized_grid_lightbox_and_keyboard(page, app):
     pid = fake_project(app.core, "Viele", 3000, thumb=None, skip_every=0)
     page.goto(app.url + "#/p/%d/frames" % pid)
-    expect(page.locator("#fSum")).to_contain_text(re.compile(r"3\s000 von 3\s000"))
+    expect(page.locator("#fStat button[data-k='all'] .n")).to_have_text(re.compile(r"3\s000"))   # Zahl im Knopf
+    expect(page.locator("#fSum")).not_to_contain_text("angezeigt")
     n = page.locator("#vgrid .vt").count()
     assert 0 < n < 200, n                                                         # nur sichtbare Kacheln im DOM
     page.locator("#view").evaluate("v => v.scrollTop = v.scrollHeight")
@@ -251,7 +263,7 @@ def test_frames_virtualized_grid_lightbox_and_keyboard(page, app):
     assert page.locator("#vgrid .vt").count() < 200
     # Status-Filter und Mehrfachauswahl
     page.locator("#fStat button", has_text="Aussortiert").click()
-    expect(page.locator("#fSum")).to_contain_text(re.compile(r"^0 von 3\s000"))
+    expect(page.locator("#fStat button[data-k='skip'] .n")).to_have_text("0")
     page.locator("#fStat button", has_text="Alle").click()
     page.locator("#view").evaluate("v => v.scrollTop = 0")
     first = page.locator("#vgrid .vt[data-i='0']")
@@ -260,7 +272,7 @@ def test_frames_virtualized_grid_lightbox_and_keyboard(page, app):
     expect(page.locator("#selBar")).to_contain_text("5 ausgewählt")
     page.locator("#selBar [data-bulk='skip']").click()
     expect(page.locator("#vgrid .vt.skip")).to_have_count(5)
-    expect(page.locator("#fSum")).to_contain_text("5 aussortiert")
+    expect(page.locator("#fStat button[data-k='skip'] .n")).to_have_text("5")
     page.click("#selClr")
 
     # Großansicht im kleinen Projekt mit echten Bildern
@@ -328,8 +340,8 @@ def test_plan_setting_persists_and_stack_shows_progress(page, app):
     s = [x for r in app.core.plan(pid)["runs"] if r["name"] == "HaO3" for x in r["settings"]
          if x["key"] == "local_normalization"][0]
     assert s["fixed"] and s["value"] is s0["auto"]
-    page.reload()
-    page.locator(".run", has_text="HaO3").locator("[data-topt]").click()
+    page.reload()                                                        # offener Bereich bleibt offen
+    expect(page.locator(".run", has_text="HaO3").locator("[data-topt]")).to_have_class(re.compile(r"\bopen\b"))
     expect(opt().locator(".adj")).to_have_text("fest")
     sel().select_option("auto")
     expect(page.locator(".run", has_text="HaO3").locator(".optrow .adj")).to_have_count(0)
@@ -571,13 +583,26 @@ def test_history_timeline_project_and_global(page, app):
     expect(tl).to_contain_text("Stacken fehlgeschlagen: RGB")
     expect(tl).to_contain_text("Projekt angelegt")
     expect(page.locator(".tli[data-kind='stack_done'] .tw").first).to_contain_text(re.compile(r"Vor \d+ (Tagen|Wochen)"))
-    # Einträge führen direkt zum Inhalt
-    page.locator(".tli[data-kind='stack_done']").first.click()
+    # Feedback 0.13.1: Klick klappt die Einzelheiten auf (Solo), „Öffnen“ führt zum Inhalt
+    sd = page.locator(".tli[data-kind='stack_done']").first
+    sd.click()
+    expect(sd.locator(".hdet")).to_contain_text("HaO3")
+    sd.locator("[data-hgo]").click()
     expect(page).to_have_url(re.compile(r"#/p/%d/stacks$" % pid))
     page.go_back()
-    page.locator(".tli[data-kind='files_discovered']").first.click()
+    fd = page.locator(".tli[data-kind='files_discovered']").first
+    fd.click()
+    expect(fd.locator(".hdet")).to_contain_text("Nacht")
+    expect(page.locator(".tli .hdet")).to_have_count(1)                          # Solo: der vorige ist zu
+    fd.locator("[data-hgo]").click()
     expect(page).to_have_url(re.compile(r"#/p/%d/frames$" % pid))
+    # Planänderung mit alt → neu
+    run = app.core.plan(pid)["runs"][0]
+    app.core.edit_plan(pid, runs={run["id"]: {"top_percent": 50}})
     page.goto(app.url + "#/p/%d/history" % pid)
+    pe = page.locator(".tli[data-kind='plan_edited']").first
+    pe.click()
+    expect(pe.locator(".hdet")).to_contain_text("Automatisch → beste 50 %")
     page.locator("#hSeg button", has_text="Stacks").click()
     expect(page.locator(".tli[data-kind='project_created']")).to_have_count(0)
     # allgemeiner Verlauf über die Kopfzeile
@@ -610,3 +635,22 @@ def test_settings_backup_list_and_restore(page, app, tmp_path):
     expect(page.locator("#setDlg")).to_be_hidden()
     expect(page.locator(".tile[data-pid]")).to_have_count(3)                       # „Später angelegt“ ist weg
     assert app.srv.core is not app.core
+
+
+def test_plan_calibration_links_frames_and_offers_no_confirmation(page, app):
+    """Feedback 0.13.1: ausgewählte Kalibrierframes führen per Klick genau zu diesen Frames; nichts muss abgehakt
+    werden (kein „Passt, Setup unverändert“), „Keine Flats“ steht am Ende der Auswahl."""
+    pid = pid_of(app, "vdB 131")
+    page.goto(app.url + "#/p/%d/plan" % pid)
+    ha = page.locator(".run", has_text="HaO3")
+    ha.locator("[data-tcal]").click()
+    expect(ha.locator("[data-flatok]")).to_have_count(0)
+    sel = ha.locator("select[data-flat]").first
+    opts = sel.locator("option").all_inner_texts()
+    assert opts[0] == "Automatisch" and opts[-1] == "Keine Flats"
+    link = ha.locator(".calrow .calk").first
+    n = len(link.get_attribute("data-showcal").split(","))
+    link.click()
+    expect(page).to_have_url(re.compile(r"#/p/%d/frames$" % pid))
+    expect(page.locator(".banner", has_text="Gezeigt:")).to_contain_text("HaO3")
+    page.wait_for_function("n=>typeof FV!=='undefined'&&FV.view.length===n", arg=n)

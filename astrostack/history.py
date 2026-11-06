@@ -123,7 +123,7 @@ def describe(kind: str, evs: list[dict]) -> dict:
         out.update(icon="image", tone="ok", data=merged)
     elif kind == "stack_done":
         out["title"], out["detail"] = _stack_text(evs)
-        out.update(icon="layers", tone="ok")
+        out.update(icon="layers", tone="ok", data=dict(stacks=[e["data"] for e in reversed(evs)]))
     elif kind == "stack_failed":
         out.update(title="Stacken fehlgeschlagen: %s" % ", ".join(e["data"].get("run") or "?" for e in evs),
                    detail=d.get("error") or "", icon="warn", tone="err")
@@ -140,7 +140,11 @@ def describe(kind: str, evs: list[dict]) -> dict:
         out.update(title="Frames von Hand: " + ", ".join("%d %s" % (n, DECISIONS.get(k, k)) for k, n in by.items()),
                    icon="hand")
     elif kind == "plan_edited":
-        out.update(title="Plan angepasst" + (" (%d Änderungen)" % len(evs) if len(evs) > 1 else ""), icon="sliders")
+        # Einzelheiten (alt → neu) in zeitlicher Reihenfolge; ältere Einträge (vor 0.14) haben keine
+        changes = [c for e in reversed(evs) for c in e["data"].get("changes") or []]
+        n = len(changes) or len(evs)
+        out.update(title="Plan angepasst" + (" (%d Änderungen)" % n if n > 1 else ""), icon="sliders",
+                   data=dict(changes=changes, reset=any(e["data"].get("reset") for e in evs)))
     elif kind == "project_created":
         out.update(title="Projekt angelegt", icon="plus", tone="ok")
     elif kind == "project_renamed":

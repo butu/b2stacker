@@ -21,7 +21,8 @@ from http.server import ThreadingHTTPServer
 COOKIE = "b2key"
 
 # POST-Ziele unter /api/…, die vom Handy aus abgelehnt werden (erstes bzw. letztes Pfadstück)
-BLOCKED_POST = {"settings", "backups", "backup", "quit", "install", "update", "pick-folder", "pick-file",
+BLOCKED_POST = {"settings", "backups", "backup", "quit", "install", "update", "pick-folder", "pick-file", "reveal",
+                "pick-folders",
                 "pick-files", "check-pixinsight", "mcp-info", "mcp-token", "lan", "lan-key", "lan-info", "lan-firewall", "focus",
                 "clear-temp", "selftest", "library", "claude"}
 BLOCKED_PROJECT_POST = {"delete-frames", "import-stacks"}   # Pfade am Computer wählen

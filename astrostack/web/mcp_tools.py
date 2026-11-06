@@ -39,7 +39,8 @@ def _run(r: dict) -> dict:
                 why_off=r.get("why_off") or None, problems=r.get("problems") or None,
                 flats=[dict(night=f.get("night"), n=len(f.get("file_ids") or []), verdict=f.get("verdict"),
                             reason=f.get("reason"), findings=[x["title"] for x in f.get("findings") or []] or None,
-                            confirmed=f.get("confirmed") or None) for f in r.get("flats") or []],
+                            master=(f.get("master") or {}).get("label"), manual=f.get("manual") or None)
+                       for f in r.get("flats") or []],
                 settings={s["key"]: s["value"] for s in r.get("settings") or []},
                 edited=[s["key"] for s in r.get("settings") or [] if s.get("edited")] or None)
 

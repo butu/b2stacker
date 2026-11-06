@@ -251,7 +251,7 @@ def test_calibration_matching_by_header(env):
     ha = runs["HaO3"]
     assert ha["lights"] == 3 and ha["exposure_s"] == 1800
     fl = ha["nights"][0]["flats"]
-    assert len(fl["file_ids"]) == 5 and "2026-10-31" in fl["reason"] and "19 Tage" in fl["reason"]
+    assert len(fl["file_ids"]) == 5 and "31.10." in fl["reason"] and "19 Tage" in fl["reason"]
     assert fl["quality"]["verdict"] in ("good", "warning", "critical")
     assert len(ha["bias"]["file_ids"]) == 4 and "Bias" in ha["bias"]["reason"]
     assert ha["darks"]["file_ids"] == [] and "ohne Darks" in ha["darks"]["reason"]
@@ -259,7 +259,7 @@ def test_calibration_matching_by_header(env):
     rgb = runs["RGB"]                                               # RGB-Lights nie mit HaO3-Flats
     assert rgb["nights"][0]["flats"]["file_ids"] == []
     assert "keine Flats mit Filter RGB" in rgb["nights"][0]["flats"]["reason"]
-    assert rgb["problems"] and "2026-07-20" in rgb["problems"][0]
+    assert rgb["problems"] and "20.07." in rgb["problems"][0]
 
 
 def test_calibration_too_few_and_old(env):
@@ -272,12 +272,12 @@ def test_calibration_too_few_and_old(env):
     assert run["bias"]["file_ids"] == [] and "nur 1 Bias" in run["bias"]["reason"]
     assert len(run["problems"]) == 2
     old = calib.FLAT_WARN_DAYS
-    try:                                                             # weit entfernte Flats: Hinweis, kein Ausschluss
+    try:                                                             # weit entfernte Flats: kein Ausschluss, kein Befund
         calib.FLAT_WARN_DAYS = 5
         fl = calib.match_project(db, pid)[0]["nights"][0]["flats"]
         assert fl.get("days", 0) > 5 or "zu wenige" in fl["reason"]
         if fl.get("days", 0) > 5:
-            assert any("Tage entfernt" in h["title"] for h in fl["hints"])
+            assert fl["far"] and not any("entfernt" in (h.get("title") or "") for h in fl["hints"])
     finally:
         calib.FLAT_WARN_DAYS = old
 
@@ -371,9 +371,10 @@ def test_plan_top_percent_reference_label_and_manual_calibration(env):
         fp.edit_plan(db, pid, ws.root, runs={ha["id"]: {"star_detection": {"hotPixelRadius": 2}}})
 
 
-def test_flat_distance_rule_and_confirmation(env):
-    """Beschlossen (Feedback 0.12.2): bis 14 Tage kein Hinweis; darüber höchstens ein Hinweis (nie ein Fehler), egal
-    ob davor oder danach; „Passt, Setup unverändert“ blendet ihn fürs ganze Projekt aus."""
+def test_flat_distance_is_quiet_and_manual_choice_is_confirmed(env):
+    """Feedback 0.13.1 („Ruhe, wenn alles passt“): Der Abstand zu den Flats ist nie ein Befund und muss nicht abgehakt
+    werden – über 14 Tage nur ``far`` für eine leise Zeile. Von Hand gewählte Flats gelten als bestätigt: ihre
+    Befunde erscheinen nur noch als Hinweis (info), nie als Warnung."""
     from astrostack.flow import calib
     from astrostack.flow import plan as fp
     ws, db, data = env
@@ -383,14 +384,14 @@ def test_flat_distance_rule_and_confirmation(env):
     assert calib.FLAT_WARN_DAYS == 14
     p = fp.update_plan(db, pid, ws.root)
     far = [(r, f) for r in p["runs"] for f in r["flats"] if (f.get("days") or 0) > 14]
-    near = [(r, f) for r in p["runs"] for f in r["flats"] if f.get("days") is not None and f["days"] <= 14]
-    for _r, f in near:
-        assert not any(h.get("kind") == "distance" for h in f["hints"])
     assert far, "Testdaten brauchen eine Nacht mit weit entfernten Flats"
+    for r in p["runs"]:
+        for f in r["flats"]:
+            assert f["far"] == ((f.get("days") or 0) > 14)
+            assert not any(h.get("kind") == "distance" for h in f["hints"])
     r, f = far[0]
-    d = [h for h in f["hints"] if h.get("kind") == "distance"]
-    assert d and d[0]["level"] == "info" and "egal" in d[0]["text"]
-    p2 = fp.edit_plan(db, pid, ws.root, options={"flat_ok": [d[0]["key"]]})
+    opt = next(o for o in r["flat_options"] if not o.get("library"))
+    p2 = fp.edit_plan(db, pid, ws.root, runs={r["id"]: {"flats": {f["night"]: opt["key"]}}})
     f2 = next(x for x in next(y for y in p2["runs"] if y["id"] == r["id"])["flats"] if x["night"] == f["night"])
-    assert f2["confirmed"] and not any(h.get("kind") == "distance" for h in f2["hints"])
-    assert p2["flat_ok"] == [d[0]["key"]]
+    assert f2["manual"] and f2["verdict"] == "manual" and f2["file_ids"] == opt["ids"]
+    assert all(x["level"] == "info" for x in f2["findings"]) and all(h["level"] == "info" for h in f2["hints"])

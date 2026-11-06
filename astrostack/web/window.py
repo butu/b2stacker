@@ -9,6 +9,7 @@ Ordner-/Datei-Dialoge laufen über ``app.window.STATE["window"]``: dieselben Fun
 """
 from __future__ import annotations
 
+import json
 import os
 import threading
 import time
@@ -69,8 +70,25 @@ def run(port: int = server.PORT) -> None:
             time.sleep(0.25)
         return True
 
+    def on_drop(e):
+        """Ordner aus dem Explorer ins Fenster gezogen: pywebview liefert den vollen Pfad (``pywebviewFullPath``),
+        den der Browser selbst nie verrät. Die Seite entscheidet, wohin damit (Projekt oder „Neues Projekt“)."""
+        try:
+            files = ((e or {}).get("dataTransfer") or {}).get("files") or []
+            paths = [f.get("pywebviewFullPath") for f in files if isinstance(f, dict) and f.get("pywebviewFullPath")]
+            logbook.event("window_drop", n=len(files), paths=len(paths))
+            w.evaluate_js("window.b2Drop && window.b2Drop(%s)" % json.dumps(paths))
+        except Exception as ex:  # noqa: BLE001
+            logbook.error("Drag & Drop: %s" % ex)
+
     def on_loaded():
         logbook.event("window_loaded", url=url, ui="web")
+        try:                                   # Drag & Drop mit vollem Pfad (pywebview ≥ 5)
+            from webview.dom import DOMEventHandler
+            w.dom.document.events.dragover += DOMEventHandler(lambda e: None, True, True)
+            w.dom.document.events.drop += DOMEventHandler(on_drop, True, True)
+        except Exception as ex:  # noqa: BLE001 – ohne: Ordner wie gewohnt über „Durchsuchen“
+            logbook.event("window_drop_unavailable", error=str(ex))
         auto = os.environ.get("B2_AUTOCLOSE")
         if auto:                               # für den automatischen Test auf GitHub
             threading.Timer(float(auto), w.destroy).start()
@@ -91,5 +109,6 @@ def run(port: int = server.PORT) -> None:
         if srv.watcher is not None:
             srv.watcher.stop()
         srv.server_close()
+        srv.wait_idle(5)                       # laufende Anfragen fertig, bevor die Datenbank zugeht
         srv.core.close()
     logbook.event("app_exit", ui="web")

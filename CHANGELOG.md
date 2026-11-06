@@ -2,6 +2,43 @@
 
 Neueste Version oben. Der Abschnitt der aktuellen Version erscheint auch im Update-Dialog von b2stacker.
 
+## 0.14.0 – 06.11.2026
+
+Feedback zu 0.13.1. Grundregel ab jetzt überall: **Ruhe, wenn alles passt** – Hinweise nur, wenn es etwas zu tun oder zu wissen gibt.
+
+**Flats und Kalibrierung**
+- **Eine Stelle sagt, was verwendet wird.** Gibt es aus den Flats einer Nacht schon einen Master, steht bei der Nacht „Master Flat 14.04. (aus 68 Flats) · wird wiederverwendet“ – nicht mehr oben „68 Flats“ und unten „Master wiederverwendet“.
+- **Master in der Auswahl:** je Nacht lassen sich auch Master-Flats aus der Kalibrier-Bibliothek wählen (auch aus anderen Projekten, wenn Filter und Kamera-Einstellungen passen).
+- **Nichts mehr abhaken:** Der Abstand zwischen Nacht und Flats ist kein Befund mehr; „Passt, Setup unverändert“ entfällt. Von Hand gewählte Nächte sind grün abgehakt, ihre Befunde nur noch Hinweise.
+- **Kalibrierframes verlinkt:** Ein Klick auf Flats, Bias oder Darks im Plan zeigt genau diese Frames.
+
+**Fehler**
+- **Datum überall TT.MM.** (mit Jahr, wenn es nicht das laufende ist). Die Master im Plan hießen „Flats für 06.18“ statt „18.06.“.
+- **Übernommene Stacks mit Gesamtbelichtung:** aus `NCOMBINE`, dem PixInsight-Verlauf in der Datei oder dem Dateinamen von 0.10 („…_4.7h“). Geht nichts davon, „Belichtung eintragen …“ am Stack. Bereits übernommene Stacks (NGC 1999) werden nachgetragen.
+- **Frames:** Sind alle Gruppen zugeklappt, rutscht die Hilfezeile nicht mehr ins Akkordeon.
+
+**Übersicht**
+- **Sichtbarkeit heute Nacht:** Objekthöhe, Mond (Phase, Auf-/Untergang), Dämmerung und die beste Zeit über 30°.
+- „Bereit zum Stacken … Zum Plan“ entfällt, „Was auffällt“ erscheint nur, wenn etwas auffällt.
+- **Quellordner** eingeklappt; Ordner hinzufügen über das Ordner-Symbol neben „Neu prüfen“.
+- **Nächte und Rig-Hinweise** sind einklappbar. Die Nachttabelle hat die Spalte **Kalibriert** – dieselbe Aussage wie im Plan; dort stehen bei jeder Nacht jetzt auch Stunden und Note.
+
+**Bedienung**
+- Reiter heißt **Stacks**, ohne „bereit“. In der Kopfzeile steht im Ruhezustand nur noch das Häkchen.
+- **Ein Akkordeon für alles** (Startseite, Frames, Übersicht, Plan, Verlauf): immer eines offen, gleiches Aussehen.
+- **Verlauf mit Details:** Klick klappt auf – Planänderungen mit alt → neu, neue Aufnahmen je Nacht, gestackte Läufe, das neue Projektbild. „Öffnen“ führt zum Inhalt.
+- **Frames:** die Zahl steht im Filterknopf („Verwendet 158“); „x von y angezeigt“ entfällt.
+- **Gleiche Symbole** für dieselben Begriffe (Nacht = Mond, Filter, Quellordner …). Hilfetexte in kurzen Absätzen und Listen.
+- **Im Explorer zeigen** bei Frames, Bildern, Stacks und Mastern: Ordner öffnet sich, die Datei ist markiert.
+
+**Quellordner hinzufügen**
+- **Mehrere Ordner auf einmal** im Dialog (Strg-/Umschalt-Klick).
+- **Häufig verwendet:** Ordner anderer Projekte (z. B. der gemeinsame Flat-/Bias-Ordner) als Ein-Klick-Vorschläge.
+- **Hineinziehen:** Ordner aus dem Explorer ins Fenster ziehen.
+
+**Unter der Haube**
+- Beim Schließen des Fensters wartet b2stacker auf laufende Anfragen, bevor die Datenbank zugeht.
+
 ## 0.13.1 – 05.11.2026
 
 - **„Was auffällt“ zeigt bei Flats den echten Grund.** Bisher stand dort je Nacht eine rote Zeile „Flats vom … (7 Tage entfernt)“. Rot war aber die Helligkeit der Flats („Flats zu hell“), nicht der Abstand. Jetzt gibt es eine Zeile je Flat-Satz mit dem Grund und den Nächten, für die er gilt. Mehr als 14 Tage Abstand erscheinen nur als Info und verschwinden mit „Passt, Setup unverändert“.

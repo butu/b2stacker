@@ -15,6 +15,7 @@ import statistics as st
 from .. import db as dbm
 from .. import filters as flt
 from .. import system
+from ..fmt import dm
 from ..plan import light_stats, star_detection
 from .calib import match_project
 
@@ -87,9 +88,12 @@ def _ref_choices(lights: list[dict], auto_ref) -> list[dict]:
     return cand[:12]
 
 
-def _apply_calib_edits(run: dict, ed: dict, lights: list[dict]) -> None:
-    """Kalibrierung von Hand: je Nacht einen anderen Flat-Satz oder keine Flats; Bias/Darks aus."""
+def _apply_calib_edits(run: dict, ed: dict, lights: list[dict], lib: dict | None = None) -> None:
+    """Kalibrierung von Hand: je Nacht einen anderen Flat-Satz, einen Master aus der Kalibrier-Bibliothek
+    (``m:<id>``) oder keine Flats; Bias/Darks aus. Von Hand gewählte Nächte gelten als bestätigt: ihre Befunde
+    erscheinen nur noch als Hinweis, nicht als Warnung."""
     opts = {o["key"]: o for o in run.get("flat_options") or []}
+    lib = lib or {}
     for n in run["nights"]:
         choice = (ed.get("flats") or {}).get(n["night"] or "")
         if not choice:
@@ -99,20 +103,20 @@ def _apply_calib_edits(run: dict, ed: dict, lights: list[dict]) -> None:
                               hints=[])
         elif choice in opts:
             o = opts[choice]
-            n["flats"] = dict(file_ids=o["ids"], night=o["night"], quality=None, manual=True, hints=[],
-                              reason="von Hand: Flats vom %s (%s, %d Frames)" % (o["night"], o["filter"] or "–", o["n"]))
-    ok = set(ed.get("flat_ok") or [])                # „Passt, Setup unverändert“ – Abstand-Hinweis ausblenden
-    if ok:
-        for n in run["nights"]:
-            hs = n["flats"].get("hints") or []
-            if any(h.get("kind") == "distance" and h.get("key") in ok for h in hs):
-                n["flats"]["hints"] = [h for h in hs if not (h.get("kind") == "distance" and h.get("key") in ok)]
-                n["flats"]["confirmed"] = True
+            n["flats"] = dict(file_ids=o["ids"], night=o["night"], manual=True, frames=o["n"],
+                              quality=dict(verdict="manual", findings=o.get("findings") or []),
+                              hints=[dict(h, level="info") for h in o.get("findings") or []],
+                              reason="von Hand: Flats vom %s (%s, %d Frames)" % (dm(o["night"]), o["filter"] or "–", o["n"]))
+        elif choice in lib:
+            m = lib[choice]
+            n["flats"] = dict(file_ids=[], night=m["night"], manual=True, master_path=m["path"], master_id=m["id"],
+                              quality=dict(verdict="manual", findings=[]), hints=[],
+                              reason="von Hand: %s" % m["label"])
     for kind in ("bias", "darks"):
         if ed.get(kind) == "none":
             run[kind] = dict(file_ids=[], reason="von Hand: ohne %s" % ("Bias" if kind == "bias" else "Darks"))
     run["problems"] = [p for p in run["problems"] if not p.startswith("Nacht ")] + [
-        "Nacht %s: %s" % (n["night"] or "?", n["flats"]["reason"]) for n in run["nights"]
+        "Nacht %s: %s" % (dm(n["night"]), n["flats"]["reason"]) for n in run["nights"]
         if not n["flats"]["file_ids"] and not n["flats"].get("manual")]
 
 
@@ -148,8 +152,14 @@ def build_plan(db: dbm.Database, pid: int, workdir: str, edits: dict | None = No
         top = float(run_edit.get("top_percent") or 100)
         keep = {x["id"] for x in ranked[:top_keep(len(ranked), top)]}
         lights = [x for x in lights_all if x["id"] in keep]
-        ok_all = list((edits.get("options") or {}).get("flat_ok") or []) + list(run_edit.get("flat_ok") or [])
-        _apply_calib_edits(run, dict(run_edit, flat_ok=ok_all), lights)
+        try:
+            from ..handover import library_flat_masters
+            lib = library_flat_masters(db, run)
+        except Exception:  # noqa: BLE001 – Zusatzangebot, darf den Plan nicht verhindern
+            import logging
+            logging.getLogger(__name__).exception("Master-Flats aus der Bibliothek")
+            lib = {}
+        _apply_calib_edits(run, run_edit, lights, lib)
         is_osc = bool(run.get("bayer"))
         proc = flt.processing_for(run.get("filter_kind") or flt.UNKNOWN, is_osc)
         # Dualband/Schmalband an Farbkamera: WBPP 3.2.0 trennt die Kanäle selbst und registriert jeden einzeln
@@ -239,23 +249,26 @@ def build_plan(db: dbm.Database, pid: int, workdir: str, edits: dict | None = No
             reference_choices=[dict(id=x["id"], name=x["name"], night=x["night"], fwhm=x["fwhm"], nstars=x["nstars"])
                                for x in _ref_choices(lights, auto_ref)],
             flats=[dict(night=x["night"], file_ids=x["flats"]["file_ids"], reason=x["flats"]["reason"],
-                        flat_night=x["flats"].get("night"),
+                        flat_night=x["flats"].get("night"), master_path=x["flats"].get("master_path"),
                         verdict=(x["flats"].get("quality") or {}).get("verdict"), hints=x["flats"].get("hints") or [],
-                        days=x["flats"].get("days"), manual=x["flats"].get("manual"), lights=x.get("lights"),
-                        confirmed=bool(x["flats"].get("confirmed")),
-                        findings=[dict(level=f.get("level"), title=f.get("title"))
+                        days=x["flats"].get("days"), far=bool(x["flats"].get("far")), manual=x["flats"].get("manual"),
+                        lights=x.get("lights"), frames=x["flats"].get("frames"),
+                        findings=[dict(level="info" if x["flats"].get("manual") else f.get("level"), title=f.get("title"))
                                   for f in (x["flats"].get("quality") or {}).get("findings") or []
                                   if f.get("level") in ("warning", "critical")])
                    for x in run["nights"]],
-            flat_options=[{k: o[k] for k in ("key", "filter", "night", "n", "master")} for o in run.get("flat_options") or []],
-            calib_edits={k: run_edit[k] for k in ("flats", "bias", "darks", "flat_ok") if k in run_edit},
+            flat_options=[{k: o[k] for k in ("key", "filter", "night", "n", "master", "ids")} for o in run.get("flat_options") or []]
+            + [dict(key=k, filter=m["filter"], night=m["night"], n=m["frames"], master=True, library=True, label=m["label"])
+               for k, m in lib.items()],
+            calib_edits={k: run_edit[k] for k in ("flats", "bias", "darks") if k in run_edit},
             bias=run["bias"], darks=run["darks"], problems=run["problems"], settings=settings,
             enabled=bool(enabled), why_off=why_off, disk_gb=round(disk, 1), ram_gb=round(ram, 1),
             light_stats=stats))
     try:                                                        # Master-Wiederverwendung sichtbar machen
-        from ..handover import masters_plan
+        from ..handover import annotate_flat_masters, masters_plan
         for r in runs:
             r["masters"] = masters_plan(db, pid, r)
+            annotate_flat_masters(db, pid, r)
     except Exception:  # noqa: BLE001 – Zusatzinfo, darf den Plan nicht verhindern
         import logging
         logging.getLogger(__name__).exception("Master-Vorschau")
@@ -282,7 +295,6 @@ def build_plan(db: dbm.Database, pid: int, workdir: str, edits: dict | None = No
                 total_gb=None if total_disk is None else round(total_disk, 1), drive=drive,
                 need_ram_gb=round(peak_ram, 1), free_ram_gb=None if not free_ram else round(free_ram, 1),
                 total_ram_gb=None if not total_ram else round(total_ram, 1),
-                flat_ok=list(opt_edit.get("flat_ok") or []),
                 ready=any(r["enabled"] for r in runs))
 
 
@@ -328,7 +340,8 @@ def edit_plan(db: dbm.Database, pid: int, workdir: str, options: dict | None = N
     """Änderungen des Nutzers speichern (``None`` als Wert = zurück zur Automatik) und den Plan neu berechnen."""
     known = set(DEFAULT_OPTIONS) | {"star_detection", "enabled", "top_percent", "reference", "label", "flats",
                                     "bias", "darks", "flat_ok", "ignored_stacks"}
-    edits = {} if reset else load_edits(db, pid)
+    before = load_edits(db, pid)
+    edits = {} if reset else json.loads(json.dumps(before))
     for scope, data in (("options", options), ("runs", runs)):
         if not data:
             continue
@@ -362,8 +375,25 @@ def edit_plan(db: dbm.Database, pid: int, workdir: str, options: dict | None = N
         db.execute("INSERT INTO plans (project_id, version, created_at, plan_json, edits_json) VALUES (?, ?, ?, '{}', ?) "
                    "ON CONFLICT (project_id) DO UPDATE SET edits_json = excluded.edits_json",
                    (pid, PLAN_VERSION, now, json.dumps(edits)))
-        db.event("plan_edited", pid, json.dumps(edits))
+        db.event("plan_edited", pid, json.dumps(dict(changes=plan_changes(before, edits), reset=bool(reset),
+                                                     edits=edits), ensure_ascii=False))
     return update_plan(db, pid, workdir)
+
+
+def plan_changes(before: dict, after: dict) -> list[dict]:
+    """Was sich an den Änderungen des Nutzers geändert hat – für den Verlauf („alt → neu“). ``None`` = Automatik."""
+    out = []
+    for scope in ("options", "runs"):
+        b, a = before.get(scope) or {}, after.get(scope) or {}
+        if scope == "options":
+            pairs = [(None, b, a)]
+        else:
+            pairs = [(rid, b.get(rid) or {}, a.get(rid) or {}) for rid in sorted(set(b) | set(a))]
+        for rid, bb, aa in pairs:
+            for k in sorted(set(bb) | set(aa)):
+                if bb.get(k) != aa.get(k):
+                    out.append(dict(run=rid, key=k, old=bb.get(k), new=aa.get(k)))
+    return out
 
 
 def channels(run: dict) -> set[str]:

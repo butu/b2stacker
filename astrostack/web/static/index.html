@@ -270,10 +270,10 @@ h3{margin:0;font-size:16px;font-weight:700}
 .fbar2{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
 .fsel{display:inline-flex;align-items:center;gap:6px}.fsel>svg{opacity:.6}
 .fsize{display:inline-flex;align-items:center;gap:8px;opacity:.85}.fsize input{width:130px;accent-color:#fff}
-.vgh{position:absolute;left:0;right:0;top:0;height:32px;display:flex;align-items:center;gap:12px;padding:0 4px;border:0;border-bottom:1px solid var(--div);font-size:14px;background:none;color:#fff;cursor:pointer;text-align:left;width:100%}
+.vgh{position:absolute;left:0;right:0;top:0;height:32px;min-height:0!important;padding:0 8px!important;border-radius:8px!important;display:flex;align-items:center;gap:12px;padding:0 4px;border:0;border-bottom:1px solid var(--div);font-size:14px;background:none;color:#fff;cursor:pointer;text-align:left;width:100%}
 .mhd.acc{display:flex;align-items:center;gap:6px;border:0;background:none;color:#fff;cursor:pointer;padding:0;text-align:left;font-family:inherit}
 .vgh:hover{background:rgba(255,255,255,.03)}.vgh b{display:inline-flex;align-items:center;gap:6px}
-.vgh span{opacity:.6;font-size:13px}
+.vgh.acch .at{font-size:15px}
 .selbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 6px 6px 14px;border-radius:10px;background:var(--info-bg)}
 .selbar b{font-size:14px;margin-right:6px}
 .vgrid{position:relative;width:100%}
@@ -391,6 +391,24 @@ body.remote .hideremote,body.remote #setBtn,body.remote #updBtn,body.remote [dat
 .rst{border:0;background:none;color:var(--info);font-size:12.5px;font-weight:700;cursor:pointer;padding:0}
 .rst:hover{text-decoration:underline}
 .ro{font-size:13px;opacity:.7}
+/* Akkordeon: EINE Komponente überall (Feedback 0.13.1) – Kopfzeile mit Pfeil, Titel, Anzahl; Solo-Modus je Gruppe */
+.acch{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;padding:12px 16px;border:0;background:none;color:#fff;cursor:pointer;text-align:left;font:inherit;border-radius:12px}
+.acch:hover{background:rgba(255,255,255,.03)}
+.acch .at{font-size:16px;font-weight:700;display:inline-flex;align-items:center;gap:8px}
+.acch .am{font-size:13px;opacity:.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.vh{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+body.dropping #view{outline:2px dashed var(--accent);outline-offset:-6px}
+.acchw{display:flex;align-items:center;gap:8px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.chips:empty{display:none}
+.chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;height:28px;padding:0 10px;border:0;border-radius:999px;background:var(--fill);color:#fff;font-size:13px;cursor:pointer}
+.chip:hover{background:var(--fill-2)}.chip bdi{max-width:280px}
+.hdet{margin-top:8px;display:flex;flex-direction:column;gap:8px;align-items:flex-start}.hdl{margin:0;padding-left:18px;font-size:13.5px}.hdl li{margin:2px 0}
+.hdimg{max-width:260px;max-height:180px;border-radius:8px;display:block}
+.tonw{display:flex;gap:18px;flex-wrap:wrap;padding:0 16px 16px;align-items:flex-start}.tonc{flex:2 1 340px;min-width:0}
+.tons{flex:1 1 220px;display:flex;flex-direction:column;gap:8px;font-size:14px}.tons>div{display:flex;gap:8px;align-items:center}.acchw>.acch{flex:1;min-width:0}
+.acchw>.ax{display:flex;gap:6px;align-items:center;padding-right:12px;flex:none}
+.acch.open{border-radius:12px 12px 0 0}
+.accb{border-top:1px solid var(--div)}
 .chev{display:inline-flex;opacity:.7;transition:transform .15s}
 .chev.open{transform:rotate(180deg)}
 .rfoot{border-top:1px solid var(--div);display:flex;flex-wrap:wrap;gap:4px;padding:6px 8px}
@@ -408,7 +426,8 @@ body.remote .hideremote,body.remote #setBtn,body.remote #updBtn,body.remote [dat
 details.help{border-radius:8px;background:rgba(255,255,255,.04);font-size:13.5px}
 details.help summary{cursor:pointer;padding:8px 10px;display:flex;align-items:center;gap:6px;color:var(--info);font-weight:700;list-style:none}
 details.help summary::-webkit-details-marker{display:none}
-details.help>div{padding:0 12px 10px;opacity:.85}details.help p{margin:6px 0;text-wrap:pretty}
+details.help>div{padding:0 12px 10px;opacity:.85;font-weight:400}details.help p{margin:6px 0;text-wrap:pretty}
+details.help ul{margin:4px 0 8px;padding-left:20px}details.help li{margin:2px 0}
 .optrow.fixed{box-shadow:inset 3px 0 0 var(--accent)}
 .optrow{display:flex;align-items:center;gap:14px;padding:12px 16px;border-top:1px solid var(--div)}
 .optrow:first-child{border-top:0}
@@ -665,6 +684,7 @@ details>summary{cursor:pointer}
 <!-- Großansicht eines Frames -->
 <div class="lb" id="lb" hidden role="dialog" aria-modal="true" aria-label="Frame-Ansicht">
   <div class="lbtop"><span id="lbTitle" class="ftag"></span><span class="lbn ell" id="lbN"></span><span class="grow"></span>
+    <button class="hbtn hideremote" id="lbReveal" title="Im Explorer zeigen – Ordner öffnen, Datei markiert"></button>
     <button class="hbtn" id="lbStars" title="Erkannte Sterne einblenden (S)" aria-pressed="false"></button>
     <button class="hbtn icon" id="lbClose" title="Schließen (Esc)" aria-label="Schließen"></button></div>
   <div class="lbimg" id="lbImgBox"><div class="zoomt" id="lbZoom"><img id="lbImg" alt=""><svg class="stsvg" id="lbSvg" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg></div>
@@ -687,6 +707,7 @@ details>summary{cursor:pointer}
 <!-- Großansicht eines Galerie-Bilds -->
 <div class="gv" id="gv" hidden role="dialog" aria-modal="true" aria-label="Bild-Ansicht">
   <div class="lbtop"><span class="ftag" id="gvTitle"></span><span class="lbn ell" id="gvN"></span><span class="grow"></span>
+    <button class="hbtn hideremote" id="gvReveal" title="Im Explorer zeigen – Ordner öffnen, Datei markiert"></button>
     <button class="hbtn icon" id="gvClose" title="Schließen (Esc)" aria-label="Schließen"></button></div>
   <div class="lbimg"><img id="gvImg" alt=""><button class="lbnav l" id="gvPrev" aria-label="vorheriges Bild"></button><button class="lbnav r" id="gvNext" aria-label="nächstes Bild"></button>
     <div class="lbload" id="gvLoad" hidden></div></div>
@@ -699,7 +720,7 @@ details>summary{cursor:pointer}
     <div class="field"><label for="npName">Name</label><input type="text" id="npName" placeholder="z. B. M 31 Andromeda" autocomplete="off"></div>
     <div class="field"><label for="npDesc">Beschreibung (optional)</label><textarea id="npDesc" rows="2" placeholder="z. B. Ausrüstung, Ideen für die nächste Nacht"></textarea></div>
     <div class="field"><span class="lbl">Ordner mit Aufnahmen</span><div id="npFolders" class="sec" style="gap:8px"></div>
-      <button class="lnk" id="npAdd" type="button"></button>
+      <button class="lnk" id="npAdd" type="button"></button><div class="chips" id="npSug"></div>
       <div class="d">Lights, Flats, Bias und Darks dürfen gemischt in Unterordnern liegen – b2stacker sortiert selbst. Die Originale werden nie verändert.</div></div>
   </div>
   <div class="ft"><button class="btn outline" data-close>Abbrechen</button><button class="btn primary" id="npOk">Anlegen</button></div>
@@ -764,7 +785,8 @@ const plural=(n,one,many)=>int(n)+' '+(n===1?one:many);
 // Stunden: unter 10 h mit einer Nachkommastelle, sonst ganze Stunden
 const hrs=h=>h==null?'–':num(h,h>0&&h<10?1:0);
 const ymd=s=>{const m=String(s||'').match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[3]+'.'+m[2]+'.'+m[1]:'–'};
-const dm=s=>{const m=String(s||'').match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[3]+'.'+m[2]+'.':'–'};
+// Datum überall gleich (Feedback 0.13.1): TT.MM. – mit Jahr (TT.MM.JJJJ), wenn es nicht das laufende Jahr ist
+const dm=s=>{const m=String(s||'').match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[3]+'.'+m[2]+'.'+(+m[1]!==new Date().getFullYear()?m[1]:''):'–'};
 const hm=s=>{const m=String(s||'').match(/T(\d{2}):(\d{2})/);return m?m[1]+':'+m[2]:''};
 const MONTHS=['Jänner','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
 const monthName=k=>{const m=String(k||'').match(/^(\d{4})-(\d{2})/);return m?MONTHS[+m[2]-1]+' '+m[1]:'Ohne Datum'};
@@ -895,6 +917,40 @@ function ask(title,text,ok,danger){
   });
 }
 $$('dialog [data-close]').forEach(b=>{if(!b.textContent.trim())b.innerHTML=ic('close');b.onclick=()=>b.closest('dialog').close();});
+// „Im Explorer zeigen“: Ordner öffnen, Datei markiert (Feedback 0.13.1)
+async function reveal(path){
+  if(!path)return;
+  try{await api('/api/reveal',{path});}catch(e){toast(e.message,true);}
+}
+const revealBtn=(path,cls='')=>path?`<button class="btn ghost sm icon hideremote ${cls}" data-reveal="${esc(path)}" title="Im Explorer zeigen" aria-label="Im Explorer zeigen">${ic('folder-open','s14')}</button>`:'';
+// alle [data-reveal]-Knöpfe (auch in später gezeichneten Bereichen) – ein Handler für die ganze Seite
+document.addEventListener('click',e=>{const b=e.target.closest('[data-reveal]');if(b){e.preventDefault();e.stopPropagation();reveal(b.dataset.reveal);}},true);
+/* Drag & Drop: Ordner aus dem Explorer ins Fenster ziehen. Den vollen Pfad liefert nur das Programmfenster
+   (pywebview ruft window.b2Drop auf); ein Browser verrät ihn nicht – dann ein Hinweis statt nichts. */
+document.addEventListener('dragover',e=>{if(e.dataTransfer&&[...(e.dataTransfer.types||[])].includes('Files')){e.preventDefault();document.body.classList.add('dropping');}});
+document.addEventListener('dragleave',e=>{if(!e.relatedTarget)document.body.classList.remove('dropping');});
+document.addEventListener('drop',e=>{
+  if(!e.dataTransfer||![...(e.dataTransfer.types||[])].includes('Files'))return;
+  e.preventDefault();document.body.classList.remove('dropping');
+  if(!window.pywebview)toast('Ordner hineinziehen geht nur im b2stacker-Fenster – hier bitte „Durchsuchen …“ nehmen.',true);
+});
+window.b2Drop=async paths=>{
+  document.body.classList.remove('dropping');
+  paths=(paths||[]).filter(Boolean);
+  if(!paths.length){toast('Den Pfad hat Windows nicht verraten – bitte „Durchsuchen …“ nehmen.',true);return;}
+  if(newDlg.open){const empty=()=>$$('#npFolders input').find(i=>!i.value.trim());
+    for(const x of paths){const i=empty();if(i)i.value=x;else npRow(x);}
+    if(!$('#npName').value.trim())$('#npName').value=paths[0].split(/[\\/]/).filter(Boolean).pop()||'';npSuggest();return;}
+  if(S.route.view==='project'&&S.P){
+    if(!await ask(paths.length===1?'Ordner hinzufügen?':plural(paths.length,'Ordner','Ordner')+' hinzufügen?',paths.join('\n')+'\n\nDie Aufnahmen darin werden im Hintergrund eingelesen. Bei Dateien zählt ihr Ordner.','Hinzufügen'))return;
+    try{await addSourceFolders(S.P.id,paths);}catch(err){toast(err.message,true);}return;}
+  openNewProject();setTimeout(()=>window.b2Drop(paths),50);       // Startseite: neues Projekt mit diesen Ordnern
+};
+// mehrere Ordner auf einmal (Windows: Strg/Umschalt im Dialog); ältere Systeme liefern einen
+async function pickFolders(initial){
+  try{const r=await api('/api/pick-folders',{initial:initial||''});return r.paths||[];}
+  catch(e){toast(e.message+' – Pfad bitte eintippen oder einfügen.',true);return [];}
+}
 async function pickFolder(initial){
   try{const r=await api('/api/pick-folder',{initial:initial||''});return r.path||'';}
   catch(e){toast(e.message+' – Pfad bitte eintippen oder einfügen.',true);return '';}
@@ -959,11 +1015,11 @@ function renderTaskIndicator(){
   const run=act.filter(t=>t.state==='running');
   const failed=S.finished.find(t=>t.state==='failed'&&!t._seen);
   if(!act.length){
-    b.className='tind idle'+(failed?' fail':'');
-    b.innerHTML=failed?`${ic('warn','s14')}<span class="ell">Fehler: ${esc(failed.title)}</span>`:`${ic('check','s14')}<span class="ell">Alles erledigt</span>`;
+    b.className='tind idle'+(failed?' fail':'');b.title=failed?'':'Alles erledigt – Klick zeigt die letzten Aufträge';
+    b.innerHTML=failed?`${ic('warn','s14')}<span class="ell">Fehler: ${esc(failed.title)}</span>`:`${ic('check','s14')}<span class="vh">Alles erledigt</span>`;   // Ruhe, wenn alles passt: nur das Symbol
   }else{
     const t=run[0]||act[0];
-    b.className='tind';
+    b.className='tind';b.title='';
     b.innerHTML=`${ic('spinner','s14 spin')}<span class="ell">${esc(t.state==='running'?taskText(t,true):'wartet: '+t.title)}</span>`+
       (t.total?`<span class="minibar"><span style="width:${pct(t)}%"></span></span>`:'')+(act.length>1?`<span style="opacity:.7">+${act.length-1}</span>`:'');
   }
@@ -1258,9 +1314,9 @@ function renderTiles(){
     const groups=new Map();
     for(const p of list){const ms=(p.months||[]).length?p.months:[''];for(const m of ms){if(!groups.has(m))groups.set(m,[]);groups.get(m).push(p);}}
     const keys=[...groups.keys()].sort((a,b)=>!a?1:!b?-1:a<b?1:-1);
-    S.home.closed=S.home.closed||new Set();
-    box.innerHTML=keys.map(k=>{const cl=S.home.closed.has(k);return `<button type="button" class="mhd acc${cl?' closed':''}" data-mk="${esc(k)}" aria-expanded="${!cl}">${chev(!cl)} ${esc(monthName(k))} <span style="opacity:.7;font-weight:400">· ${plural(groups.get(k).length,'Projekt','Projekte')}</span></button>${cl?'':`<div class="tiles">${groups.get(k).map(tile).join('')}</div>`}`;}).join('');
-    $$('[data-mk]',box).forEach(b=>b.onclick=()=>{const k=b.dataset.mk;S.home.closed.has(k)?S.home.closed.delete(k):S.home.closed.add(k);renderTiles();});
+    // Solo-Akkordeon (Feedback 0.13.1): ein Monat offen – zu Beginn der neueste
+    box.innerHTML=keys.map(k=>{const op=accIs('home',k,keys[0]);return `<div class="hmon">${accHead('home',k,op,esc(monthName(k)),plural(groups.get(k).length,'Projekt','Projekte'))}${op?`<div class="tiles">${groups.get(k).map(tile).join('')}</div>`:''}</div>`;}).join('');
+    wireAcc(box,keys[0],renderTiles);
   }else box.innerHTML=`<div class="tiles">${list.map(tile).join('')}${q?'':newTile}</div>`;
   $$('.tile[data-pid]',box).forEach(el=>el.onclick=()=>go('#/p/'+el.dataset.pid));
   const nt=$('#newTile');if(nt)nt.onclick=()=>openNewProject();
@@ -1271,14 +1327,29 @@ function npRow(val){
   const d=document.createElement('div');d.className='frow';
   d.innerHTML=`<input type="text" class="mono" style="font-size:13.5px" placeholder="Ordner wählen oder Pfad einfügen" aria-label="Ordner" value="${esc(val||'')}"><button class="btn" type="button">Durchsuchen …</button><button class="btn ghost icon" type="button" title="Entfernen" aria-label="Entfernen">${ic('close')}</button>`;
   const [inp,pick,rm]=d.children;
-  pick.onclick=()=>busy(pick,async()=>{const p=await pickFolder(inp.value);if(p){inp.value=p;if(!$('#npName').value.trim())$('#npName').value=p.split(/[\\/]/).filter(Boolean).pop()||'';}});
+  // mehrere Ordner auf einmal: der erste füllt diese Zeile, die weiteren bekommen eigene Zeilen
+  pick.onclick=()=>busy(pick,async()=>{const ps=await pickFolders(inp.value);if(!ps.length)return;
+    inp.value=ps[0];for(const x of ps.slice(1))npRow(x);
+    if(!$('#npName').value.trim())$('#npName').value=ps[0].split(/[\\/]/).filter(Boolean).pop()||'';npSuggest();});
   rm.onclick=()=>{if($$('#npFolders .frow').length>1)d.remove();else inp.value='';};
   $('#npFolders').appendChild(d);return inp;
 }
 $('#npAdd').innerHTML=ic('plus','s14')+' Weiteren Ordner hinzufügen';
 $('#npAdd').onclick=()=>npRow('').focus();
+// häufig verwendete Ordner (z. B. der gemeinsame Flat-/Bias-Ordner) als Ein-Klick-Vorschläge
+let NPS=[];
+function npSuggest(){
+  const box=$('#npSug');if(!box)return;
+  const have=new Set($$('#npFolders input').map(i=>i.value.trim().toLowerCase()).filter(Boolean));
+  const list=NPS.filter(x=>!have.has(x.path.toLowerCase()));
+  box.innerHTML=list.length?`<span class="small muted">Häufig verwendet:</span>${list.map(x=>folderChip(x)).join('')}`:'';
+  $$('[data-sugp]',box).forEach(b=>b.onclick=()=>{const empty=$$('#npFolders input').find(i=>!i.value.trim());
+    if(empty)empty.value=b.dataset.sugp;else npRow(b.dataset.sugp);npSuggest();});
+}
+const folderChip=x=>`<button type="button" class="chip" data-sugp="${esc(x.path)}" title="${esc(x.path+(x.projects?' – in '+plural(x.projects,'Projekt','Projekten'):''))}">${ic('plus','s14')}<bdi class="ell">${esc(x.path.split(/[\\/]/).filter(Boolean).slice(-2).join('\\'))}</bdi>${x.kind?`<span class="muted">${esc(x.kind)}</span>`:''}</button>`;
 function openNewProject(){
   $('#npName').value='';$('#npDesc').value='';$('#npFolders').innerHTML='';npRow('');
+  NPS=[];npSuggest();api('/api/folder-suggestions').then(l=>{NPS=l||[];npSuggest();}).catch(()=>{});
   newDlg.showModal();$('#npName').focus();
 }
 $('#npOk').onclick=()=>busy($('#npOk'),async()=>{
@@ -1299,7 +1370,7 @@ $('#npName').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#npOk').cli
 const TABS={
   overview:{label:'Übersicht',render:renderOverview},
   frames:{label:'Frames',render:renderFrames},
-  stacks:{label:'Stacking',render:renderStacks},
+  stacks:{label:'Stacks',render:renderStacks},
   plan:{label:'Neuer Stack',render:renderPlan,sub:'stacks'},        // Unterseite von „Stacking“
   gallery:{label:'Galerie',render:renderGallery},
   history:{label:'Verlauf',render:renderProjectHistory},
@@ -1352,7 +1423,7 @@ function renderHead(){
       <div class="pt"><h1 id="pName">${esc(p.name)}</h1><button class="editbtn" id="pRen" title="Umbenennen" aria-label="Umbenennen">${ic('edit')}</button></div>
       <p class="pdesc${p.description?'':' none'}" id="pDesc" title="Klicken zum Bearbeiten">${esc(p.description||'Beschreibung hinzufügen …')}</p>
       <div class="pmeta">${p._partial?'<span>wird geladen …</span>':(cnt.length?cnt.map(x=>`<span>${x}</span>`).join(''):'<span>noch keine Dateien</span>')}</div></div>
-    <div class="row"><button class="btn" id="pRefresh" title="Ordner jetzt auf neue oder geänderte Dateien prüfen, fehlende Messwerte und Vorschaubilder nachholen">${ic('refresh')} Neu prüfen</button>
+    <div class="row"><button class="btn icon hideremote" id="pAddSrc" title="Quellordner hinzufügen …" aria-label="Quellordner hinzufügen">${ic('folder-new')}</button><button class="btn" id="pRefresh" title="Ordner jetzt auf neue oder geänderte Dateien prüfen, fehlende Messwerte und Vorschaubilder nachholen">${ic('refresh')} Neu prüfen</button>
       <button class="btn icon hideremote" id="pMenu" title="Weitere Aktionen" aria-label="Weitere Aktionen">${ic('more')}</button></div>`;
   $('#pRen').onclick=startRename;$('#pName').ondblclick=startRename;
   const pm=$('#pMenu');if(pm)pm.onclick=()=>{const p2=$('#selPop');
@@ -1362,6 +1433,7 @@ function renderHead(){
     $$('[data-pm]',p2).forEach(b=>b.onclick=()=>{closePops();if(b.dataset.pm==='import')openImport();else openReport(S.P.id);});};
   $('#pDesc').onclick=startDescribe;
   $('#pRefresh').onclick=e=>busy(e.currentTarget,async()=>{onTask(await api('/api/projects/'+p.id+'/refresh',{}));});
+  $('#pAddSrc').onclick=e=>busy(e.currentTarget,()=>addSourceFolders(p.id));
   const l=$('#pLive');if(l)l.innerHTML=liveHtml(p.id);
 }
 function startRename(){
@@ -1392,7 +1464,7 @@ function renderTabs(){
   const total=['light','flat','bias','dark','darkflat'].reduce((s,k)=>s+(c[k]||0),0);
   const cur=(TABS[S.route.tab]||{}).sub||S.route.tab;
   n.innerHTML=Object.entries(TABS).filter(([,t])=>!t.sub).map(([k,t])=>`<a href="#/p/${S.P.id}/${k}" class="${cur===k?'on':''}" data-tab="${k}">${t.label}
-    ${k==='frames'&&total?`<span class="n">${int(total)}</span>`:''}${k==='stacks'&&(S.P.stacks||[]).length?`<span class="n">${int(S.P.stacks.length)}</span>`:''}${k==='stacks'&&S.P.plan&&S.P.plan.ready?`<span class="pill ok" style="padding:0 7px">bereit</span>`:''}${t.soon?'<span class="soon">bald</span>':''}</a>`).join('');
+    ${k==='frames'&&total?`<span class="n">${int(total)}</span>`:''}${k==='stacks'&&(S.P.stacks||[]).length?`<span class="n">${int(S.P.stacks.length)}</span>`:''}${t.soon?'<span class="soon">bald</span>':''}</a>`).join('');
 }
 function renderTab(){
   const box=$('#tab');if(!box||!S.P)return;
@@ -1407,23 +1479,18 @@ function problems(plan){
   for(const r of plan.runs||[]){
     for(const x of r.problems||[])out.push({lvl:'warn',t:r.name+': '+x});
     if(!r.enabled&&r.why_off&&!(r.problems||[]).length)out.push({lvl:'info',t:r.name+' ist aus: '+r.why_off});
-    /* je Flat-Satz eine Zeile: was am Satz nicht passt (z. B. „Flats zu hell“) und für welche Nächte – der Abstand
-       zur Nacht ist nie ein Fehler (Feedback 0.13: rote Zeile je Nacht mit „7 Tage entfernt“ war irreführend) */
+    /* je Flat-Satz eine Zeile – nur wenn am Satz etwas nicht passt (z. B. „Flats zu hell“). Der Abstand zur Nacht
+       und von Hand gewählte Flats sind kein Befund („Ruhe, wenn alles passt“, Feedback 0.13.1). */
     const sets=new Map();
     for(const f of r.flats||[]){
-      if(!(f.file_ids||[]).length)continue;
-      const k=f.file_ids.join(','),g=sets.get(k)||{f,nights:[],far:[]};
-      g.nights.push(f.night);
-      if(!f.confirmed&&(f.hints||[]).some(h=>h.kind==='distance'))g.far.push(f.night);
-      sets.set(k,g);
+      if(!(f.file_ids||[]).length||f.manual||!(f.verdict==='critical'||f.verdict==='warning'))continue;
+      const k=f.file_ids.join(','),g=sets.get(k)||{f,nights:[]};
+      g.nights.push(f.night);sets.set(k,g);
     }
     for(const g of sets.values()){
-      const f=g.f,when=(f.flat_night?'Flats vom '+ymd(f.flat_night):'Flats')+' (für '+(g.nights.length>2?g.nights.length+' Nächte':g.nights.map(ymd).join(', '))+')';
-      if(f.verdict==='critical'||f.verdict==='warning'){
-        const t=[...new Set((f.findings||[]).filter(x=>x.level===f.verdict).map(x=>x.title))].join(', ')||'Qualität prüfen';
-        out.push({lvl:f.verdict==='critical'?'err':'warn',t:r.name+': '+when+' – '+t+'. Details im Plan unter Kalibrierung.'});
-      }
-      if(g.far.length)out.push({lvl:'info',t:r.name+': '+when+' – mehr als 14 Tage Abstand bei '+plural(g.far.length,'Nacht','Nächten')+'. Passt, wenn das Setup unverändert ist (im Plan bestätigen).'});
+      const f=g.f,when=(f.master?f.master.label:f.flat_night?'Flats vom '+dm(f.flat_night):'Flats')+' (für '+(g.nights.length>2?g.nights.length+' Nächte':g.nights.map(dm).join(', '))+')';
+      const t=[...new Set((f.findings||[]).filter(x=>x.level===f.verdict).map(x=>x.title))].join(', ')||'Qualität prüfen';
+      out.push({lvl:f.verdict==='critical'?'err':'warn',t:r.name+': '+when+' – '+t+'. Im Plan unter Kalibrierung kannst du andere Flats wählen.'});
     }
   }
   if(plan.free_gb!=null&&plan.need_gb>plan.free_gb)out.push({lvl:'err',t:'Zu wenig Speicherplatz: '+num(plan.need_gb)+' GB nötig, '+num(plan.free_gb)+' GB frei.'});
@@ -1443,21 +1510,15 @@ function renderOverview(box){
       <div class="card stat"><span>Nächte</span><b>${int(nights.size)}</b><small>${(tileP.months||[]).length?esc(monthName(tileP.months[0]))+(tileP.months.length>1?' – '+esc(monthName(tileP.months[tileP.months.length-1])):''):'–'}</small></div>
       <div class="card stat"><span>Kalibrierung</span><b>${int(c.flat||0)} Flats</b><small>${int(c.bias||0)} Bias · ${int(c.dark||0)} Darks</small></div>
     </div>
-    <div class="cols2">
-      <div class="sec">
-        ${p._partial?'':ready?`<div class="banner ok">${ic('check','s18')}<div class="grow"><div class="bt">Bereit zum Stacken</div><div class="bx">${plural(on.length,'Lauf','Läufe')}: ${on.map(r=>esc(r.name)+' ('+hrs(r.hours)+' h)').join(', ')}</div></div><a class="btn primary" href="#/p/${p.id}/plan">Zum Plan</a></div>`:
-          `<div class="banner ${busyNow?'':'warn'}">${busyNow?ic('spinner','s18 spin'):ic('info','s18')}<div class="grow"><div class="bt">${busyNow?'Wird vorbereitet':'Noch nicht bereit'}</div><div class="bx">${busyNow?'Die Aufnahmen werden gerade gelesen und vermessen – der Plan entsteht automatisch.':!plan?'Noch kein Plan – zuerst Ordner mit Aufnahmen hinzufügen.':runs.length?'Kein Lauf ist aktiv. Im Plan siehst du, warum.':'Es wurden noch keine Lights gefunden.'}</div></div>${plan&&runs.length?`<a class="btn" href="#/p/${p.id}/plan">Zum Plan</a>`:''}</div>`}
-        <div class="card"><div class="cardhd"><h3>Was auffällt</h3></div><div class="clist">
-          ${pr.length?pr.map(x=>`<div class="citem"><span class="ci ${x.lvl==='err'?'errc':x.lvl==='warn'?'warnc':'infoc'}">${ic(x.lvl==='info'?'info':'warn')}</span><div class="cx">${esc(x.t)}</div></div>`).join(''):
-            `<div class="citem"><span class="ci okc">${ic('check')}</span><div class="cx">${p._partial?'wird geladen …':plan?'Nichts Auffälliges.':'Noch keine Auswertung.'}</div></div>`}
-          ${plan?(plan.notes||[]).map(n=>`<div class="citem"><span class="ci infoc">${ic('info')}</span><div class="cx">${esc(n)}</div></div>`).join(''):''}
-        </div></div>
-      </div>
-      <div class="card" id="srcCard"></div>
-    </div>
-    <div id="insBox"></div></div>`;
+    ${p._partial||ready?'':`<div class="banner ${busyNow?'':'warn'}">${busyNow?ic('spinner','s18 spin'):ic('info','s18')}<div class="grow"><div class="bt">${busyNow?'Wird vorbereitet':'Noch nicht bereit zum Stacken'}</div><div class="bx">${busyNow?'Die Aufnahmen werden gerade gelesen und vermessen – der Plan entsteht automatisch.':!plan?'Noch kein Plan – zuerst Ordner mit Aufnahmen hinzufügen.':runs.length?'Kein Lauf ist aktiv. Im Plan siehst du, warum.':'Es wurden noch keine Lights gefunden.'}</div></div>${plan&&runs.length?`<a class="btn" href="#/p/${p.id}/plan">Zum Plan</a>`:''}</div>`}
+    ${pr.length?`<div class="card"><div class="cardhd"><h3>Was auffällt</h3></div><div class="clist">
+      ${pr.map(x=>`<div class="citem"><span class="ci ${x.lvl==='err'?'errc':x.lvl==='warn'?'warnc':'infoc'}">${ic(x.lvl==='info'?'info':'warn')}</span><div class="cx">${esc(x.t)}</div></div>`).join('')}</div></div>`:''}
+    <div class="card" id="tonCard" hidden></div>
+    <div id="insBox"></div>
+    <div class="card" id="srcCard"></div>
+  </div>`;
   renderSources();
-  if(c.light&&!p._partial)loadInsights(p.id);
+  if(c.light&&!p._partial){loadInsights(p.id);loadTonight(p.id);}
 }
 /* ---- Nachtübersicht, Rig-Hinweise und ausführlicher Bericht (wie in 0.10) ---- */
 const INS={pid:null,data:null,open:new Set(),good:false,sort:'night',asc:true};
@@ -1471,7 +1532,7 @@ async function loadInsights(pid){
     const b=$('#insBox');if(b&&S.P&&S.P.id===pid)renderInsights(b,d);}
   catch(e){const b=$('#insBox');if(b)b.innerHTML=`<div class="card"><div class="citem"><span class="ci warnc">${ic('warn')}</span><div class="cx">Auswertung nicht möglich: ${esc(e.message||e)}</div></div></div>`;}
 }
-const nd=n=>n?n.slice(8,10)+'.'+n.slice(5,7)+'.'+n.slice(2,4):'–';
+const nd=dm;
 function renderInsights(box,d){
   const sk=NSORT[INS.sort]||NSORT.night;
   const N=(d.nights||[]).slice().sort((a,b)=>{const x=sk(a),y=sk(b);
@@ -1483,38 +1544,40 @@ function renderInsights(box,d){
   const checks=d.checks||[],issues=checks.filter(c=>c.level==='warning'||c.level==='critical'),rest=checks.filter(c=>!(c.level==='warning'||c.level==='critical'));
   const areas=[];checks.forEach(c=>{let a=areas.find(x=>x.area===c.area);const r={critical:3,warning:2,info:1,good:0};if(!a){a={area:c.area,level:c.level};areas.push(a);}else if(r[c.level]>r[a.level])a.level=c.level;});
   const m=d.meta||{},sky=Object.fromEntries((d.sky||[]).map(s=>[s.night,s]));
+  const oN=accIs('ov','nights',OV_DEF),oR=accIs('ov','rig',OV_DEF),fl=[...new Set(N.map(n=>n.filter).filter(Boolean))];
   const chk=c=>{const L=LVL[c.level]||LVL.info;return `<div class="citem rcheck"><span class="ci ${L[0]}c">${ic(L[2])}</span><div class="cx"><div class="ca">${esc(c.area)}</div><div class="ct">${esc(c.title)}</div><div class="cx2">${esc(c.text)}</div></div></div>`;};
   box.innerHTML=`<div class="sec" style="gap:20px">
-    <div class="card"><div class="cardhd"><h3>Nächte</h3><span class="grow"></span>
-      <button class="btn sm" id="repOpen" title="Alle Nächte, Mond, Qualität, Himmelsbahnen und Diagramme auf einer Seite – wie der Bericht aus 0.10">${ic('report')}Ausführlicher Bericht</button></div>
-      <div class="small muted" style="padding:0 16px 10px">Je Nacht und Filter: wie viel belichtet wurde, wie viel davon verwendet wird und wie gut die Nacht war. <b>Effektiv</b> = verwendete Zeit, gewichtet nach Rauschen – so viel ist die Nacht wirklich wert. Klick auf eine Zeile zeigt Begründung und Himmelsbahn; „Frames“ öffnet genau diese Nacht.</div>
-      <div class="nscroll"><table class="ntab"><thead><tr>${th('night','Nacht')}${th('filter','Filter')}${th('n','Frames','num','verwendete von allen Lights dieser Nacht')}${th('hours','Belichtung','','Balken und erste Zahl: verwendete Belichtung. „von …“: insgesamt aufgenommen (der Rest ist aussortiert).')}${th('eff','Effektiv','num','Verwendete Zeit, gewichtet nach Rauschen: so viel ist die Nacht im Vergleich zur besten wirklich wert.')}${th('fwhm','FWHM','num','Sternschärfe (Median) – kleiner ist schärfer')}${th('moon','Mond','num','Beleuchtung des Mondes')}${th('alt','Höhe','num','Objekthöhe über dem Horizont während der Aufnahmen')}${th('grade','Qualität','','Signal je Stunde im Vergleich zur besten Nacht desselben Filters')}<th></th></tr></thead><tbody>
-      ${N.map((n,i)=>{const k=n.night+'|'+n.filter,op=INS.open.has(k),g=G[n.grade]||['info','–'];
+    <div class="card">${accHead('ov','nights',oN,tic('nights','s18')+'Nächte',plural(N.length?new Set(N.map(n=>n.night)).size:0,'Nacht','Nächte')+(fl.length?' · '+fl.join(', '):''),`<button class="btn sm" id="repOpen" title="Alle Nächte, Mond, Qualität, Himmelsbahnen und Diagramme auf einer Seite – wie der Bericht aus 0.10">${ic('report')}Ausführlicher Bericht</button>`)}
+      ${oN?`<div class="accb"><div class="small muted" style="padding:0 16px 10px">Je Nacht und Filter: wie viel belichtet wurde, wie viel davon verwendet wird und wie gut die Nacht war. <b>Effektiv</b> = verwendete Zeit, gewichtet nach Rauschen – so viel ist die Nacht wirklich wert. Klick auf eine Zeile zeigt Begründung und Himmelsbahn; „Frames“ öffnet genau diese Nacht.</div>
+      <div class="nscroll"><table class="ntab"><thead><tr>${th('night','Nacht')}${th('filter','Filter')}${th('n','Frames','num','verwendete von allen Lights dieser Nacht')}${th('hours','Belichtung','','Balken und erste Zahl: verwendete Belichtung. „von …“: insgesamt aufgenommen (der Rest ist aussortiert).')}${th('eff','Effektiv','num','Verwendete Zeit, gewichtet nach Rauschen: so viel ist die Nacht im Vergleich zur besten wirklich wert.')}${th('fwhm','FWHM','num','Sternschärfe (Median) – kleiner ist schärfer')}${th('moon','Mond','num','Beleuchtung des Mondes')}${th('alt','Höhe','num','Objekthöhe über dem Horizont während der Aufnahmen')}${th('grade','Qualität','','Signal je Stunde im Vergleich zur besten Nacht desselben Filters')}<th title="Flats für diese Nacht – wie im Plan unter Kalibrierung">Kalibriert</th><th></th></tr></thead><tbody>
+      ${N.map((n,i)=>{const k=n.night+'|'+n.filter,op=accIs('ovn',k,''),g=G[n.grade]||['info','–'];
         return `<tr class="nrow" data-nk="${esc(k)}"><td>${esc(nd(n.night))}</td><td>${esc(n.filter||'–')}</td><td class="num">${n.n_used}/${n.n}</td>
           <td title="${esc(fmtH(n.used_h)+' verwendet'+(n.hours-n.used_h>=.05?', '+fmtH(n.hours)+' aufgenommen – '+fmtH(n.hours-n.used_h)+' aussortiert':''))}"><span class="hb" style="width:${Math.max(2,Math.round(70*(n.used_h||0)/maxH))}px"></span>${fmtH(n.used_h)} <span class="muted small">verwendet</span>${n.hours-n.used_h>=.05?` <span class="muted small">· ${fmtH(n.hours)} aufgenommen</span>`:''}</td>
           <td class="num" title="${esc('Effektiv '+fmtH(n.eff_h)+': verwendete Zeit gewichtet nach Rauschen – eine Mond- oder Dunstnacht zählt weniger als eine dunkle, klare Nacht.')}">${fmtH(n.eff_h)}</td><td class="num">${n.fwhm_as?String(n.fwhm_as.toFixed(1)).replace('.',',')+'″':'–'}</td>
           <td class="num" title="${n.moon?'Mond über dem Horizont und mehr als halb beleuchtet':''}">${n.moon_illum!=null?Math.round(n.moon_illum)+' %'+(n.moon?' '+ic('moon','s14'):''):'–'}</td>
           <td class="num">${n.alt_min!=null?Math.round(n.alt_min)+'–'+Math.round(n.alt_max)+'°':'–'}</td>
           <td><span class="pill ${g[0]}" title="${esc(n.why+' '+n.todo)}">${n.grade||''} · ${g[1]}</span></td>
+          <td>${calCell(n)}</td>
           <td><button class="btn ghost sm" data-ngo="${esc(k)}" title="Frames dieser Nacht ansehen">Frames</button></td></tr>
-          ${op?`<tr class="nsub"><td colspan="10"><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start"><div style="flex:1 1 260px;min-width:0"><b>Warum:</b> ${esc(n.why)}<br><b>Was tun:</b> ${esc(n.todo)}${nightFlatsHtml(n)}${n.temp!=null?`<br><span class="muted">Sensor ${String(Math.round(n.temp*10)/10).replace('.',',')} °C · Hintergrund ${n.bg!=null?Math.round(n.bg):'–'} · Sterne ${n.nstars!=null?Math.round(n.nstars):'–'}</span>`:''}</div>
-            ${sky[n.night]?`<div style="flex:1 1 360px;max-width:460px">${skySvg(sky[n.night])}<div class="small muted" style="margin-top:4px">Blau: Objekthöhe · gestrichelt: Mond (${sky[n.night].illum} % beleuchtet) · grau: Dämmerung · Punkte: Aufnahmen (grün verwendet, rot aussortiert)</div></div>`:''}</div></td></tr>`:''}`;}).join('')||'<tr><td colspan="10" class="muted">Noch keine vermessenen Lights.</td></tr>'}
+          ${op?`<tr class="nsub"><td colspan="11"><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start"><div style="flex:1 1 260px;min-width:0"><b>Warum:</b> ${esc(n.why)}<br><b>Was tun:</b> ${esc(n.todo)}${nightFlatsHtml(n)}${n.temp!=null?`<br><span class="muted">Sensor ${String(Math.round(n.temp*10)/10).replace('.',',')} °C · Hintergrund ${n.bg!=null?Math.round(n.bg):'–'} · Sterne ${n.nstars!=null?Math.round(n.nstars):'–'}</span>`:''}</div>
+            ${sky[n.night]?`<div style="flex:1 1 360px;max-width:460px">${skySvg(sky[n.night])}<div class="small muted" style="margin-top:4px">Blau: Objekthöhe · gestrichelt: Mond (${sky[n.night].illum} % beleuchtet) · grau: Dämmerung · Punkte: Aufnahmen (grün verwendet, rot aussortiert)</div></div>`:''}</div></td></tr>`:''}`;}).join('')||'<tr><td colspan="11" class="muted">Noch keine vermessenen Lights.</td></tr>'}
       </tbody></table></div>
-      ${(d.rec||[]).length?`<div class="clist" style="border-top:1px solid var(--div)">${d.rec.map(r=>`<div class="citem"><span class="ci infoc">${ic('info')}</span><div class="cx">${esc(r)}</div></div>`).join('')}</div>`:''}
+      ${(d.rec||[]).length?`<div class="clist" style="border-top:1px solid var(--div)">${d.rec.map(r=>`<div class="citem"><span class="ci infoc">${ic('info')}</span><div class="cx">${esc(r)}</div></div>`).join('')}</div>`:''}</div>`:''}
     </div>
-    <div class="card"><div class="cardhd"><h3>Rig-Hinweise</h3><span class="small muted">${esc([m.camera,m.scale?String(m.scale).replace('.',',')+'″/px':''].filter(Boolean).join(' · ')||'Schärfe, Nachführung, Fokus, Dithering, Kühlung, Taupunkt – aus den Frames gemessen')}</span></div>
-      ${areas.length?`<div class="rigchips">${areas.map(a=>{const L=LVL[a.level]||LVL.info;return `<span class="pill ${L[0]}">${ic(L[2],'s14')}${esc(a.area)}</span>`;}).join('')}</div>`:''}
+    <div class="card">${accHead('ov','rig',oR,tic('rig','s18')+'Rig-Hinweise'+(issues.length?` <span class="pill warn">${issues.length}</span>`:''),esc([m.camera,m.scale?String(m.scale).replace('.',',')+'″/px':''].filter(Boolean).join(' · ')||'Schärfe, Nachführung, Fokus, Dithering, Kühlung, Taupunkt'))}
+      ${oR?`<div class="accb">${areas.length?`<div class="rigchips">${areas.map(a=>{const L=LVL[a.level]||LVL.info;return `<span class="pill ${L[0]}">${ic(L[2],'s14')}${esc(a.area)}</span>`;}).join('')}</div>`:''}
       <div class="clist">${issues.map(chk).join('')||(checks.length?`<div class="citem"><span class="ci okc">${ic('check')}</span><div class="cx">Keine Auffälligkeiten – das Rig hat in allen Nächten sauber gearbeitet.</div></div>`:`<div class="citem"><span class="ci ${d.diag_note&&/Fehler/.test(d.diag_note)?'warnc':'infoc'}">${ic(d.diag_note&&/Fehler/.test(d.diag_note)?'warn':'info')}</span><div class="cx">${esc(d.diag_note||'Keine Rig-Hinweise.')}</div></div>`)}
-        ${rest.length?`<button class="lnk" id="rigGood" style="padding:10px 16px;text-align:left">${INS.good?'Unauffällige Prüfungen ausblenden':plural(rest.length,'unauffällige Prüfung','unauffällige Prüfungen')+' anzeigen'}</button>${INS.good?rest.map(chk).join(''):''}`:''}</div></div>
+        ${rest.length?`<button class="lnk" id="rigGood" style="padding:10px 16px;text-align:left">${INS.good?'Unauffällige Prüfungen ausblenden':plural(rest.length,'unauffällige Prüfung','unauffällige Prüfungen')+' anzeigen'}</button>${INS.good?rest.map(chk).join(''):''}`:''}</div></div>`:''}</div>
   </div>`;
+  wireAcc(box,OV_DEF,ovRedraw);
   $$('[data-ns]',box).forEach(t=>t.onclick=()=>{const k=t.dataset.ns;if(INS.sort===k)INS.asc=!INS.asc;else{INS.sort=k;INS.asc=k==='night'||k==='filter';}renderInsights(box,d);});
-  $$('tr.nrow',box).forEach(tr=>tr.onclick=e=>{if(e.target.closest('[data-ngo]'))return;const k=tr.dataset.nk;INS.open.has(k)?INS.open.delete(k):INS.open.add(k);renderInsights(box,d);});
+  $$('tr.nrow',box).forEach(tr=>tr.onclick=e=>{if(e.target.closest('[data-ngo]'))return;accToggle('ovn',tr.dataset.nk,'');renderInsights(box,d);});
   $$('[data-ngo]',box).forEach(b=>b.onclick=()=>{const [night,filt]=b.dataset.ngo.split('|');FV.type='light';FV.status='all';FV.night=night;FV.filt=filt;location.hash='#/p/'+S.P.id+'/frames';});
   const g=$('#rigGood');if(g)g.onclick=()=>{INS.good=!INS.good;renderInsights(box,d);};
   $$('[data-nflats]',box).forEach(b=>b.onclick=e=>{e.stopPropagation();const [night,filt]=b.dataset.nflats.split('|');
     const f=nightFlats({night,filter:filt});FV.type='flat';FV.status='all';FV.filt='';FV.night='';
     FV.only=f?new Set(f.file_ids):null;FV.onlyLabel='Flats für die Nacht vom '+ymd(night)+' ('+filt+')';location.hash='#/p/'+S.P.id+'/frames';});
-  $('#repOpen').onclick=()=>openReport(S.P.id);
+  const ro=$('#repOpen');if(ro)ro.onclick=e=>{e.stopPropagation();openReport(S.P.id);};
 }
 // Flats, die für eine Nacht verwendet werden (aus dem Plan), mit Vorschaubildern
 function nightFlats(n){
@@ -1522,11 +1585,20 @@ function nightFlats(n){
   const r=runs.find(x=>(x.filter||'')===(n.filter||''))||runs.find(x=>x.name===n.filter);
   return r?(r.flats||[]).find(f=>f.night===n.night):null;
 }
+// Kalibrier-Status einer Nacht – gleiche Aussage wie im Plan (Nacht-Ansichten angleichen, Feedback 0.13.1)
+function nightCal(f){
+  if(!f)return null;
+  const ids=(f.file_ids||[]).length;
+  if(!ids&&!f.master_path)return f.manual?{c:'muted',i:'minus',t:'ohne Flats',tip:'Von dir gewählt: ohne Flats'}:{c:'warnc',i:'warn',t:'keine Flats',tip:f.reason||''};
+  if(!f.manual&&(f.verdict==='critical'||f.verdict==='warning'))return {c:f.verdict==='critical'?'errc':'warnc',i:'warn',t:(f.findings[0]||{}).title||'prüfen',tip:(f.findings||[]).map(x=>x.title).join(' · ')};
+  return {c:'okc',i:f.master?'layers':'check',t:f.master?'Master':plural(ids,'Flat','Flats'),tip:f.master?f.master.label:(f.flat_night?'Flats vom '+dm(f.flat_night):'')};
+}
+function calCell(n){const c=nightCal(nightFlats(n));return c?`<span class="${c.c}" title="${esc(c.tip)}" style="display:inline-flex;gap:5px;align-items:center;white-space:nowrap">${ic(c.i,'s14')} <span class="small">${esc(c.t)}</span></span>`:'';}
 function nightFlatsHtml(n){
   const f=nightFlats(n);if(!f)return '';
   const ids=f.file_ids||[];
   if(!ids.length)return `<div style="margin-top:8px"><b>Flats:</b> <span class="warnc">keine</span> – ${esc(f.reason||'')}</div>`;
-  return `<div style="margin-top:8px"><b>Flats:</b> ${esc(f.reason||'')}
+  return `<div style="margin-top:8px"><b>Flats:</b> ${esc(f.master?f.master.label+' – vorhandener Master, wird wiederverwendet':plural(ids.length,'Flat','Flats')+(f.flat_night?' vom '+dm(f.flat_night):''))}
     <div class="fthumbs">${ids.slice(0,10).map(id=>`<img loading="lazy" alt="" src="/api/thumb/${id}" onerror="this.remove()">`).join('')}${ids.length>10?`<span class="small muted">+${ids.length-10}</span>`:''}</div>
     <button class="btn sm" data-nflats="${esc(n.night+'|'+n.filter)}">${ic('image','s14')} Flats anzeigen</button></div>`;
 }
@@ -1546,6 +1618,47 @@ function skySvg(s){
     ${s.moon?`<polyline points="${pts(s.moon)}" fill="none" stroke="#f6f5f4" stroke-width="1.4" stroke-dasharray="4 3" opacity=".75"/>`:''}
     ${s.obj?`<polyline points="${pts(s.obj)}" fill="none" stroke="#78aeed" stroke-width="2"/>`:''}${fr}${ticks.join('')}</svg>`;
 }
+/* ---- Sichtbarkeit heute Nacht (Feedback 0.13.1): Objekthöhe, Mond, Dämmerung – im Stil der Nacht-Diagramme ---- */
+const TON={pid:null,data:null};
+async function loadTonight(pid){
+  if(TON.pid===pid&&TON.data)return renderTonight(TON.data);
+  try{const d=await api('/api/projects/'+pid+'/tonight');TON.pid=pid;TON.data=d;if(S.P&&S.P.id===pid)renderTonight(d);}catch(e){}
+}
+const hhmm=h=>{if(h==null)return '–';const m=Math.round(h*60);return String(Math.floor(m/60)%24).padStart(2,'0')+':'+String(m%60).padStart(2,'0');};
+function renderTonight(t){
+  const box=$('#tonCard');if(!box)return;
+  if(!t||!t.available){box.hidden=!t;if(t)box.innerHTML=`<div class="citem"><span class="ci infoc">${ic('moon')}</span><div class="cx"><b>Sichtbarkeit heute Nacht:</b> ${esc(t.why||'nicht verfügbar')}</div></div>`;return;}
+  box.hidden=false;
+  const moon=`Mond ${t.illum} %${t.illum>=3&&t.illum<=97?(t.waxing?', zunehmend':', abnehmend'):''}`+
+    [t.moonrise!=null?'Aufgang '+hhmm(t.moonrise):'',t.moonset!=null?'Untergang '+hhmm(t.moonset):''].filter(Boolean).map(x=>' · '+x).join('');
+  const best=t.best?`<b>Beste Zeit ${hhmm(t.best[0])} – ${hhmm(t.best[1])}</b> <span class="muted">(${num(t.best_h,1)} h dunkel und über ${t.min_alt}°)</span>`:`<b>Heute kein dunkles Fenster über ${t.min_alt}°</b>`;
+  box.innerHTML=`<div class="cardhd"><h3 style="display:flex;gap:8px;align-items:center">${tic('tonight','s18')}Sichtbarkeit heute Nacht</h3><span class="small muted">Nacht vom ${esc(dm(t.night))}${t.target?' · '+esc(t.target):''} · Standort aus ${esc(t.site)}</span></div>
+    <div class="tonw"><div class="tonc">${tonightSvg(t)}</div>
+      <div class="tons">${best}
+        <div>${ic('up-arrow','s14')} Höchststand ${t.obj_max!=null?Math.round(t.obj_max)+'°':'–'}</div>
+        <div>${ic('moon','s14')} ${esc(moon)}</div>
+        <div>${ic('clock','s14')} Astronomisch dunkel ${hhmm(t.dusk)} – ${hhmm(t.dawn)}</div>
+        <div class="small muted">Blau: Objekthöhe · gestrichelt: Mond · grau: Dämmerung (je heller, desto weniger dunkel) · Linie: ${t.min_alt}°</div></div></div>`;
+}
+function tonightSvg(t){
+  const xs=t.x,x0=xs[0],x1=xs[xs.length-1],W=600,H=170,X=x=>(x-x0)/(x1-x0||1)*W,Y=a=>H-Math.max(0,a)*H/90;
+  const pts=arr=>xs.map((x,i)=>X(x).toFixed(1)+','+Y(arr[i]).toFixed(1)).join(' ');
+  let shade='';
+  for(let i=0;i<xs.length-1;i++){const a=t.sun[i],o=a>-6?.14:a>-12?.09:a>-18?.045:0;if(o)shade+=`<rect x="${X(xs[i]).toFixed(1)}" y="0" width="${(X(xs[i+1])-X(xs[i])+.6).toFixed(1)}" height="${H}" fill="rgba(255,255,255,${o})"/>`;}
+  const ticks=[];for(let h=Math.ceil(x0/2)*2;h<=x1;h+=2)ticks.push(`<text x="${X(h).toFixed(1)}" y="${H+13}" fill="rgba(255,255,255,.45)" font-size="10" text-anchor="middle">${String(Math.floor(h)%24).padStart(2,'0')}</text>`);
+  const mk=(h,l)=>h!=null&&h>=x0&&h<=x1?`<line x1="${X(h).toFixed(1)}" y1="${H-8}" x2="${X(h).toFixed(1)}" y2="${H}" stroke="#f6f5f4" opacity=".7"/><text x="${X(h).toFixed(1)}" y="${H-11}" fill="rgba(255,255,255,.65)" font-size="9" text-anchor="middle">${l}</text>`:'';
+  const now=(Date.now()-t.t0)/3.6e6+12;
+  const best=t.best?`<rect x="${X(t.best[0]).toFixed(1)}" y="${Y(90)}" width="${Math.max(1,X(t.best[1])-X(t.best[0])).toFixed(1)}" height="3" fill="#8ff0a4" opacity=".8"/>`:'';
+  return `<svg viewBox="0 0 ${W} ${H+18}" style="width:100%;height:auto;display:block;background:#0f0f0f;border-radius:8px" role="img" aria-label="Objekthöhe, Mond und Dämmerung heute Nacht">
+    ${shade}<line x1="0" y1="${H}" x2="${W}" y2="${H}" stroke="rgba(255,255,255,.25)"/>
+    <line x1="0" y1="${Y(t.min_alt)}" x2="${W}" y2="${Y(t.min_alt)}" stroke="rgba(255,255,255,.18)" stroke-dasharray="2 3"/><line x1="0" y1="${Y(60)}" x2="${W}" y2="${Y(60)}" stroke="rgba(255,255,255,.07)"/>
+    <text x="4" y="${Y(t.min_alt)-3}" fill="rgba(255,255,255,.45)" font-size="10">${t.min_alt}°</text><text x="4" y="${Y(60)-3}" fill="rgba(255,255,255,.4)" font-size="10">60°</text>
+    ${best}<polyline points="${pts(t.moon)}" fill="none" stroke="#f6f5f4" stroke-width="1.4" stroke-dasharray="4 3" opacity=".75"/>
+    <polyline points="${pts(t.obj)}" fill="none" stroke="#78aeed" stroke-width="2.2"/>
+    ${mk(t.moonrise,'Mond ↑')}${mk(t.moonset,'Mond ↓')}
+    ${now>=x0&&now<=x1?`<line x1="${X(now).toFixed(1)}" y1="0" x2="${X(now).toFixed(1)}" y2="${H}" stroke="#f8e45c" stroke-width="1" opacity=".8"/><text x="${(X(now)+3).toFixed(1)}" y="11" fill="#f8e45c" font-size="10">jetzt</text>`:''}
+    ${ticks.join('')}</svg>`;
+}
 let repHtml='';
 async function openReport(pid){
   const dlg=$('#repDlg'),f=$('#repFrame');
@@ -1556,19 +1669,33 @@ async function openReport(pid){
 }
 $('#repSave').onclick=()=>{if(!repHtml)return;const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([repHtml],{type:'text/html'}));
   a.download=((S.P&&S.P.name)||'bericht').replace(/[^\w\- ]+/g,'_')+' – Bericht.html';document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},2000);};
+// Quellordner hinzufügen: Dialog (mehrere Ordner auf einmal, wo das System es kann) oder Pfade direkt
+async function addSourceFolders(pid,paths){
+  if(!paths){paths=await pickFolders();if(!paths.length)return;}
+  paths=paths.map(x=>(x||'').trim()).filter(Boolean);if(!paths.length)return;
+  const r=await api('/api/projects/'+pid+'/folders',{folders:paths});
+  if(r.task)onTask(r.task);
+  toast((paths.length===1?'Ordner':plural(paths.length,'Ordner','Ordner'))+' hinzugefügt – wird im Hintergrund eingelesen.');reloadProject();
+}
+const OV_DEF='nights';          // Übersicht: Nächte offen, Rig-Hinweise und Quellordner zu (Solo-Akkordeon)
+function ovRedraw(){renderSources();const b=$('#insBox');if(b&&INS.data&&S.P&&INS.pid===S.P.id)renderInsights(b,INS.data);}
 function renderSources(){
   const box=$('#srcCard'),p=S.P;if(!box)return;
   const fs=p.folders||[];
-  box.innerHTML=`<div class="cardhd"><h3>Quellordner</h3><span class="small muted">${plural(fs.length,'Ordner','Ordner')}</span></div>
+  const off=fs.filter(f=>!f.online).length,open=accIs('ov','src',OV_DEF)||!fs.length;
+  // eingeklappt (Feedback 0.13.1): Ordner hinzufügen geht auch über das Ordner-Symbol neben „Neu prüfen“
+  box.innerHTML=accHead('ov','src',open,tic('sources','s18')+'Quellordner',plural(fs.length,'Ordner','Ordner')+(off?` · <span class="errc">${off} offline</span>`:''))+(open?`<div class="accb">
     ${fs.map(f=>`<div class="srcrow"><span style="display:flex;opacity:.6">${ic('folder')}</span><span class="p" title="${esc(f.path)}"><bdi>${esc(f.path)}</bdi></span>
       ${f.online?`<span class="n">${plural(f.files||0,'Datei','Dateien')}</span>`:`<span class="pill err">offline</span>`}
       <button class="btn ghost sm icon" data-rmf="${f.id}" title="Ordner entfernen" aria-label="Ordner entfernen">${ic('close')}</button></div>`).join('')}
-    <div class="srcadd"><input type="text" class="mono" id="srcIn" placeholder="Pfad einfügen" style="font-size:13px" aria-label="Ordnerpfad"><button class="btn" id="srcPick">Durchsuchen …</button><button class="btn" id="srcAdd">Hinzufügen</button></div>`;
-  const add=async path=>{path=(path||'').trim();if(!path)return;const r=await api('/api/projects/'+p.id+'/folders',{folders:[path]});
-    if(r.task)onTask(r.task);toast('Ordner hinzugefügt – wird im Hintergrund eingelesen.');reloadProject();};
-  $('#srcPick').onclick=e=>busy(e.currentTarget,async()=>{const f=await pickFolder($('#srcIn').value);if(f)await add(f);});
+    <div class="srcadd"><input type="text" class="mono" id="srcIn" placeholder="Pfad einfügen" style="font-size:13px" aria-label="Ordnerpfad"><button class="btn" id="srcPick">Durchsuchen …</button><button class="btn" id="srcAdd">Hinzufügen</button></div>${(p.folder_suggestions||[]).length?`<div class="chips" style="padding:0 16px 14px"><span class="small muted">Häufig verwendet:</span>${p.folder_suggestions.map(folderChip).join('')}</div>`:''}</div>`:'');
+  const add=path=>addSourceFolders(p.id,[path]);
+  wireAcc(box,OV_DEF,ovRedraw);
+  if(!open)return;
+  $('#srcPick').onclick=e=>busy(e.currentTarget,async()=>{const f=await pickFolders($('#srcIn').value);if(f.length)await addSourceFolders(p.id,f);});
   $('#srcAdd').onclick=e=>busy(e.currentTarget,()=>add($('#srcIn').value));
   $('#srcIn').onkeydown=e=>{if(e.key==='Enter')$('#srcAdd').click();};
+  $$('[data-sugp]',box).forEach(b=>b.onclick=()=>busy(b,()=>addSourceFolders(p.id,[b.dataset.sugp])));
   $$('[data-rmf]',box).forEach(b=>b.onclick=async()=>{
     const f=fs.find(x=>x.id===+b.dataset.rmf);
     if(!await ask('Ordner entfernen?',(f?f.path+'\n\n':'')+'Die Dateien darin gehören dann nicht mehr zum Projekt. Auf der Platte bleibt alles, wie es ist.','Entfernen',true))return;
@@ -1622,17 +1749,18 @@ async function loadFrames(keep){
   S.F.list=all;S.F.total=total;S.F.loading=false;
   fillFrameFilters();applyFrameView();
 }
-function frameMatches(f){
+function frameMatches(f,st){
   if(FV.only&&!FV.only.has(f.id))return false;
   if(FV.filt&&(f.filter||'')!==FV.filt)return false;
   if(FV.night&&(f.night||'')!==FV.night)return false;
-  if(FV.status==='all')return true;
-  if(FV.status==='manual')return f.origin==='manual';
-  return fstate(f)===FV.status;
+  st=st||FV.status;
+  if(st==='all')return true;
+  if(st==='manual')return f.origin==='manual';
+  return fstate(f)===st;
 }
 function applyFrameView(){
   if(!S.F)return;
-  const v=S.F.list.filter(frameMatches);
+  const v=S.F.list.filter(f=>frameMatches(f));
   const key=FV.sort,tkey=f=>(f.date_obs||'')+f.path;
   const val=f=>key==='time'?tkey(f):key==='name'?f.name.toLowerCase():f[key];
   v.sort((a,b)=>{
@@ -1642,7 +1770,10 @@ function applyFrameView(){
     const c=x<y?-1:x>y?1:(tkey(a)<tkey(b)?-1:1);return FV.asc?c:-c;});
   // Gruppen (Akkordeon): zugeklappte Gruppen zeigen nur die Überschrift
   FV.groups=[];
-  if(FV.group){let cur=null;for(const f of v){const k=groupKey(f);if(!cur||cur.key!==k){cur={key:k,label:groupLabel(k),items:[],closed:FV.closed.has(FV.group+'|'+k)};FV.groups.push(cur);}cur.items.push(f);}}
+  if(FV.group){let cur=null;for(const f of v){const k=groupKey(f);if(!cur||cur.key!==k){cur={key:k,label:groupLabel(k),items:[]};FV.groups.push(cur);}cur.items.push(f);}
+    // Solo-Akkordeon: eine Gruppe offen, zu Beginn die erste
+    const def=FV.groups.length?String(FV.groups[0].key):'';FV.accDef=def;
+    for(const g of FV.groups)g.closed=!accIs('fr:'+FV.group,String(g.key),def);}
   FV.view=FV.group?FV.groups.flatMap(g=>g.closed?[]:g.items):v;
   for(const id of [...FV.sel])if(!S.F.list.some(f=>f.id===id))FV.sel.delete(id);
   renderFrameSummary();layoutGrid(true);
@@ -1660,17 +1791,21 @@ function renderFrames(box){
     <div class="fbar2" id="fbar2">
       <label class="fsel">${ic('sort','s14')}<select id="fSortSel" aria-label="Sortieren nach">${FSORT.map(([k,l])=>`<option value="${k}" ${FV.sort===k?'selected':''}>${l}</option>`).join('')}</select></label>
       <button class="btn sm" id="fSort" title="Reihenfolge umdrehen"></button>
-      <label class="fsel">${ic('grid','s14')}<select id="fFilt" aria-label="Aufnahmefilter"></select></label>
-      <label class="fsel">${ic('clock','s14')}<select id="fNight" aria-label="Nacht"></select></label>
+      <label class="fsel">${tic('filter')}<select id="fFilt" aria-label="Aufnahmefilter"></select></label>
+      <label class="fsel">${tic('night')}<select id="fNight" aria-label="Nacht"></select></label>
       <label class="fsel">${ic('list','s14')}<select id="fGroup" aria-label="Gruppieren nach">${FGROUP.map(([k,l])=>`<option value="${k}" ${FV.group===k?'selected':''}>${k?'Gruppieren: '+l:'Nicht gruppieren'}</option>`).join('')}</select></label>
       <span class="grow"></span>
       <label class="fsize" title="Größe der Vorschaubilder">${ic('image','s14')}<input type="range" id="fSize" min="100" max="420" step="10" value="${FV.size}" aria-label="Größe der Vorschaubilder">${ic('image','s18')}</label>
     </div>
     <details class="help" id="fHelp"><summary>${ic('info','s14')} Wie bewertet b2stacker die Frames – und was kann ich tun?</summary><div>
-      <p><b>Was:</b> Jedes Light wird vermessen (Sterne, Schärfe/FWHM, Sternform, Hintergrund, Rauschen) und mit den anderen Frames <i>derselben Nacht und desselben Filters</i> verglichen.</p>
-      <p><b>Warum aussortiert:</b> deutlich weniger Sterne als üblich (Wolken, Dunst), viel hellerer Hintergrund (Dämmerung, Mond, Licht), deutlich unschärfer als der Durchschnitt oder stark ovale Sterne (Wind, Nachführung). Der Grund steht an jedem Frame – in der Großansicht ausführlich.</p>
-      <p><b>Was tun:</b> Nichts, wenn die Automatik passt. Sonst Frames auswählen und oben „Verwenden“ oder „Nicht verwenden“ wählen – in der Großansicht geht es mit <span class="kbd">V</span>, <span class="kbd">N</span> und <span class="kbd">A</span> (Automatik) – und so selbst entscheiden – deine Entscheidung gilt dann immer, auch nach neuem Prüfen. „Automatik“ setzt sie zurück. <b>Zum Löschen</b> vormerken entfernt Dateien erst, wenn du es im Banner bestätigst.</p>
-      <p><b>Tipp:</b> Nach FWHM oder Sternform sortieren und „nach Nacht gruppieren“ zeigt schnell, welche Nacht schwächelt.</p></div></details>
+      <p>Jedes Light wird vermessen – Sterne, Schärfe (FWHM), Sternform, Hintergrund, Rauschen – und mit den anderen Frames <i>derselben Nacht und desselben Filters</i> verglichen.</p>
+      <p><b>Aussortiert</b> wird bei</p>
+      <ul><li>deutlich weniger Sternen als üblich (Wolken, Dunst),</li><li>viel hellerem Hintergrund (Dämmerung, Mond, Licht),</li>
+        <li>deutlich mehr Unschärfe als im Durchschnitt,</li><li>stark ovalen Sternen (Wind, Nachführung).</li></ul>
+      <p>Der Grund steht an jedem Frame, ausführlich in der Großansicht.</p>
+      <p><b>Was tun:</b> nichts, wenn die Automatik passt. Sonst Frames auswählen und oben entscheiden – in der Großansicht mit <span class="kbd">V</span> (verwenden), <span class="kbd">N</span> (nicht verwenden) und <span class="kbd">A</span> (Automatik).</p>
+      <ul><li>Deine Entscheidung gilt immer, auch nach neuem Prüfen.</li><li><b>Zum Löschen</b> vorgemerkte Dateien werden erst gelöscht, wenn du es im Banner bestätigst.</li>
+        <li>Tipp: nach FWHM sortieren und nach Nacht gruppieren zeigt schnell, welche Nacht schwächelt.</li></ul></div></details>
     ${FV.only?`<div class="banner info" style="padding:8px 12px">${ic('info','s14')}<div class="grow bx">Gezeigt: ${esc(FV.onlyLabel||'Auswahl')}</div><button class="btn sm" id="fOnlyX">Alle zeigen</button></div>`:''}
     <div id="delBan"></div>
     <div class="vgrid" id="vgrid"></div>
@@ -1740,11 +1875,14 @@ function fillFrameFilters(){
   for(const x of [a,b])if(x._sync)x._sync();
   if(typeof enhanceSelects==='function')enhanceSelects($('#fbar2'));
 }
+// Zahlen direkt in den Status-Knöpfen (Feedback 0.13.1) – je Knopf: so viele Frames zeigt er mit den übrigen Filtern
 function renderFrameSummary(){
   const el=$('#fSum');if(!el||!S.F)return;
-  const l=S.F.list,use=l.filter(f=>f.status==='use').length,man=l.filter(f=>f.origin==='manual').length;
-  el.innerHTML=S.F.loading&&!l.length?`<span>${ic('spinner','s14 spin')} Frames werden geladen …</span>`:
-    `<span>${int(FV.view.length)} von ${int(S.F.total??l.length)} angezeigt</span><span>${int(use)} verwendet</span><span>${int(l.length-use)} aussortiert</span>${man?`<span>${int(man)} manuell</span>`:''}${S.F.loading?`<span>${ic('spinner','s14 spin')} lädt weiter …</span>`:''}`;
+  const l=S.F.list;
+  $$('#fStat button').forEach(b=>{const k=b.dataset.k;let n=0;for(const f of l)if(frameMatches(f,k))n++;
+    let c=b.querySelector('.n');if(!c){c=document.createElement('span');c.className='n';b.appendChild(c);}c.textContent=int(n);
+    b.hidden=(k==='delete'||k==='manual')&&!n&&FV.status!==k;});      // leere Sonderfälle ausblenden (Ruhe)
+  el.innerHTML=S.F.loading?`<span>${ic('spinner','s14 spin')} ${l.length?'lädt weiter …':'Frames werden geladen …'}</span>`:'';
   renderSelBar();
 }
 function renderSelBar(){
@@ -1786,7 +1924,8 @@ function layoutGrid(reset){
   const sig=FV.group+'|'+rows.map(r=>r.key+(r.closed?'-':'+')).join(',');      // Gruppen auf/zu → neu aufbauen
   const changed=!FV.geo||FV.geo.cols!==cols||Math.abs(FV.geo.tw-tw)>.5||FV.geo.sig!==sig;
   FV.geo={cols,tw,th,rh,gap,group:FV.group,sig};FV.rows=rows;FV.pos=pos;
-  g.style.height=(FV.view.length?y-gap:0)+'px';
+  // Höhe auch, wenn alle Gruppen zugeklappt sind (nur Überschriften) – sonst rutscht der Text darunter ins Akkordeon
+  g.style.height=(FV.view.length||rows.length?Math.max(0,y-gap):0)+'px';
   if(!FV.view.length&&!rows.length&&S.F&&!S.F.loading){g.innerHTML=`<div class="empty"><div class="t">Keine Frames</div><div class="x">${FV.status==='all'?'In diesem Projekt gibt es (noch) keine Frames dieser Art.':'Keine Frames mit diesem Status.'}</div></div>`;g.style.height='auto';FV.nodes=new Map();return;}
   if(reset||changed){g.innerHTML='';FV.nodes=new Map();}
   renderVisible();
@@ -1810,10 +1949,10 @@ function renderVisible(){
   // Nacht-Überschriften im sichtbaren Bereich
   $$('.vgh',g).forEach(h=>{if(!FV.rows.includes(h._r)||h._r.y<y0-100||h._r.y>y1)h.remove();});
   for(const r of FV.rows){if(r.y<y0-100||r.y>y1||[...g.children].some(c=>c._r===r))continue;
-    const h=document.createElement('button');h.type='button';h._r=r;h.className='vgh'+(r.closed?' closed':'');h.style.transform=`translateY(${r.y}px)`;
+    const h=document.createElement('button');h.type='button';h._r=r;h.className='vgh acch'+(r.closed?' closed':' open');h.style.transform=`translateY(${r.y}px)`;
     h.title=r.closed?'Aufklappen':'Zuklappen';h.setAttribute('aria-expanded',String(!r.closed));
-    h.innerHTML=`<b>${chev(!r.closed)} ${esc(r.label)}</b><span>${plural(r.n,'Frame','Frames')} · ${int(r.used)} verwendet · ${hrs(r.hrs)} h</span>`;
-    h.onclick=()=>{const k=FV.group+'|'+r.key;FV.closed.has(k)?FV.closed.delete(k):FV.closed.add(k);applyFrameView();};frag.appendChild(h);}
+    h.innerHTML=`${chev(!r.closed)}<span class="at">${tic(FV.group)}${esc(r.label)}</span><span class="am">${plural(r.n,'Frame','Frames')} · ${int(r.used)} verwendet · ${hrs(r.hrs)} h</span>`;
+    h.onclick=()=>{accToggle('fr:'+FV.group,String(r.key),FV.accDef);applyFrameView();};frag.appendChild(h);}
   g.appendChild(frag);
 }
 function fillTile(el,f){
@@ -1951,6 +2090,7 @@ function renderLightbox(){
   if(!LB.list||$('#lb').hidden)return;
   const f=LB.list[LB.i],use=f.status==='use',man=f.origin==='manual';
   $('#lbTitle').innerHTML=`${fic(f.filter)}${esc(f.filter||f.type||'')}`;
+  $('#lbReveal').innerHTML=ic('folder-open','s14')+'<span class="hl">Im Explorer zeigen</span>';$('#lbReveal').onclick=()=>reveal(f.path);
   $('#lbN').textContent=`${f.name} · ${LB.i+1} von ${LB.list.length}`;
   $('#lbPrev').disabled=LB.i===0;$('#lbNext').disabled=LB.i===LB.list.length-1;
   // Bild: die große Vorschau wird beim Vermessen vorbereitet und hier für die Nachbarn vorausgeladen –
@@ -2094,26 +2234,45 @@ const STARL={maxStarDistortion:['Max. Sternverzerrung','Sterne, die ovaler sind,
   noiseReductionFilterRadius:['Rauschfilter','Glättet vor der Sternsuche – hilft bei verrauschten Frames.'],
   structureLayers:['Strukturebenen','Wie groß gesuchte Sterne sein dürfen (mehr Ebenen = größere Sterne).'],
   sensitivity:['Empfindlichkeit','Wie schwache Sterne noch erkannt werden.']};
+// Ein Begriff, immer dasselbe Symbol (Feedback 0.13.1)
+const TERM_IC={night:'moon',filter:'grid',status:'check',reason:'warn',exposure:'clock',folder:'folder',time:'clock',
+  calib:'layers',master:'layers',type:'image',sources:'folder',rig:'target',tonight:'moon',nights:'moon'};
+const tic=(t,cls='s14')=>ic(TERM_IC[t]||'info',cls);
 const chev=o=>`<span class="chev${o?' open':''}">${ic('down','s14')}</span>`;
+/* Akkordeon im Solo-Modus: je Gruppe ist höchstens ein Eintrag offen; ein Klick auf einen anderen schließt den
+   bisherigen. ACC[gruppe] = offener Schlüssel ('' = alle zu); ohne Eintrag gilt der Vorgabewert der Ansicht. */
+const ACC={};
+try{Object.assign(ACC,JSON.parse(localStorage.getItem('b2-acc')||'{}'));}catch(e){}
+const accCur=(g,def)=>g in ACC?ACC[g]:(def||'');
+const accIs=(g,k,def)=>accCur(g,def)===k;
+function accToggle(g,k,def){ACC[g]=accCur(g,def)===k?'':k;try{localStorage.setItem('b2-acc',JSON.stringify(ACC));}catch(e){}}
+function accHead(g,k,open,title,meta,extra){
+  // Knöpfe rechts (extra) liegen NEBEN dem Kopf-Knopf – Knöpfe dürfen nicht ineinander stecken
+  return `<div class="acchw"><button type="button" class="acch${open?' open':''}" data-acc="${esc(g)}" data-acck="${esc(k)}" aria-expanded="${open}">${chev(open)}<span class="at">${title}</span>${meta?`<span class="am">${meta}</span>`:''}</button>${extra?`<span class="ax">${extra}</span>`:''}</div>`;
+}
+// Klicks auf Akkordeon-Köpfe in ``root``: umschalten, dann ``redraw`` (die Ansicht zeichnet sich neu)
+function wireAcc(root,def,redraw){
+  $$('[data-acc]',root).forEach(b=>b.onclick=()=>{accToggle(b.dataset.acc,b.dataset.acck,def);redraw();});
+}
 const lvl=v=>v==='critical'?['err','error','Problem']:v==='warning'?['warn','warn','Hinweis']:v==='good'?['ok','check','gut']:['neutral','info',''];
 function topKeepJS(n,p){return p>=100?n:Math.min(n,Math.max(Math.min(n,3),Math.ceil(n*p/100)));}
 function topHoursJS(r,p){const ex=r.rank_exp||[];const k=topKeepJS(ex.length,p);return ex.slice(0,k).reduce((a,b)=>a+b,0)/3600;}
 function topTextJS(r,p){const n=(r.rank_exp||[]).length,k=topKeepJS(n,p);return p>=100?`alle ${n} Lights · ${hrs(r.hours_all)} h`:`beste ${k} von ${n} Lights · ${hrs(topHoursJS(r,p))} von ${hrs(r.hours_all)} h`;}
 function runCalLevel(r){
   const f=r.flats||[];
-  if(!f.some(x=>(x.file_ids||[]).length))return 'critical';
-  if(f.some(x=>!(x.file_ids||[]).length&&!x.manual)||f.some(x=>x.verdict==='critical'||(x.hints||[]).length)||!(r.bias.file_ids||[]).length)return 'warning';
+  if(!f.some(x=>(x.file_ids||[]).length||x.master_path))return 'critical';
+  // von Hand gewählte Nächte sind bestätigt – ihre Befunde zählen nur als Hinweis
+  if(f.some(x=>!(x.file_ids||[]).length&&!x.manual)||f.some(x=>!x.manual&&(x.verdict==='critical'||x.verdict==='warning'))||!(r.bias.file_ids||[]).length)return 'warning';
   return 'good';
 }
 // Befund in drei Teilen: was ist los · warum so bewertet · was kann ich tun
 function hintHtml(h){
   const L=lvl(h.level);
-  return `<div class="hint ${L[0]}"><span class="hi">${ic(L[1],'s14')}</span><div><b>${esc(h.title||'')}</b>${h.text?`<div>${esc(h.text)}</div>`:''}
-    ${h.kind==='distance'&&h.key?`<button class="btn sm" style="margin-top:6px" data-flatok="${esc(h.key)}" title="Gilt für das ganze Projekt">${ic('check','s14')} Passt, Setup unverändert</button>`:''}</div></div>`;
+  return `<div class="hint ${L[0]}"><span class="hi">${ic(L[1],'s14')}</span><div><b>${esc(h.title||'')}</b>${h.text?`<div>${esc(h.text)}</div>`:''}</div></div>`;
 }
 function renderPlan(box){
   const p=S.P,plan=p.plan;
-  const back=`<a class="back" href="#/p/${p.id}/stacks" style="margin:0 0 12px">${ic('prev','s14')} Stacking</a>`;
+  const back=`<a class="back" href="#/p/${p.id}/stacks" style="margin:0 0 12px">${ic('prev','s14')} Stacks</a>`;
   setTimeout(()=>{if(S.route.tab==='plan'&&box.firstElementChild&&!box.querySelector('.back'))box.insertAdjacentHTML('afterbegin',back);},0);
   if(p._partial){box.innerHTML=`<div class="live">${ic('spinner','s14 spin')} Plan wird geladen …</div>`;return;}
   if(!plan||!(plan.runs||[]).length){
@@ -2140,8 +2299,9 @@ function renderPlan(box){
     let val=i.type==='checkbox'?i.checked:i.value;if(val==='auto')val=null;else if(i.dataset.kind==='bool')val=val==='true';
     editPlan({runs:{[rid]:{[key]:val}}},i.dataset.set);});
   $$('[data-reset]',box).forEach(b=>b.onclick=()=>{const [rid,key]=splitKey(b.dataset.reset);editPlan({runs:{[rid]:{[key]:null}}},b.dataset.reset);});
-  $$('[data-tcal]',box).forEach(b=>b.onclick=()=>{const id=b.dataset.tcal;UIP.cal.has(id)?UIP.cal.delete(id):UIP.cal.add(id);renderTab();});
-  $$('[data-topt]',box).forEach(b=>b.onclick=()=>{const id=b.dataset.topt;UIP.opt.has(id)?UIP.opt.delete(id):UIP.opt.add(id);renderTab();});
+  // Solo-Akkordeon über alle Läufe: Kalibrierung oder Optionen eines Laufs offen, die anderen zu
+  $$('[data-tcal]',box).forEach(b=>b.onclick=()=>{accToggle('plan',b.dataset.tcal+'|cal','');renderTab();});
+  $$('[data-topt]',box).forEach(b=>b.onclick=()=>{accToggle('plan',b.dataset.topt+'|opt','');renderTab();});
   $$('[data-top]',box).forEach(c=>{const r=R(c.dataset.top);
     c.oninput=()=>{const v=+c.value;$(`[data-topp="${CSS.escape(r.id)}"]`).textContent=v+' %';$(`[data-topt2="${CSS.escape(r.id)}"]`).textContent=topTextJS(r,v);
       const h=$(`[data-toph="${CSS.escape(r.id)}"]`);if(h)h.textContent=hrs(topHoursJS(r,v))+' h';};
@@ -2150,8 +2310,7 @@ function renderPlan(box){
   $$('[data-flat]',box).forEach(c=>c.onchange=()=>{const [rid,night]=splitKey(c.dataset.flat);const r=R(rid);
     const cur=Object.assign({},(r.calib_edits||{}).flats||{});if(c.value==='auto')delete cur[night];else cur[night]=c.value;
     editPlan({runs:{[rid]:{flats:Object.keys(cur).length?cur:null}}},rid+'|flats');});
-  $$('[data-flatok]',box).forEach(b=>b.onclick=()=>{const all=[...new Set([...(S.P.plan.flat_ok||[]),b.dataset.flatok])];
-    editPlan({options:{flat_ok:all}},'flatok');});
+  $$('[data-showcal]',box).forEach(b=>b.onclick=e=>{e.stopPropagation();showCalFrames(b.dataset.showcal.split(',').map(Number),b.dataset.ctype,b.dataset.clabel);});
   $$('[data-calk]',box).forEach(c=>c.onchange=()=>{const [rid,k]=splitKey(c.dataset.calk);editPlan({runs:{[rid]:{[k]:c.value==='auto'?null:c.value}}},rid+'|'+k);});
   $$('[data-sd]',box).forEach(inp=>inp.onchange=()=>{const [rid,k]=splitKey(inp.dataset.sd);const r=R(rid);
     const sd=r.settings.find(x=>x.key==='star_detection')||{value:{},auto:{},edited_keys:[]};
@@ -2164,7 +2323,7 @@ function renderPlan(box){
 }
 const splitKey=s=>{const i=s.lastIndexOf('|');return [s.slice(0,i),s.slice(i+1)];};
 function runCard(r){
-  const nights=r.nights||[],cl=runCalLevel(r),L=lvl(cl),co=UIP.cal.has(r.id),oo=UIP.opt.has(r.id);
+  const nights=r.nights||[],cl=runCalLevel(r),L=lvl(cl),co=accIs('plan',r.id+'|cal',''),oo=accIs('plan',r.id+'|opt','');
   const top=r.top_percent||100,unused=Math.max(0,(r.hours_all||0)-(r.hours||0));
   const optSum=[top<100?'beste '+top+' %':'',r.reference_edited?'eigene Referenz':'',r.settings.some(s=>s.edited)?'angepasst':''].filter(Boolean).join(' · ')||'empfohlen';
   return `<div class="run${r.enabled?'':' off'}" data-run="${esc(r.id)}">
@@ -2183,25 +2342,56 @@ function calSummary(r){
   const reused=(r.masters||[]).filter(m=>m.reused).length;
   return esc([f.length?`Flats ${withF}/${f.length} Nächte`:'',(r.bias.file_ids||[]).length?'Bias':'',(r.darks.file_ids||[]).length?'Darks':'',reused?plural(reused,'Master','Master')+' wiederverwendet':''].filter(Boolean).join(' · '));
 }
+// Klick auf ausgewählte Kalibrierframes → genau diese Frames im Reiter Frames
+function calLink(ids,type,label,text){
+  if(!(ids||[]).length)return esc(text);
+  return `<button class="lnk calk" data-showcal="${ids.join(',')}" data-ctype="${type}" data-clabel="${esc(label)}" title="Genau diese Frames zeigen">${esc(text)}</button>`;
+}
+function showCalFrames(ids,type,label){
+  FV.type=type||'flat';FV.status='all';FV.filt='';FV.night='';FV.only=new Set(ids);FV.onlyLabel=label||'Auswahl';
+  location.hash='#/p/'+S.P.id+'/frames';
+}
+// Was für eine Nacht verwendet wird – an EINER Stelle (Master oder Rohframes), Feedback 0.13.1
+function flatUsedHtml(r,f){
+  const ids=f.file_ids||[],lab='Flats für '+r.name+', Nacht '+dm(f.night);
+  if(f.master)return `${ic('layers','s14')} ${f.master_path?esc(f.master.label):calLink(ids,'flat',lab,f.master.label)} <span class="small muted">· vorhandener Master, wird wiederverwendet</span>`;
+  if(ids.length)return calLink(ids,'flat',lab,plural(ids.length,'Flat','Flats')+(f.flat_night?' vom '+dm(f.flat_night):''));
+  return f.manual?'ohne Flats (von dir gewählt)':`<span class="pill err">keine Flats</span> ${esc(f.reason||'')}`;
+}
+// Werte einer Nacht aus der Nachtübersicht (falls schon geladen) – damit Plan und Übersicht dasselbe zeigen
+function insNight(night,filter){
+  if(!INS.data||!S.P||INS.pid!==S.P.id){if(S.P&&INS.pid!==S.P.id&&!INS.loading){INS.loading=true;api('/api/projects/'+S.P.id+'/insights').then(d=>{INS.pid=S.P.id;INS.data=d;INS.loading=false;if(S.route.tab==='plan')renderTab();}).catch(()=>{INS.loading=false;});}return null;}
+  return (INS.data.nights||[]).find(n=>n.night===night&&n.filter===filter)||null;
+}
 function calBody(r){
   const opts=r.flat_options||[],ce=(r.calib_edits||{}).flats||{};
-  const flatSel=f=>`<select data-flat="${esc(r.id+'|'+(f.night||''))}" aria-label="Flats für die Nacht ${esc(dm(f.night))}">
-      <option value="auto" ${ce[f.night||'']?'':'selected'}>Automatisch</option><option value="none" ${ce[f.night||'']==='none'?'selected':''}>Keine Flats</option>
-      ${opts.map(o=>`<option value="${esc(o.key)}" ${ce[f.night||'']===o.key?'selected':''}>${esc((o.filter||'ohne Filter')+' · '+ymd(o.night)+' · '+o.n+(o.master?' (Master)':' Flats'))}</option>`).join('')}</select>`;
-  const flatRows=(r.flats||[]).map(f=>{const n=(f.file_ids||[]).length,L=lvl(f.verdict);
-    return `<div class="calrow"><span class="cl">Nacht ${esc(dm(f.night))}<small>${f.lights?plural(f.lights,'Light','Lights'):''}</small></span>
-      <span class="cv">${n?`<span class="pill ${f.verdict?L[0]:'ok'}" title="${esc((f.findings||[]).map(x=>x.title).join(' · ')||'Flats in Ordnung')}">${plural(n,'Flat','Flats')}${(f.findings||[]).length?' · '+esc(f.findings[0].title):''}</span> `:f.manual?'':'<span class="pill err">keine Flats</span> '}${esc(f.reason)}${f.confirmed?' <span class="pill ok" title="Von dir bestätigt: Setup unverändert">bestätigt</span>':''}
-        ${(f.hints||[]).map(hintHtml).join('')}</span>
+  const own=opts.filter(o=>!o.library),lib=opts.filter(o=>o.library);
+  const optLabel=o=>o.label||((o.filter||'ohne Filter')+' · Flats vom '+dm(o.night)+' · '+o.n+(o.master?' (Master)':' Frames'));
+  const flatSel=f=>{const c=ce[f.night||''];
+    return `<select data-flat="${esc(r.id+'|'+(f.night||''))}" aria-label="Flats für die Nacht ${esc(dm(f.night))}">
+      <option value="auto" ${c?'':'selected'}>Automatisch</option>
+      ${own.map(o=>`<option value="${esc(o.key)}" ${c===o.key?'selected':''}>${esc(optLabel(o))}</option>`).join('')}
+      ${lib.length?`<optgroup label="Kalibrier-Bibliothek">${lib.map(o=>`<option value="${esc(o.key)}" ${c===o.key?'selected':''}>${esc(o.label)}</option>`).join('')}</optgroup>`:''}
+      <option value="none" ${c==='none'?'selected':''}>Keine Flats</option></select>`;};
+  const flatRows=(r.flats||[]).map(f=>{
+    const bad=!f.manual&&(f.verdict==='critical'||f.verdict==='warning');
+    const ni=insNight(f.night,r.filter),G={A:['ok','Gut'],B:['info','Mittel'],C:['warn','Schwach']}[ni&&ni.grade]||null;
+    return `<div class="calrow"><span class="cl">${f.manual?`<span class="okc" title="Von dir gewählt – gilt als bestätigt">${ic('check','s14')}</span> `:''}<span class="muted" style="display:inline-flex">${tic('night')}</span> Nacht ${esc(dm(f.night))}<small>${[f.lights?plural(f.lights,'Light','Lights'):'',ni?fmtH(ni.used_h):''].filter(Boolean).join(' · ')}${G?` <span class="pill ${G[0]}" title="${esc(ni.why||'')}">${ni.grade} · ${G[1]}</span>`:''}</small></span>
+      <span class="cv">${flatUsedHtml(r,f)}${f.far&&!f.manual?` <span class="small muted">· ${int(f.days)} Tage Abstand</span>`:''}
+        ${bad||f.manual?(f.hints||[]).map(hintHtml).join(''):''}</span>
       <span class="cc">${flatSel(f)}</span></div>`;}).join('');
-  const simple=(k,l)=>{const x=r[k]||{},n=(x.file_ids||[]).length,ed=(r.calib_edits||{})[k];
-    return `<div class="calrow"><span class="cl">${l}</span><span class="cv">${n?`<span class="pill ok">${n}</span> `:`<span class="pill neutral">keine</span> `}${esc(x.reason||'')}</span>
+  const simple=(k,l,type)=>{const x=r[k]||{},n=(x.file_ids||[]).length,ed=(r.calib_edits||{})[k];
+    const m=(r.masters||[]).find(mm=>mm.kind===(k==='darks'?'dark':'bias')&&mm.reused);
+    return `<div class="calrow"><span class="cl">${l}</span><span class="cv">${n?(m?`${ic('layers','s14')} Master ${l} ${calLink(x.file_ids,type,l+' für '+r.name,'(aus '+n+' Frames)')} <span class="small muted">· vorhandener Master, wird wiederverwendet</span>`:calLink(x.file_ids,type,l+' für '+r.name,esc(x.reason||n+' Frames'))):`<span class="pill neutral">keine</span> ${esc(x.reason||'')}`}</span>
       <span class="cc"><select data-calk="${esc(r.id+'|'+k)}" aria-label="${l}"><option value="auto" ${ed?'':'selected'}>Automatisch</option><option value="none" ${ed==='none'?'selected':''}>Keine ${l}</option></select></span></div>`;};
   return `<div class="rbody1"><details class="help"><summary>${ic('info','s14')} Wie wählt b2stacker die Kalibrierung?</summary><div>
-      <p><b>Flats</b> entfernen Vignettierung und Staub. Sie müssen zum Filter und zu den Kamera-Einstellungen (Gain, Offset, Binning, Bildgröße) passen – sonst rechnet WBPP falsch. b2stacker liest das aus dem Header, nie aus dem Ordnernamen. Je Nacht nimmt es die Flats derselben Nacht, sonst die zeitlich nächsten. Liegen sie weit weg, ist das nur ein Hinweis: Wurde am Aufbau nichts verändert, passen sie meist.</p>
-      <p><b>Bias</b> ziehen das Ausleserauschen ab – der neueste passende Satz. <b>Darks</b> passend zu Belichtung (±1 s) und Temperatur (±2 °C); ohne Darks entfernt PixInsight Hotpixel automatisch.</p>
-      <p><b>Was du tun kannst:</b> rechts je Nacht andere Flats wählen oder „Keine Flats“. Fehlen passende Flats, nimm sie bei der nächsten Gelegenheit auf oder füge in der Übersicht einen Ordner mit Flats hinzu – sie werden automatisch zugeordnet.</p></div></details>
-    ${flatRows||'<div class="small muted">Keine Nacht mit Lights.</div>'}${simple('bias','Bias')}${simple('darks','Darks')}
-    ${(r.masters||[]).length?`<div class="calrow"><span class="cl">Master<small>Kalibrier-Bibliothek</small></span><span class="cv">${r.masters.map(m=>`<div class="mrow2"><span class="pill ${m.reused?'ok':'neutral'}">${m.reused?'wiederverwendet':'neu'}</span> <b>${esc(m.label)}</b> – ${esc(m.why)}</div>`).join('')}</span><span class="cc"></span></div>`:''}</div>`;
+      <p><b>Flats</b> entfernen Vignettierung und Staub. Sie müssen zu <b>Filter</b> und <b>Kamera-Einstellungen</b> passen (Gain, Offset, Binning, Bildgröße). b2stacker liest das aus dem Header, nie aus dem Ordnernamen.</p>
+      <ul><li>Je Nacht nimmt es die Flats derselben Nacht, sonst die zeitlich nächsten.</li>
+        <li>Gibt es aus genau diesen Flats schon einen <b>Master</b>, wird er wiederverwendet.</li>
+        <li>Passt alles, musst du nichts tun. Nur wenn etwas nicht passt, steht hier ein Hinweis.</li></ul>
+      <p><b>Bias</b>: der neueste passende Satz. <b>Darks</b>: passend zu Belichtung (±1 s) und Temperatur (±2 °C); ohne Darks entfernt PixInsight Hotpixel automatisch.</p>
+      <p><b>Von Hand:</b> rechts je Nacht andere Flats, einen Master aus der Bibliothek oder „Keine Flats“ wählen. Von dir gewählte Nächte sind grün abgehakt; Befunde erscheinen dort nur noch als Hinweis.</p></div></details>
+    ${flatRows||'<div class="small muted">Keine Nacht mit Lights.</div>'}${simple('bias','Bias','bias')}${simple('darks','Darks','dark')}</div>`;
 }
 function optBody(r){
   const top=r.top_percent||100;
@@ -2403,7 +2593,9 @@ function renderStacks(box){
     <div class="cmpbar" id="cmpBar"></div>
     <details class="help"><summary>${ic('info','s14')} Was sagen die Qualitätswerte – und wie vergleiche ich Stacks?</summary><div>
       ${QL.map(([k,l,h])=>`<p><b>${l}:</b> ${esc(h)}</p>`).join('')}
-      <p><b>Vergleichen:</b> Zwei Stacks anhaken (oder „Neuesten vergleichen“). Beide werden gleich gestreckt und übereinandergelegt – der Schieber zeigt den Unterschied, die Werte stehen nebeneinander. So siehst du, ob mehr Nächte, andere Flats oder strengeres Aussortieren wirklich besser sind.</p>
+      <p><b>Vergleichen:</b> Vorschaubild anklicken, dann „Vergleichen“ – oder zwei Stacks anhaken bzw. „Neuesten vergleichen“.</p>
+      <ul><li>Beide werden gleich gestreckt und übereinandergelegt; der Schieber zeigt den Unterschied.</li>
+        <li>Die Werte stehen nebeneinander – so siehst du, ob mehr Nächte, andere Flats oder strengeres Aussortieren wirklich besser sind.</li></ul>
       <p><b>Danach:</b> „Spickzettel“ zeigt die Reihenfolge der Bearbeitung in PixInsight, passend zum Ergebnis.</p></div></details>
     <div class="stks">${newStackTile(p)}${st.map(stackCard).join('')}</div></div>`;
   renderCmpBar();wireFound(p);
@@ -2424,7 +2616,7 @@ function wireFound(p){
 function newStackTile(p){
   const plan=p.plan,on=((plan&&plan.runs)||[]).filter(r=>r.enabled),h=on.reduce((a,r)=>a+(r.hours||0),0);
   return `<a class="stk newstk" href="#/p/${p.id}/plan"><div class="sp"><span class="nsi">${ic('plus','s18')}</span></div>
-    <div class="sb"><div class="st"><h3>Neuer Stack</h3>${plan&&plan.ready?'<span class="pill ok">bereit</span>':''}</div>
+    <div class="sb"><div class="st"><h3>Neuer Stack</h3></div>
       <div class="smeta"><span>${plan&&plan.ready?plural(on.length,'Lauf','Läufe')+' · '+hrs(h)+' h Belichtung':'Plan ansehen – was fehlt noch?'}</span></div>
       <div class="small muted">Lights, Flats und Einstellungen prüfen, anpassen und stacken.</div></div></a>`;
 }
@@ -2448,7 +2640,8 @@ function syncStackSel(){
 function stackCard(s){
   const pill={done:['ok','fertig'],failed:['err','fehlgeschlagen'],cancelled:['neutral','abgebrochen'],running:['info','läuft'],queued:['info','wartet']}[s.status]||['neutral',s.status];
   const nights=s.nights?plural(s.nights,'Nacht','Nächte'):'';
-  const meta=[ymd(s.created_at)+' '+hm(s.created_at),s.run_label,s.frames!=null?plural(s.frames,'Light','Lights'):'',hrs(s.hours)+' h',nights,s.size_bytes?bytes(s.size_bytes):''].filter(Boolean);
+  const noExp=s.imported&&!s.exposure_s;   // übernommen, Gesamtbelichtung nicht aus der Datei lesbar → von Hand
+  const meta=[ymd(s.created_at)+' '+hm(s.created_at),s.run_label,s.frames!=null?plural(s.frames,'Light','Lights'):'',noExp?'':hrs(s.hours)+' h',nights,s.size_bytes?bytes(s.size_bytes):''].filter(Boolean);
   const editing=SV.edit===s.id;
   return `<div class="stk${SV.sel.includes(s.id)?' sel':''}${s.status==='done'?'':' nopv'}" data-sid="${s.id}">
     <button class="sp" data-open="${s.id}" title="${s.status==='done'?'Groß ansehen':''}" ${s.status==='done'?'':'disabled style="cursor:default"'}>
@@ -2456,7 +2649,7 @@ function stackCard(s){
       <div class="badges">${s.cover?`<span class="pill info">${ic('star','tiny')} Projektbild</span>`:'<span></span>'}${s.missing?`<span class="pill err">Datei fehlt</span>`:''}</div></button>
     <div class="sb">
       <div class="st"><h3>${esc(s.name)}</h3><span class="pill ${pill[0]}">${pill[1]}</span>${s.settings&&s.settings.origin==='mcp'?'<span class="pill neutral">per Claude</span>':''}${s.imported?'<span class="pill neutral" title="Aus 0.10 oder PixInsight übernommen – die Datei bleibt beim Löschen erhalten">übernommen</span>':''}</div>
-      <div class="smeta">${meta.map(x=>`<span>${esc(x)}</span>`).join('')}</div>
+      <div class="smeta">${meta.map(x=>`<span>${esc(x)}</span>`).join('')}${noExp?`<button class="lnk" data-sexp="${s.id}" title="Die Datei nennt nur die Einzelbelichtung – Gesamtbelichtung von Hand eintragen">Belichtung eintragen …</button>`:s.imported?`<button class="lnk" data-sexp="${s.id}" title="Gesamtbelichtung ändern">ändern</button>`:''}</div>
       ${s.error?`<div class="serr">${ic('warn','s14')} ${esc(s.error)}</div>`:''}
       ${qualityHtml(s)}
       ${editing?`<div class="sec" style="gap:8px"><textarea id="noteIn" rows="2" placeholder="z. B. Seeing schlecht, Flats neu, Lieblingsversion …">${esc(s.note||'')}</textarea>
@@ -2468,6 +2661,7 @@ function stackCard(s){
         ${s.status==='done'&&s.master_asset_id&&s.preview_url?`<button class="btn sm${s.cover?' ghost':''}" data-cover="${s.cover?'':s.master_asset_id}">${ic('star','s14')} ${s.cover?'Projektbild zurücksetzen':'Als Projektbild'}</button>`:''}
         ${s.status==='done'?`<button class="btn sm" data-cheat="${s.id}" title="Reihenfolge der Bearbeitung in PixInsight – passend zu diesem Ergebnis">${ic('list','s14')} Spickzettel</button>`:''}
         ${s.status==='done'&&!s.missing?`<button class="btn sm" data-pi="${s.id}" title="Ergebnis in PixInsight öffnen">In PixInsight öffnen</button>`:''}
+        ${s.status==='done'&&!s.missing&&(s.files||[]).length?revealBtn(stackMain(s)):''}
         ${s.status==='failed'&&s.folder?`<button class="btn sm hideremote" data-sfold="${s.id}" title="Ordner mit dem WBPP-Protokoll öffnen">Protokoll öffnen</button>`:''}
         <button class="btn sm ghost danger" data-del="${s.id}" ${['running','queued'].includes(s.status)?'disabled':''}>Löschen</button></div>
     </div></div>`;
@@ -2479,6 +2673,13 @@ function wireStacks(box){
   $$('[data-open]',box).forEach(b=>b.onclick=()=>{const items=stackItems(),i=items.findIndex(x=>x.stack_id===+b.dataset.open);
     if(i>=0)openGvList(items,i);});
   $$('[data-note]',box).forEach(b=>b.onclick=()=>{SV.edit=+b.dataset.note;renderTab();const t=$('#noteIn');if(t){t.focus();t.selectionStart=t.value.length;}});
+  $$('[data-sexp]',box).forEach(b=>b.onclick=async()=>{const st=(S.P.stacks||[]).find(x=>x.id===+b.dataset.sexp);if(!st)return;
+    const v=await askText('Gesamtbelichtung',
+      'Stunden, z. B. 4,7',st.exposure_s?String(Math.round(st.exposure_s/360)/10).replace('.',','):'',
+      'Die Datei nennt nur die Belichtung eines Einzelbilds. Trag die Gesamtbelichtung des Stacks ein – sie zählt dann in der Projektübersicht und im Vergleich mit.');
+    if(v===null)return;const h=v.trim()===''?null:Number(v.replace(',','.'));
+    if(h!==null&&!(h>0)){toast('Bitte Stunden größer als 0 eingeben',true);return;}
+    try{await api('/api/projects/'+S.P.id+'/stacks/'+st.id+'/exposure',{hours:h});toast(h?'Belichtung: '+hrs(h)+' h':'Belichtung entfernt');reloadProject();}catch(e){toast(e.message,true);}});
   const ta=$('#noteIn');
   if(ta){
     const done=()=>{SV.edit=null;renderTab();};
@@ -2535,7 +2736,8 @@ async function openCheat(s){
 const CV={a:null,b:null,x:50,data:null,tok:0,drag:false};
 // Vergleich: zwei Einträge (Stacks oder Galerie-Bilder). Zwei Stacks → ausgerichtet mit Qualitätswerten;
 // sonst die beiden Bilder übereinander mit Schieber und den gemessenen Werten aus den Bild-Infos.
-function stackItems(){return doneStacks().filter(s=>s.master_asset_id).map(s=>({key:'s'+s.id,id:s.master_asset_id,stack:true,stack_id:s.id,
+const stackMain=s=>(s.files||[]).find(f=>/masterlight/i.test(f.replace(/^.*[\\/]/,'')))||(s.files||[])[0]||'';
+function stackItems(){return doneStacks().filter(s=>s.master_asset_id).map(s=>({key:'s'+s.id,id:s.master_asset_id,stack:true,stack_id:s.id,path:stackMain(s),
   name:s.name,thumb_url:s.preview_url,view_url:s.preview_url,cover:s.cover,missing:s.missing,size:s.size_bytes,added_at:s.created_at,place:'Stack',ext:'xisf',version:(s.quality||{}).preview||''}));}
 const itemKey=a=>a.key||(a.stack?'s'+a.stack_id:'g'+a.id);
 function openCompare(a,b){if(!S.P)return;openCompareItems(stackItems(),'s'+a,'s'+b);}
@@ -2682,6 +2884,7 @@ function gvGo(d){const L=GV.view||[],n=GV.i+d;if(n<0||n>=L.length)return;GV.i=n;
 function renderGv(){
   const L=GV.view||[],a=L[GV.i];if(!a||$('#gv').hidden)return;
   $('#gvTitle').textContent=a.name;$('#gvN').textContent=(GV.i+1)+' von '+L.length;
+  const rv=$('#gvReveal');rv.innerHTML=ic('folder-open','s14')+'<span class="hl">Im Explorer zeigen</span>';rv.hidden=!a.path;rv.onclick=()=>reveal(a.path);
   $('#gvPrev').disabled=GV.i===0;$('#gvNext').disabled=GV.i===L.length-1;
   const img=$('#gvImg'),ld=$('#gvLoad'),tok=++GV.tok;
   ld.classList.toggle('center',!!a.missing);
@@ -2761,12 +2964,47 @@ function dayGroup(at){
 const HLINK={files_discovered:'frames',frames_decided:'frames',frames_deleted:'frames',stack_done:'stacks',stack_failed:'stacks',
   stack_cancelled:'stacks',stack_deleted:'stacks',stack_imported:'stacks',stack_note:'stacks',assets_added:'gallery',cover_set:'gallery',
   plan_edited:'plan',folder_added:'overview',folder_removed:'overview',project_created:'overview',project_renamed:'overview'};
+function wireTimeline(root,redraw){
+  if(!root)return;
+  $$('.tli.link',root).forEach(el=>{
+    const act=e=>{if(e.target.closest('a'))return;if(e.target.closest('[data-hgo]')){histGo(el);return;}
+      if(el.dataset.det){accToggle('hist',el.dataset.hid,'');redraw();}else histGo(el);};
+    el.onclick=act;el.onkeydown=e=>{if(e.key==='Enter')act(e);};});
+}
 function histGo(el){
   const k=el.dataset.kind,pid=el.dataset.pid,tab=HLINK[k];
   if(k==='master_deleted'){location.hash='#/kalibrierung';return;}
   if(!pid||!tab)return;
   if(tab==='frames'){FV.type='light';FV.filt='';FV.night=k==='files_discovered'?(el.dataset.night||''):'';FV.status=k==='frames_decided'?'manual':'all';}
   location.hash='#/p/'+pid+'/'+tab;
+}
+/* Verlauf mit Details (Feedback 0.13.1): Klick klappt auf – Projektbild, Planänderungen alt → neu, neue Aufnahmen
+   je Nacht und Filter, gestackte Läufe. „Öffnen“ führt zum Inhalt. */
+const PCK={top_percent:'Nur die besten Frames',reference:'Referenzbild',label:'Name des Laufs',enabled:'Lauf stacken',flats:'Flats von Hand',
+  bias:'Bias',darks:'Darks',star_detection:'Sternerkennung',flat_ok:'Flats bestätigt',ignored_stacks:'Gefundene Stacks ignoriert'};
+function pcVal(k,v){
+  if(v==null)return 'Automatisch';
+  if(k==='top_percent')return 'beste '+v+' %';
+  if(k==='enabled')return v?'an':'aus';
+  if(k==='flats'&&typeof v==='object')return Object.entries(v).map(([n,c])=>'Nacht '+dm(n)+': '+(c==='none'?'keine':String(c).startsWith('m:')?'Master aus der Bibliothek':'Flats vom '+dm(String(c).split('|')[1]||''))).join(', ')||'Automatisch';
+  if(typeof v==='boolean')return v?'An':'Aus';
+  const L=SETL[k];if(L&&L[1]==='sel'){const o=L[2].find(x=>x[0]===v);if(o)return o[1];}
+  if(typeof v==='object')return Object.entries(v).map(([a,b])=>a+' '+b).join(', ');
+  return String(v);
+}
+function runName(rid){const r=(((S.P&&S.P.plan)||{}).runs||[]).find(x=>x.id===rid);return r?r.name:String(rid||'').split('|')[0].toUpperCase();}
+function histDetails(i){
+  const d=i.data||{};
+  if(i.kind==='plan_edited'){
+    const ch=d.changes||[];if(!ch.length)return d.reset?'<div class="small">Alles auf Automatik zurückgesetzt.</div>':'';
+    return `<ul class="hdl">${ch.map(c=>`<li>${c.run?`<b>${esc(runName(c.run))}</b> · `:''}${esc((SETL[c.key]||[])[0]||PCK[c.key]||c.key)}: <span class="muted">${esc(pcVal(c.key,c.old))}</span> → <b>${esc(pcVal(c.key,c.new))}</b></li>`).join('')}</ul>`;
+  }
+  if(i.kind==='cover_set'&&d.asset)return `<img class="hdimg" loading="lazy" alt="Neues Projektbild" src="/api/assets/${+d.asset}/thumb" onerror="this.remove()">`;
+  if(i.kind==='files_discovered'&&(d.groups||[]).length)
+    return `<ul class="hdl">${d.groups.slice().sort((a,b)=>String(a.night).localeCompare(String(b.night))).slice(0,30).map(g=>`<li>${g.night?'Nacht '+esc(dm(g.night))+' · ':''}${esc(g.filter||'')}${g.filter?' · ':''}${esc(plural(g.n,(g.type==='light'?'Light':g.type==='flat'?'Flat':g.type),(g.type==='light'?'Lights':g.type==='flat'?'Flats':g.type)))}${g.hours?' · '+hrs(g.hours)+' h':''}</li>`).join('')}</ul>`;
+  if(i.kind==='stack_done'&&(d.stacks||[]).length)
+    return `<ul class="hdl">${d.stacks.map(x=>`<li><b>${esc(x.run||'Stack')}</b> · ${hrs(x.hours)} h · ${plural(x.lights||0,'Light','Lights')}</li>`).join('')}</ul>`;
+  return '';
 }
 function timelineHtml(items,withProject){
   if(!items.length)return `<div class="empty"><div class="t">Noch nichts passiert</div><div class="x">Hier erscheint, was b2stacker findet und tut: neue Aufnahmen je Nacht und Filter, Stacks, deine Entscheidungen.</div></div>`;
@@ -2779,10 +3017,12 @@ function timelineHtml(items,withProject){
     // neue Aufnahmen: dazu, wann sie aufgenommen wurden („letzte Nacht“, „vor 3 Nächten“)
     const det=i.detail&&i.night&&/^Nacht vom /.test(i.detail)?i.detail.replace(/^(Nacht vom [\d.]+)/,'$1 ('+nightsAgo(i.night)+')'):i.detail;
     const pidI=i.project_id!=null?i.project_id:(S.P&&S.P.id),linked=(HLINK[i.kind]&&pidI!=null)||i.kind==='master_deleted';
-    out+=`<div class="tli${linked?' link':''}" data-kind="${esc(i.kind)}" data-pid="${pidI!=null?pidI:''}" data-night="${esc(i.night||'')}" ${linked?'role="link" tabindex="0" title="Öffnen"':''}><span class="tw" title="${esc(ymd(i.at)+' '+hm(i.at))}">${esc(when.charAt(0).toUpperCase()+when.slice(1))}</span>
+    const det2=histDetails(i),op=det2&&accIs('hist',String(i.id),'');
+    out+=`<div class="tli${linked||det2?' link':''}${op?' open':''}" data-hid="${i.id}" data-kind="${esc(i.kind)}" data-pid="${pidI!=null?pidI:''}" data-night="${esc(i.night||'')}" ${det2?`data-det="1" role="button" tabindex="0" aria-expanded="${op}" title="Einzelheiten"`:linked?'role="link" tabindex="0" title="Öffnen"':''}><span class="tw" title="${esc(ymd(i.at)+' '+hm(i.at))}">${esc(when.charAt(0).toUpperCase()+when.slice(1))}</span>
       <span class="tic ${esc(i.tone)}">${ic(i.icon,'s14')}</span>
       <div class="tx"><div class="tt">${withProject&&i.project_id!=null?`<a class="tp" href="#/p/${i.project_id}/history">${esc(i.project||'?')}</a>`:''}${esc(i.title)}</div>
-        ${det?`<div class="td">${esc(det)}</div>`:''}</div></div>`;
+        ${det?`<div class="td">${esc(det)}</div>`:''}
+        ${op?`<div class="hdet">${det2}${linked?`<button class="btn sm" data-hgo>${ic('next','s14')} Öffnen</button>`:''}</div>`:''}</div></div>`;
   }
   return `<div class="tl">${out}</div>`;
 }
@@ -2799,7 +3039,7 @@ async function renderProjectHistory(box){
   box.innerHTML=`<div class="sec" style="gap:14px"><div class="toolbar"><div class="seg" id="hSeg">${HFILT.map(([k,l])=>`<button data-k="${k}" class="${HV.filter===k?'on':''}">${l}</button>`).join('')}</div>
     <span class="grow"></span><a class="lnk" href="#/verlauf">Verlauf aller Projekte ${ic('next','s14')}</a></div>
     <div class="card" style="padding:14px 18px">${timelineHtml(hFilter(h),false)}</div></div>`;
-  $$('.tli.link',box).forEach(el=>{el.onclick=e=>{if(!e.target.closest('a'))histGo(el);};el.onkeydown=e=>{if(e.key==='Enter')histGo(el);};});
+  wireTimeline(box,()=>renderProjectHistory(box));
   $$('#hSeg button').forEach(b=>b.onclick=()=>{HV.filter=b.dataset.k;renderProjectHistory(box);});
 }
 async function renderGlobalHistory(){
@@ -2811,7 +3051,7 @@ async function renderGlobalHistory(){
       <select id="hProj" aria-label="Projekt"><option value="">Alle Projekte</option>${S.projects.map(p=>`<option value="${p.id}" ${String(p.id)===HV.project?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div>
     <div class="card" style="padding:14px 18px">${timelineHtml(hFilter(h),true)}</div>
     ${h.length>=HV.limit?`<button class="btn" id="hMore" style="align-self:center">Ältere Einträge laden</button>`:''}</div>`;
-  $$('#gHist .tli.link').forEach(el=>{el.onclick=e=>{if(!e.target.closest('a'))histGo(el);};el.onkeydown=e=>{if(e.key==='Enter')histGo(el);};});
+  wireTimeline($('#gHist'),()=>renderGlobalHistory());
   $$('#hSeg button').forEach(b=>b.onclick=()=>{HV.filter=b.dataset.k;renderGlobalHistory();});
   $('#hProj').onchange=e=>{HV.project=e.target.value;renderGlobalHistory();};
   const m=$('#hMore');if(m)m.onclick=()=>{HV.limit+=200;renderGlobalHistory();};
@@ -2920,7 +3160,7 @@ function mRow(m){
     <div class="mt"><div class="mn ell" title="${esc(m.path)}">${bits.join(' · ')||esc(m.name)}</div>
       <div class="mx">${i.camera?esc(i.camera)+' · ':''}${nights?nights+' · ':''}angelegt ${ago(m.created_at)} in ${esc(m.project)}${m.exists?'':' · <span class="errc">Datei fehlt</span>'}</div>
       <div class="mx">${m.stacks?`in ${plural(m.stacks,'Stack','Stacks')} verwendet${used?': '+used:''}`:'noch in keinem Stack'}</div></div>
-    <div class="ms">${m.size?gb(m.size):''}</div><button class="btn sm ghost" data-mdel="${m.id}" title="Master entfernen">${ic('trash','s14')}</button></div>`;
+    <div class="ms">${m.size?gb(m.size):''}${m.exists?revealBtn(m.path):''}</div><button class="btn sm ghost" data-mdel="${m.id}" title="Master entfernen">${ic('trash','s14')}</button></div>`;
 }
 
 // ---------- Selbsttest-Berichte (Einstellungen)

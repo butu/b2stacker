@@ -49,25 +49,47 @@ gruppieren.
 
 **Neues Projekt** → Name, optional eine Beschreibung, und ein oder mehrere Ordner mit Aufnahmen. Lights, Flats,
 Bias und Darks dürfen gemischt in Unterordnern liegen: b2stacker erkennt die Art **am Header**, nie am Ordnernamen.
-Ordner mit `_rejected`, `_verworfen` oder `_alt` im Namen gelten als aussortiert. Ordner lassen sich später in der
-Übersicht ergänzen oder entfernen; die Dateien selbst bleiben, wo sie sind.
+Ordner mit `_rejected`, `_verworfen` oder `_alt` im Namen gelten als aussortiert. Ordner lassen sich später ergänzen
+(Ordner-Symbol neben „Neu prüfen“) oder in der Übersicht unter **Quellordner** entfernen; die Dateien selbst bleiben,
+wo sie sind.
 
-Ein Projekt hat die Reiter **Übersicht**, **Frames**, **Stacking**, **Galerie** und **Verlauf**. Im Menü **⋯**
+Ordner hinzufügen geht auf drei Wegen:
+
+- **Durchsuchen …** – im Windows-Dialog mehrere Ordner auf einmal markieren (Strg- oder Umschalt-Klick).
+- **Häufig verwendet** – Ordner, die schon andere Projekte nutzen (z. B. der gemeinsame Flat- und Bias-Ordner), mit
+  einem Klick.
+- **Hineinziehen** – Ordner aus dem Explorer ins b2stacker-Fenster ziehen. Auf der Startseite entsteht daraus ein
+  neues Projekt, in einem Projekt kommen sie als Quellordner dazu.
+
+Ein Projekt hat die Reiter **Übersicht**, **Frames**, **Stacks**, **Galerie** und **Verlauf**. Im Menü **⋯**
 neben „Neu prüfen“ stehen seltene Aktionen wie „Vorhandene Stacks übernehmen …“ und der ausführliche Bericht.
 **Neu prüfen** sucht neue Dateien und holt fehlende Messwerte und Vorschaubilder nach; danach steht kurz, was es
 getan hat.
 Name und Beschreibung änderst du mit dem Stift neben dem Namen.
 
-Die **Übersicht** zeigt neben Belichtung, Bereitschaft und Quellordnern:
+Grundregel überall: **Ruhe, wenn alles passt.** Hinweise und Warnungen erscheinen nur, wenn es etwas zu tun oder zu
+wissen gibt – „bereit“ oder „passt“ wird nicht eigens angezeigt.
+
+Die **Übersicht** zeigt die Kennzahlen, „Was auffällt“ (nur wenn etwas auffällt) und:
+
+- **Sichtbarkeit heute Nacht:** Objekthöhe, Mond (Phase, Auf- und Untergang), Dämmerung und die beste Zeit
+  (astronomisch dunkel und über 30°). Standort aus den Einstellungen, sonst aus den Aufnahmen; die Koordinaten des
+  Objekts aus den Headern.
 
 - **Nächte:** je Nacht und Filter Frames (verwendet/gesamt), Belichtung, **effektive** Zeit (nach Rauschen
   gewichtet – so viel ist die Nacht wirklich wert), FWHM, Mond, Objekthöhe und eine Note (Gut/Mittel/Schwach). Ein
   Klick auf die Zeile zeigt, warum die Nacht so bewertet ist, was zu tun ist, und die **Himmelsbahn** (Objekt,
-  Mond, Dämmerung, einzelne Aufnahmen). „Frames“ öffnet genau diese Nacht im Reiter Frames.
+  Mond, Dämmerung, einzelne Aufnahmen). „Frames“ öffnet genau diese Nacht im Reiter Frames. Die Spalte
+  **Kalibriert** sagt dasselbe wie der Plan: welche Flats (oder welcher Master) die Nacht bekommt.
 - **Rig-Hinweise:** aus den Frames gemessen – Schärfe, Nachführung, Fokus (auch ob er der Temperatur folgt),
   Dithering, Kühlung, Taupunkt, Offset, Belichtung. Auffälliges steht oben mit Begründung und Empfehlung.
+- **Quellordner:** eingeklappt; ein Klick zeigt die Ordner.
 - **Ausführlicher Bericht:** alles auf einer Seite mit Diagrammen und allen Frames, wie der Bericht aus 0.10;
   „Als Datei speichern“ legt ihn als HTML-Datei ab, die sich in jedem Browser öffnet.
+
+Aufklappbare Bereiche (Nächte, Rig-Hinweise, Quellordner, Gruppen bei den Frames, Monate auf der Startseite, Bereiche
+im Plan, Einträge im Verlauf) arbeiten überall gleich: Es ist immer **einer offen**; ein Klick auf einen anderen
+schließt den bisherigen.
 
 ## 3. Was automatisch passiert
 
@@ -89,10 +111,11 @@ während NINA noch aufnimmt. Ein ausgeschaltetes NAS wird übersprungen („Quel
 ## 4. Frames sichten
 
 Der Reiter **Frames** zeigt alle Frames einer Art (Lights, Flats, Bias, Darks) in einer durchgehenden Kachelansicht,
-auch bei tausenden Frames ohne Blättern. Filter: Alle, Verwendet, Aussortiert, Zum Löschen, Manuell. Darunter:
+auch bei tausenden Frames ohne Blättern. Filter: Alle, Verwendet, Aussortiert, Zum Löschen, Manuell – die Zahl im
+Knopf sagt, wie viele Frames er zeigt. Darunter:
 **sortieren** (Aufnahmezeit, FWHM, Sternform, Sterne, Rauschen, Hintergrund, Belichtung, Dateiname), nach
 **Aufnahmefilter** und **Nacht** filtern, **gruppieren** nach Nacht, Filter, Status, Aussortiergrund,
-Belichtungszeit oder Quellordner (Gruppen lassen sich per Klick auf die Überschrift auf- und zuklappen) und die
+Belichtungszeit oder Quellordner (eine Gruppe ist offen; ein Klick auf eine andere Überschrift wechselt) und die
 **Größe** der Vorschaubilder einstellen
 (wird gemerkt). „Wie bewertet b2stacker die Frames?“ erklärt die Gründe fürs Aussortieren. Mehrere
 auswählen: Kästchen anklicken, **Shift**+Klick für einen Bereich, **Strg**+Klick einzeln. Dann unten
@@ -144,7 +167,7 @@ Löschen ist die **einzige** Aktion, bei der b2stacker deine Rohdaten verändert
 
 ## 6. Stacking
 
-Der Reiter **Stacking** zeigt alle Stacks als Kacheln – auch fehlgeschlagene. Vorne steht **Neuer Stack**: Er führt
+Der Reiter **Stacks** zeigt alle Stacks als Kacheln – auch fehlgeschlagene. Vorne steht **Neuer Stack**: Er führt
 zum Plan, und von dort wird gestackt. Liegen in deinen Ordnern schon fertige `masterLight`-Dateien, bietet b2stacker
 oben an, sie zu übernehmen.
 
@@ -157,13 +180,13 @@ Klammern steht – oder einen **festen Wert**. Feste Werte sind markiert und ble
 
 Je Lauf gibt es zwei aufklappbare Bereiche:
 
-- **Kalibrierung:** welche Flats je Nacht, welche Bias und Darks – mit Bewertung und der Erklärung, wie b2stacker
-  wählt (gleiche Kamera, Filter, Gain/Offset, Binning, Drehung; bei mehreren die zeitlich nächsten). Du kannst je
-  Nacht andere Flats oder „keine“ wählen. Abstand: bis 14 Tage kein Thema, darüber ein Hinweis – egal ob die Flats
-  vor oder nach der Nacht liegen. Ist am Aufbau nichts verändert, bestätige „Passt, Setup unverändert“; der Hinweis
-  verschwindet fürs ganze Projekt. Rot sind Flats nur bei echten Problemen, und das Kästchen nennt sie (z. B. „Flats zu
-  hell“). Darunter steht, welche **Master** (Bias, Darks, Flats) aus der Kalibrier-Bibliothek wiederverwendet werden –
-  oder warum nicht.
+- **Kalibrierung:** welche Flats je Nacht, welche Bias und Darks (gleiche Kamera, Filter, Gain/Offset, Binning,
+  Drehung; bei mehreren die zeitlich nächsten). Gibt es aus genau diesen Flats schon einen **Master**, steht er da:
+  „Master Flat 14.04. (aus 68 Flats) · vorhandener Master, wird wiederverwendet“. Ein Klick auf die Flats, Bias oder
+  Darks zeigt genau diese Frames. Passt alles, musst du **nichts** tun – der Abstand zwischen Nacht und Flats ist kein
+  Befund (über 14 Tage steht nur leise „65 Tage Abstand“). Rot oder gelb wird es nur bei echten Problemen, z. B.
+  „Flats zu hell“. Rechts wählst du je Nacht andere Flats, einen **Master aus der Kalibrier-Bibliothek** oder
+  „Keine Flats“. Von dir gewählte Nächte sind **grün abgehakt**; ihre Befunde erscheinen nur noch als Hinweis.
 - **Optionen:** nur die **besten X %** der Frames verwenden (Schieber), das **Referenzbild** fürs Ausrichten
   wählen, den Lauf **umbenennen**, jeden Wert der **Sternerkennung** einzeln überschreiben, und der Platzbedarf
   („braucht etwa 42 GB · frei auf G: 54 GB von 1,8 TB“).
@@ -173,7 +196,7 @@ Ergebnis landet im Projektordner, ein Ordner je Stack, z. B. `2026-11-04 Ha 12h3
 Läufe werden auf das erste Ergebnis ausgerichtet, damit alle Filter pixelgenau übereinanderliegen. Master-Bias,
 -Darks und -Flats werden aufgehoben und beim nächsten Mal wiederverwendet (siehe Kalibrier-Bibliothek).
 
-**Während des Stackens** zeigen der Plan und der Reiter Stacking den Ablauf: welche Phasen erledigt sind (Kalibrier-Master,
+**Während des Stackens** zeigen der Plan und der Reiter Stacks den Ablauf: welche Phasen erledigt sind (Kalibrier-Master,
 Lights kalibrieren, Debayern, Vermessen, Ausrichten, Normalisieren, Integrieren), was gerade läuft und was noch kommt,
 jeweils mit Dauer, dazu alle WBPP-Schritte, eine grobe Restzeit und das **Live-Protokoll** von PixInsight zum
 Aufklappen.
@@ -195,7 +218,9 @@ im Ordner bleiben).
 **Stacks übernehmen …** (Projekt-Menü ⋯) holt vorhandene Ergebnisse in die Liste: den Projektordner eines 0.10-Projekts (mit Datum,
 Belichtung und Notiz aus `stacks.json`), einen WBPP-Ausgabeordner (alle `masterLight`-Dateien) oder einzelne
 XISF/FITS/TIFF. Vorschau und Qualität werden berechnet; die Dateien bleiben, wo sie sind, und „Löschen“ entfernt bei
-übernommenen Stacks nur den Eintrag.
+übernommenen Stacks nur den Eintrag. Die **Gesamtbelichtung** liest b2stacker aus `NCOMBINE` oder dem
+PixInsight-Verlauf in der Datei, sonst aus dem Dateinamen von 0.10 („…_4.7h.xisf“); geht beides nicht, trägst du
+sie am Stack mit **Belichtung eintragen …** ein.
 
 Stacks heißen wie ihr Ergebnisordner, z. B. „2026-11-05 RGB 8h30 · beste 50 %“. Ein Klick aufs Vorschaubild öffnet
 den Stack **groß**; dort führt **Vergleichen …** zu einem zweiten Stack oder einem Bild aus der Galerie.
@@ -220,8 +245,11 @@ etwa den Stack und dein bearbeitetes Ergebnis – mit Schieber und den gemessene
 
 Der **Verlauf** (je Projekt oder oben rechts für alle Projekte) erzählt in Klartext, was passiert ist: „20 neue
 Lights · Ha · 2,0 h, Nacht vom 02.11.2026“, „Gestackt: Ha 12h30“, Entscheidungen von Hand, Planänderungen,
-Löschungen. Gleichartige Einträge werden zusammengefasst. Ein Klick führt direkt zum Inhalt: zum Stack, zu den neuen
-Frames, zur Galerie oder zum Plan.
+Löschungen. Gleichartige Einträge werden zusammengefasst. Ein Klick klappt die **Einzelheiten** auf: neue Aufnahmen
+je Nacht und Filter, gestackte Läufe, das neue Projektbild oder jede Planänderung mit **alt → neu**. **Öffnen** führt
+direkt zum Inhalt: zum Stack, zu den Frames, zur Galerie oder zum Plan.
+
+Bei Frames, Bildern, Stacks und Mastern öffnet **Im Explorer zeigen** den Ordner, die Datei ist markiert.
 
 ## 10. Kalibrier-Bibliothek
 

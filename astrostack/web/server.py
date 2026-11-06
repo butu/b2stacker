@@ -695,6 +695,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"app": "b2stacker", "ui": "neu", "version": __version__})
         if api == ["projects"]:
             return self._json(c.projects())
+        if api == ["folder-suggestions"]:
+            return self._json(c.folder_suggestions())
         if api == ["history"]:
             project = _str(q, "project")
             project = self._project(project) if project is not None else None
@@ -758,6 +760,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(c.deletion_list(pid))
             if rest == ["insights"]:
                 return self._json(c.insights(pid))
+            if rest == ["folder-suggestions"]:
+                return self._json(c.folder_suggestions(pid))
+            if rest == ["tonight"]:
+                return self._json(c.tonight(pid, _str(q, "night") or None))
             if rest == ["report"]:
                 return self._send(200, c.report_html(pid).encode("utf-8"), "text/html; charset=utf-8")
             if rest == ["stacks"]:
@@ -869,6 +875,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"removed": c.clear_temp()})
         if api == ["quit"]:
             return self._json(quit_server(self.server))
+        if api == ["pick-folders"]:
+            try:
+                paths = dialogs().pick_folders(_text(b, "initial"))
+            except RuntimeError as e:
+                raise ValueError(str(e)) from None
+            return self._json({"paths": paths})
         if api in (["pick-folder"], ["pick-file"]):
             try:
                 path = (dialogs().pick_folder(_text(b, "initial")) if api == ["pick-folder"] else
@@ -876,6 +888,8 @@ class Handler(BaseHTTPRequestHandler):
             except RuntimeError as e:                 # kein Dialog verfügbar → Klartext, Pfad eintippen
                 raise ValueError(str(e)) from None
             return self._json({"path": path})
+        if api == ["reveal"]:
+            return self._json({"path": c.reveal(_text(b, "path"))})
         if api == ["check-pixinsight"]:
             return self._json(dialogs().check_pixinsight(_text(b, "path")))
         if api == ["lan-info"]:
@@ -964,6 +978,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"path": c.open_stack_folder(pid, self._stack(pid, rest[1]))})
             if len(rest) == 3 and rest[0] == "stacks" and rest[2] == "open-pixinsight":
                 return self._json(c.open_in_pixinsight(pid, self._stack(pid, rest[1])))
+            if len(rest) == 3 and rest[0] == "stacks" and rest[2] == "exposure":
+                h = b.get("hours")
+                c.set_stack_exposure(pid, self._stack(pid, rest[1]), None if h in (None, "") else float(h))
+                return self._json({"ok": True})
             if len(rest) == 3 and rest[0] == "stacks" and rest[2] in ("note", "delete"):
                 sid = self._stack(pid, rest[1])
                 if rest[2] == "note":

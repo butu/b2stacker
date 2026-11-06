@@ -145,6 +145,41 @@ def test_masters_are_shared_across_projects(proj, tmp_path, monkeypatch):
     assert b["stacks"] == 2 and {p["name"] for p in b["projects"]} == {"vdB 131", "Zweites Projekt"}
 
 
+def test_plan_names_master_flat_in_one_place_and_library_choice(proj):
+    """Feedback 0.13.1: Oben „68 Flats“, unten „Master wird wiederverwendet“ war widersprüchlich. Jetzt steht bei der
+    Nacht und in der Auswahl „Master Flat TT.MM. (aus N Flats)“. Master aus der Bibliothek lassen sich je Nacht
+    wählen und gehen genau so in den Auftrag."""
+    from astrostack import handover
+    co, pid, data = proj
+    _stack_ha(co, pid)
+    run = next(r for r in co.plan(pid)["runs"] if r["filter"] == "HaO3")
+    fl = [f for f in run["flats"] if f["file_ids"]]
+    assert fl and all(f["master"]["label"].startswith("Master Flat ") and "(aus %d Flats)" % len(f["file_ids"])
+                      in f["master"]["label"] for f in fl)
+    assert any(o.get("reuse") and o["label"].startswith("Master Flat") for o in run["flat_options"])
+    assert not any(m["kind"] == "flat" and "-" in m["label"] for m in run["masters"])     # TT.MM., nicht MM.TT
+    # zweites Projekt nur mit Lights und Bias: keine eigenen Flats → der Master aus der Bibliothek wird angeboten
+    other = co.create_project("Zweites Projekt", [os.path.join(data, "vdB 131"), os.path.join(data, "Bias")])
+    assert co.tasks.wait_idle(60)
+    run2 = next(r for r in co.plan(other["id"])["runs"] if r["filter"] == "HaO3")
+    lib = [o for o in run2["flat_options"] if o.get("library")]
+    assert lib and lib[0]["label"].startswith("Master Flat") and "vdB 131" in lib[0]["label"]
+    night = run2["flats"][0]["night"]
+    p = co.edit_plan(other["id"], runs={run2["id"]: {"flats": {night: lib[0]["key"]}}})
+    r3 = next(r for r in p["runs"] if r["id"] == run2["id"])
+    f3 = next(f for f in r3["flats"] if f["night"] == night)
+    assert f3["manual"] and f3["master_path"] and f3["master"]["label"]
+    job = handover.build_job(co.db, r3, str(co.ws.root), project_id=other["id"])
+    assert any(f["type"] == "flat" and f["path"] == handover.pi_path(f3["master_path"]) for f in job["files"])
+
+
+def test_date_format_dm():
+    from astrostack.handover import dm, master_flat_label
+    assert dm("2026-07-11", year=False) == "11.07." and dm("2021-07-11", year=True) == "11.07.2021"
+    assert master_flat_label("2026-04-14", 68).startswith("Master Flat 14.04.") and "(aus 68 Flats)" in \
+        master_flat_label("2026-04-14", 68)
+
+
 def test_delete_master_from_library(proj):
     co, pid, _ = proj
     _stack_ha(co, pid)
@@ -502,6 +537,45 @@ def test_import_old_and_pixinsight_stacks(proj, tmp_path):
     assert os.path.isfile(src) and os.path.isdir(os.path.dirname(src))
 
 
+def test_imported_stack_total_exposure_from_history_name_or_by_hand(proj, tmp_path):
+    """Feedback 0.13.1 (NGC 1999): übernommene Stacks ohne Gesamtbelichtung. Der echte WBPP-/0.10-Master trägt nur
+    EXPTIME = 600 s. Jetzt: NCOMBINE oder HISTORY „ImageIntegration.numberOfImages“, sonst der Dateiname von 0.10
+    („…_4.7h.xisf“), sonst von Hand am Stack."""
+    import numpy as np
+
+    from astrostack import stackimport, xisf
+    co, pid, _ = proj
+    img = np.full((1, 40, 60), 0.1, np.float32)
+
+    def master(name, hdr):
+        p = str(tmp_path / "final" / name)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        xisf.write_image(p, img, dict({"EXPTIME": 600.0, "DATE-OBS": "2026-10-18T23:50:01"}, **hdr))
+        return p
+    a = master("masterLight_FILTER-RGB.xisf", {"HISTORY": "ImageIntegration.numberOfImages: 33"})
+    b = master("NGC1999_RGB_2026-11-01_4.7h.xisf", {})
+    c = master("masterLight_FILTER-Ha.xisf", {})
+    assert stackimport.describe(a)["exposure_s"] == 33 * 600 and stackimport.describe(a)["frames"] == 33
+    assert abs(stackimport.describe(b)["exposure_s"] - 4.7 * 3600) < 1
+    assert stackimport.describe(c)["exposure_s"] is None
+    assert stackimport.hours_from_name("2026-11-05 RGB 8h30.xisf") == 8.5
+    assert stackimport.hours_from_name("masterLight_BIN-1_6224x4168_EXPOSURE-600.00s.xisf") is None
+    co.import_stacks(pid, [b, c])
+    # vor 0.14 übernommen (ohne Belichtung): wird beim nächsten Anzeigen nachgetragen
+    co.db.execute("UPDATE stacks SET exposure_s = NULL")
+    co.__dict__.pop("_exposure_filled", None)
+    st = {os.path.basename(s["files"][0]): s for s in co.stacks(pid, measure=False) if s["imported"]}
+    nb, nc = st[os.path.basename(b)], st[os.path.basename(c)]
+    assert abs(nb["hours"] - 4.7) < 0.01 and nc["exposure_s"] is None
+    co.set_stack_exposure(pid, nc["id"], 2.5)
+    nc = next(s for s in co.stacks(pid, measure=False) if s["id"] == nc["id"])
+    assert nc["hours"] == 2.5
+    own = next((s for s in co.stacks(pid, measure=False) if not s["imported"]), None)
+    if own:
+        with pytest.raises(ValueError):
+            co.set_stack_exposure(pid, own["id"], 1)
+
+
 def test_claude_desktop_link_endpoints(proj, tmp_path, monkeypatch):
     import json as _json
     co, pid, _ = proj
@@ -663,3 +737,75 @@ def test_old_stack_named_like_its_folder(proj):
     co.db.execute("UPDATE stacks SET name = 'Mein Ha' WHERE id = ?", (s["id"],))
     assert co.stacks(pid, measure=False)[0]["name"] == "Mein Ha"
     assert any(g.get("stack_name") == "Mein Ha" for g in co.gallery(pid))
+
+
+def test_tonight_visibility(proj, tmp_path, monkeypatch):
+    """Feedback 0.13.1: Sichtbarkeit heute Nacht – Objekthöhe, Mond (Auf-/Untergang, Phase), Dämmerung, beste Zeit.
+    Ohne Koordinaten im Header: Klartext statt Diagramm."""
+    from astrostack.report.sky import tonight
+    from .conftest import NINA_LIGHT, make_fits
+    co, pid, _ = proj
+    assert co.tonight(pid)["available"] is False and "koordinaten" in co.tonight(pid)["why"]
+    d = tonight(48.86, 15.0, 400, 314.0, 68.2, night="2026-11-06")      # vdB 131 im Kepheus, Waldviertel
+    assert d["dusk"] and d["dawn"] and 17 < d["dusk"] < 20 and 28 < d["dawn"] < 31
+    assert d["best"] and d["best_h"] > 6 and d["obj_max"] > 60 and 0 <= d["illum"] <= 100
+    assert len(d["x"]) == len(d["obj"]) == len(d["moon"]) == len(d["sun"])
+    assert isinstance(d["dusk"], float) and isinstance(d["waxing"], bool)
+    # Projekt mit RA/DEC im Header: Standort aus den Aufnahmen
+    folder = tmp_path / "mitkoord"
+    for i in range(3):
+        make_fits(str(folder / ("L_%d.fits" % i)), dict(NINA_LIGHT, RA=314.0, DEC=68.2,
+                                                        **{"DATE-OBS": "2026-10-12T20:%02d:00" % i}))
+    p2 = co.create_project("Mit Koordinaten", [str(folder)])
+    assert co.tasks.wait_idle(60)
+    t = co.tonight(p2["id"], "2026-11-06")
+    assert t["available"] and t["site"] == "Aufnahmen" and t["best"] and t["target"] == "vdB 131"
+
+
+def test_reveal_in_explorer_only_known_files(proj, tmp_path, monkeypatch):
+    """Feedback 0.13.1: „Im Explorer zeigen“ – nur für Dateien, die b2stacker kennt; vom Handy gesperrt."""
+    co, pid, _ = proj
+    f = co.frames(pid)["frames"][0]
+    seen = []
+    assert co.reveal(f["path"], opener=seen.append) and seen
+    with pytest.raises(ValueError):
+        co.reveal(str(tmp_path / "irgendwas.exe"), opener=seen.append)
+    from astrostack.web import lan
+    assert "reveal" in lan.BLOCKED_POST and "pick-folders" in lan.BLOCKED_POST
+
+
+def test_source_folders_many_at_once_suggestions_and_drop(proj, tmp_path, monkeypatch):
+    """Feedback 0.13.1: mehrere Ordner auf einmal, häufig verwendete Ordner als Vorschläge, hineingezogene Dateien
+    stehen für ihren Ordner."""
+    from types import SimpleNamespace
+
+    from astrostack.web import server as web
+    co, pid, data = proj
+    calib = os.path.join(data, "FLAT")
+    other = co.create_project("Zweites", [os.path.join(data, "vdB 131"), calib])
+    assert co.tasks.wait_idle(60)
+    third = co.create_project("Drittes", [os.path.join(data, "vdB 131")])
+    assert co.tasks.wait_idle(60)
+    sug = co.folder_suggestions(third["id"])
+    assert any(x["path"] == calib and x["kind"] == "Kalibrierung" for x in sug)
+    assert not any(x["path"] == os.path.join(data, "vdB 131") for x in sug)        # schon im Projekt
+    assert co.project(third["id"])["folder_suggestions"] == sug
+    # Datei statt Ordner (Drag & Drop) → ihr Ordner; doppelt → einmal
+    one = next(os.path.join(r, f) for r, _d, fs in os.walk(os.path.join(data, "Bias")) for f in fs)
+    co.add_folders(third["id"], [one, os.path.dirname(one) + os.sep])
+    assert co.tasks.wait_idle(60)
+    paths = [f["path"] for f in co.project(third["id"])["folders"]]
+    assert sum(1 for p in paths if os.path.normpath(p) == os.path.dirname(one)) == 1
+    # Dialog mit Mehrfachauswahl
+    s = _settings(tmp_path, monkeypatch, co.ws.root, co.pixinsight)
+    srv = _serve(co, s)
+    try:
+        fake = SimpleNamespace(pick_folders=lambda initial="": ["/a", "/b"])
+        monkeypatch.setattr(web, "dialogs", lambda: fake)
+        st, r, _ = call(srv, "POST", "/api/pick-folders", {"initial": ""})
+        assert st == 200 and r["paths"] == ["/a", "/b"]
+        st, r, _ = call(srv, "GET", "/api/folder-suggestions")
+        assert st == 200 and any(x["path"] == calib for x in r)
+    finally:
+        _stop(srv)
+    assert other

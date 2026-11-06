@@ -19,6 +19,7 @@ import threading
 import time
 
 from . import db as dbm
+from .fmt import dm, dmy
 from .flow.plan import wbpp_values
 
 SESSION_KEYWORD = "B2SESSION"
@@ -136,7 +137,7 @@ def masters_plan(db: dbm.Database, pid: int, run: dict) -> list[dict]:
     def source(path):
         r = db.one("SELECT m.created_at, p.name FROM masters m JOIN projects p ON p.id = m.project_id WHERE m.path = ? "
                    "ORDER BY m.id DESC LIMIT 1", (path,))
-        return ("aus %s, %s" % (r["name"], (r["created_at"] or "")[:10])) if r else ""
+        return ("aus %s, %s" % (r["name"], dmy(r["created_at"]))) if r else ""
 
     def entry(kind, label, ids, key):
         if not ids:
@@ -164,17 +165,89 @@ def masters_plan(db: dbm.Database, pid: int, run: dict) -> list[dict]:
     seen = {}
     for fl in run.get("flats") or []:
         ids = tuple(sorted(fl.get("file_ids") or []))
+        if fl.get("master_path"):                    # Master aus der Bibliothek, von Hand gewählt
+            ids = ("m", fl["master_path"])
+            if ids in seen:
+                seen[ids]["label"] += ", " + dm(fl.get("night"))
+                continue
+            e = dict(kind="flat", label="Flats für %s" % dm(fl.get("night")), reused=True, path=fl["master_path"],
+                     why="von Hand gewählt (%s)" % source(fl["master_path"]))
+            seen[ids] = e
+            out.append(e)
+            continue
         if not ids:
             continue
         if ids in seen:
-            seen[ids]["label"] += ", " + (fl.get("night") or "?")[5:].replace("-", ".")
+            seen[ids]["label"] += ", " + dm(fl.get("night"))
             continue
-        e = entry("flat", "Flats für %s" % (fl.get("night") or "?")[5:].replace("-", "."), list(ids),
+        e = entry("flat", "Flats für %s" % dm(fl.get("night")), list(ids),
                   master_key(db, "flat", ids, bias_key or ""))
         if e:
             seen[ids] = e
             out.append(e)
     return out
+
+
+def master_flat_label(night: str | None, frames: int | None) -> str:
+    return "Master Flat %s%s" % (dm(night), " (aus %d Flats)" % frames if frames else "")
+
+
+def library_flat_masters(db: dbm.Database, run: dict) -> dict:
+    """Master-Flats aus der Kalibrier-Bibliothek, die zu einem Lauf passen (Filter und Kamera-Einstellungen laut
+    Header der Rohframes), aber nicht schon als Flat-Satz des Projekts angeboten werden. → {"m:<id>": {...}}"""
+    st = run.get("settings") or {}
+    flt = (run.get("filter") or "").lower()
+    size = "%sx%s" % (st.get("width"), st.get("height")) if st.get("width") else None
+    bias_key = master_key(db, "bias", (run.get("bias") or {}).get("file_ids") or [])
+    own = {master_key(db, "flat", o.get("ids") or [], bias_key or "") for o in run.get("flat_options") or []}
+    out = {}
+    for r in db.query("SELECT m.id, m.path, m.key, m.key_json, m.created_at, p.name FROM masters m "
+                      "JOIN projects p ON p.id = m.project_id WHERE m.type = 'flat' ORDER BY m.id DESC"):
+        if r["key"] in own or not r["path"] or not os.path.isfile(r["path"]):
+            continue
+        try:
+            info = json.loads(r["key_json"] or "{}")
+        except ValueError:
+            continue
+        if (info.get("filter") or "").lower() != flt:
+            continue
+        if any(info.get(k) is not None and st.get(k) is not None and info.get(k) != st.get(k)
+               for k in ("gain", "offset", "binning")):
+            continue
+        if size and info.get("size") and info["size"] != size:
+            continue
+        night = (info.get("nights") or [None])[0]
+        out["m:%d" % r["id"]] = dict(id=r["id"], path=r["path"], night=night, filter=info.get("filter"),
+                                     frames=info.get("frames"), project=r["name"],
+                                     label="%s · %s" % (master_flat_label(night, info.get("frames")), r["name"]))
+    return out
+
+
+def annotate_flat_masters(db: dbm.Database, pid: int, run: dict) -> None:
+    """Im Plan an EINER Stelle sagen, was verwendet wird: Gibt es für den gewählten Flat-Satz schon einen Master,
+    steht bei der Nacht „Master Flat 14.04. (aus 68 Flats)“ – und genauso in der Auswahl (Feedback 0.13.1:
+    oben „68 Flats“, unten „Master wird wiederverwendet“ war widersprüchlich)."""
+    bias_key = master_key(db, "bias", (run.get("bias") or {}).get("file_ids") or [])
+    for o in run.get("flat_options") or []:
+        if o.get("library"):
+            continue
+        ids = _option_ids(run, o)
+        m = _master(db, pid, master_key(db, "flat", ids, bias_key or "")) if ids else None
+        if m:
+            o["label"] = master_flat_label(o.get("night"), o.get("n"))
+            o["reuse"] = True
+    for fl in run.get("flats") or []:
+        if fl.get("master_path"):
+            fl["master"] = dict(label=(fl.get("reason") or "").replace("von Hand: ", ""), path=fl["master_path"])
+            continue
+        ids = fl.get("file_ids") or []
+        m = _master(db, pid, master_key(db, "flat", ids, bias_key or "")) if ids else None
+        if m:
+            fl["master"] = dict(label=master_flat_label(fl.get("flat_night"), len(ids)), path=m)
+
+
+def _option_ids(run: dict, opt: dict) -> list[int]:
+    return opt.get("ids") or []
 
 
 def build_job(db: dbm.Database, run: dict, out_dir: str, reference_path: str | None = None,
@@ -199,6 +272,15 @@ def build_job(db: dbm.Database, run: dict, out_dir: str, reference_path: str | N
     else:
         files += [dict(path=pi_path(p), type="bias") for p in _paths(db, bias_ids).values()]
     for fl in run.get("flats") or []:
+        if fl.get("master_path"):                    # Master aus der Kalibrier-Bibliothek, von Hand gewählt
+            key = ("m", fl["master_path"])
+            if key not in session_of_set:
+                sess = session_of_set[key] = "S%d" % (len(session_of_set) + 1)
+                files.append(dict(path=pi_path(fl["master_path"]), type="flat", session=sess))
+                reused[sess] = fl["master_path"]
+                keys[sess] = db.value("SELECT key FROM masters WHERE path = ? ORDER BY id DESC", (fl["master_path"],))
+            night_session[fl["night"]] = session_of_set[key]
+            continue
         key = tuple(sorted(fl["file_ids"]))
         if not key:
             continue

@@ -71,16 +71,89 @@ def _when(h: dict, path: str) -> str:
     return t.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+_HOURS_RX = re.compile(r"(?<![\d.,])(\d{1,3}(?:[.,]\d+)?)\s*h(?:\s*(\d{1,2})(?!\d))?(?![a-z])", re.I)
+_NIMG_RX = re.compile(r"numberOfImages\s*[:=]\s*(\d+)", re.I)
+
+
+def _integrated_count(path: str, h: dict) -> int | None:
+    """Wie viele Frames integriert wurden: ``NCOMBINE`` oder PixInsights HISTORY-Eintrag
+    „ImageIntegration.numberOfImages: N“ (FITS-HISTORY oder XISF-Keyword samt Kommentar)."""
+    n = int(_num(h.get("NCOMBINE")) or 0)
+    if n:
+        return n
+    low = path.lower()
+    try:
+        if low.endswith((".xisf",)):
+            from .xisf import _xml
+            text = _xml(path)[0]
+        elif low.endswith((".fits", ".fit", ".fts")):
+            from astropy.io import fits
+            with fits.open(path, memmap=True, lazy_load_hdus=True) as hd:
+                text = "\n".join(str(x) for x in hd[0].header.get("HISTORY", []))
+        else:
+            return None
+    except Exception:  # noqa: BLE001
+        return None
+    m = _NIMG_RX.search(text or "")
+    return int(m.group(1)) if m else None
+
+
+def hours_from_name(name: str) -> float | None:
+    """Gesamtbelichtung aus dem Dateinamen – so benennt b2stacker 0.10 seine Ergebnisse („…_4.7h.xisf“, „8h30“)."""
+    m = _HOURS_RX.search(os.path.splitext(os.path.basename(name))[0])
+    if not m:
+        return None
+    h = float(m.group(1).replace(",", "."))
+    if m.group(2):
+        h += int(m.group(2)) / 60
+    return h if 0 < h < 1000 else None
+
+
 def describe(path: str) -> dict:
-    """Lauf-Name, Frames, Belichtung und Datum eines Masters – aus dem Header, sonst aus dem Dateinamen."""
+    """Lauf-Name, Frames, Belichtung und Datum eines Masters. Gesamtbelichtung: Frames (``NCOMBINE`` oder
+    HISTORY) × Einzelbelichtung, sonst aus dem Dateinamen; ``exposure_s`` bleibt leer, wenn nichts davon geht – dann
+    kann man sie am Stack von Hand eintragen. (Feedback 0.13.1: WBPP-Master tragen nur die Einzelbelichtung.)"""
     h = _header(path)
     name = os.path.basename(path)
     m = _FILTER_RX.search(name)
     label = str(h.get("FILTER") or (m.group(1) if m else "") or "").strip() or os.path.splitext(name)[0][:40]
-    n = int(_num(h.get("NCOMBINE")) or 0) or None
+    n = _integrated_count(path, h)
     exp = _num(h.get("EXPTIME")) or _num(h.get("EXPOSURE"))
     total = (n * exp) if (n and exp) else None
-    return dict(label=label, frames=n, exposure_s=total, created_at=_when(h, path))
+    if total is None:
+        hh = hours_from_name(name)
+        total = hh * 3600 if hh else None
+        if total and exp and not n:
+            n = int(round(total / exp))
+    return dict(label=label, frames=n, exposure_s=total, single_s=exp, created_at=_when(h, path))
+
+
+def fill_missing(db: dbm.Database, pid: int) -> int:
+    """Übernommene Stacks ohne Gesamtbelichtung (vor 0.14) einmal nachtragen. → Anzahl"""
+    n = 0
+    for r in db.query("SELECT s.id, a.path FROM stacks s JOIN assets a ON a.stack_id = s.id WHERE s.project_id = ? "
+                      "AND s.exposure_s IS NULL AND s.settings_json LIKE '%\"imported\": true%'", (pid,)):
+        if not r["path"] or not os.path.isfile(r["path"]):
+            continue
+        d = describe(r["path"])
+        if d["exposure_s"]:
+            db.execute("UPDATE stacks SET exposure_s = ?, frames = COALESCE(frames, ?) WHERE id = ?",
+                       (d["exposure_s"], d["frames"], r["id"]))
+            n += 1
+    return n
+
+
+def set_exposure(db: dbm.Database, pid: int, sid: int, hours: float | None) -> None:
+    """Gesamtbelichtung eines übernommenen Stacks von Hand (Stunden; ``None`` = unbekannt)."""
+    if hours is not None and not (0 < float(hours) < 10000):
+        raise ValueError("Belichtung: Stunden größer als 0")
+    r = db.one("SELECT settings_json FROM stacks WHERE id = ? AND project_id = ?", (sid, pid))
+    if not r:
+        raise ValueError("Stack nicht gefunden")
+    if not json.loads(r["settings_json"] or "{}").get("imported"):
+        raise ValueError("Nur bei übernommenen Stacks – die Belichtung eigener Stacks kennt b2stacker genau.")
+    with db.transaction():
+        db.execute("UPDATE stacks SET exposure_s = ? WHERE id = ?", (None if hours is None else float(hours) * 3600, sid))
 
 
 def _legacy_records(folder: str) -> list[dict]:

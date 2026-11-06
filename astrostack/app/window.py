@@ -49,6 +49,25 @@ def pick_folder(initial: str = "") -> str | None | bool:
     return os.path.normpath(p)
 
 
+def pick_folders(initial: str = "") -> list[str] | None | bool:
+    """Mehrere Ordner auf einmal (Strg/Umschalt im Windows-Dialog). False = kein Fenster."""
+    w = STATE["window"]
+    if w is None:
+        return False
+    import webview
+    kind = getattr(getattr(webview, "FileDialog", None), "FOLDER", None)
+    if kind is None:
+        kind = webview.FOLDER_DIALOG
+    try:
+        res = w.create_file_dialog(kind, directory=initial or "", allow_multiple=True)
+    except TypeError:                               # ältere pywebview ohne Mehrfachauswahl bei Ordnern
+        res = w.create_file_dialog(kind, directory=initial or "")
+    if not res:
+        return None
+    items = list(res) if isinstance(res, (list, tuple)) else [res]
+    return [os.path.normpath(p) for p in items if p]
+
+
 def pick_file(initial: str = "", file_types=("Programme (*.exe)", "Alle Dateien (*.*)")) -> str | None | bool:
     """Nativer Datei-Dialog im Programmfenster. False = kein Fenster."""
     w = STATE["window"]

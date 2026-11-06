@@ -6,8 +6,8 @@ pro Lauf ein Bias- und ggf. ein Dark-Satz. Jede Wahl und jedes Fehlen hat einen 
 
 Regeln (aus der Praxis, siehe docs/ERKENNTNISSE.md):
 - Flats: gleicher Filter (RGB-Lights nur mit RGB-Flats), gleiche Einstellungen, möglichst dieselbe Nacht,
-  sonst die zeitlich nächste. Liegt sie mehr als ``FLAT_WARN_DAYS`` entfernt, ist das nur ein Hinweis (Staub kann
-  gewandert sein) – kein Ausschluss. Qualität aus den gespeicherten Messwerten, mit Befund in Klartext.
+  sonst die zeitlich nächste. Der Abstand ist kein Befund (über ``FLAT_WARN_DAYS`` nur eine leise Zeile).
+  Qualität aus den gespeicherten Messwerten, mit Befund in Klartext.
 - Bias: gleiche Einstellungen, der neueste Satz.
 - Darks: gleiche Einstellungen, Belichtung ±1 s, Temperatur ±2 °C.
 - Master-Dateien zählen als vollständiger Satz.
@@ -20,6 +20,7 @@ from collections import defaultdict
 
 from .. import calibcheck
 from .. import db as dbm
+from ..fmt import dm
 
 FLAT_WARN_DAYS = 14               # bis 14 Tage Abstand nichts; darüber höchstens ein Hinweis, nie ein Fehler
 DARK_EXP_TOL = 1.0
@@ -123,12 +124,12 @@ def match_project(db: dbm.Database, pid: int, th: calibcheck.Thresholds | None =
         for night, nf in sorted(nights.items()):
             run["nights"].append(dict(night=night, lights=len(nf), flats=_pick_flats(flt, settings, night, ref,
                                                                                     flats, th)))
-        run["flat_options"] = flat_options(flats, ref)
+        run["flat_options"] = flat_options(flats, ref, th)
         run["bias"] = _pick_simple(calib, "bias", ref, None)
         run["darks"] = _pick_simple(calib, "dark", ref, frames)
         for n in run["nights"]:
             if not n["flats"]["file_ids"]:
-                run["problems"].append("Nacht %s: %s" % (n["night"] or "?", n["flats"]["reason"]))
+                run["problems"].append("Nacht %s: %s" % (dm(n["night"]), n["flats"]["reason"]))
         if not run["bias"]["file_ids"] and not run["darks"]["file_ids"]:
             run["problems"].append(run["bias"]["reason"])
         out.append(run)
@@ -158,15 +159,11 @@ def _pick_flats(flt, settings, night, ref, flats, th) -> dict:
             reason += " (andere Filter gibt es, passen aber nicht)"
         return dict(file_ids=[], night=None, reason=reason, quality=None)
     days, n2, frames = min(cands, key=lambda c: (c[0], c[1]))
-    ch = _flat_choice(frames, "Flats vom %s (%d Tag%s entfernt)" % (n2, days, "" if days == 1 else "e"), th)
+    ch = _flat_choice(frames, "Flats vom %s (%d Tag%s entfernt)" % (dm(n2), days, "" if days == 1 else "e"), th)
     ch["days"] = days
-    if days > FLAT_WARN_DAYS:
-        ch.setdefault("hints", []).append(dict(
-            level="info", kind="distance", key="%s|%s" % (flt, n2), title="Flats %d Tage entfernt" % days,
-            text="Für diese Nacht gibt es keine eigenen Flats; die nächsten passenden (Filter, Gain, Setup) sind vom %s "
-                 "– ob davor oder danach, ist egal. Das passt, solange am Aufbau nichts verändert wurde (Kamera nicht "
-                 "gedreht, kein neuer Staub). Ist das so, bestätige es mit „Passt, Setup unverändert“. Zeigt der Stack "
-                 "Staubringe oder Vignettierung: Flats nachholen oder rechts andere wählen." % n2))
+    # Abstand ist kein Befund (Feedback 0.13.1: „Ruhe, wenn alles passt“, nichts abhaken müssen). Über
+    # FLAT_WARN_DAYS steht nur eine leise Zeile in der Kalibrierung, nie eine Warnung oder ein Knopf.
+    ch["far"] = days > FLAT_WARN_DAYS
     return ch
 
 
@@ -182,15 +179,18 @@ def _flat_choice(frames, why, th) -> dict:
                 quality=q, frames=len(frames), hints=hints)
 
 
-def flat_options(flats: dict, ref) -> list[dict]:
+def flat_options(flats: dict, ref, th=None) -> list[dict]:
     """Alle Flat-Sätze, die man für diesen Lauf von Hand wählen kann (gleiche Kamera-Einstellungen), passender
-    Filter zuerst."""
+    Filter zuerst – mit Qualität, damit auch eine Wahl von Hand ihre Befunde (als Hinweis) zeigt."""
     out = []
     for (f2, _s2, n2), frames in flats.items():
         if _same_settings(ref, frames[0]):
             continue
+        q = _flat_quality(frames, th or calibcheck.Thresholds())
         out.append(dict(key="%s|%s" % (f2, n2), filter=frames[0]["filter"], night=n2, n=len(frames),
-                        ids=[f["id"] for f in frames], master=any(f["is_master"] for f in frames)))
+                        ids=[f["id"] for f in frames], master=any(f["is_master"] for f in frames),
+                        findings=[dict(level=f.get("level"), title=f.get("title"), text=f.get("text"))
+                                  for f in (q or {}).get("findings") or [] if f.get("level") in ("warning", "critical")]))
     flt = (ref["filter"] or "").lower()
     out.sort(key=lambda o: ((o["filter"] or "").lower() != flt, o["night"]), reverse=False)
     return out
@@ -211,11 +211,11 @@ def _pick_simple(calib, kind, ref, lights) -> dict:
     masters = [r for r in cands if r["is_master"]]
     if masters:
         newest = max(masters, key=lambda r: r["date_obs"] or "")
-        return dict(file_ids=[newest["id"]], reason="Master-%s %s" % (name, newest["night"] or ""))
+        return dict(file_ids=[newest["id"]], reason="Master-%s %s" % (name, dm(newest["night"]) if newest["night"] else ""))
     by_night = defaultdict(list)
     for r in cands:
         by_night[r["night"] or ""].append(r)
     night, frames = max(by_night.items(), key=lambda kv: (len(kv[1]) >= MIN_FRAMES, kv[0]))
     if len(frames) < MIN_FRAMES:
         return dict(file_ids=[], reason="nur %d %s – WBPP braucht mindestens %d" % (len(frames), name, MIN_FRAMES))
-    return dict(file_ids=[r["id"] for r in frames], reason="%s vom %s, %d Frames" % (name, night or "?", len(frames)))
+    return dict(file_ids=[r["id"] for r in frames], reason="%s vom %s, %d Frames" % (name, dm(night), len(frames)))

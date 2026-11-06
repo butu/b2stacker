@@ -13,7 +13,7 @@ import os
 import threading
 
 from . import db as dbm
-from . import flow, gallery, history, library, logbook, stacking, stackview, tasks, trash
+from . import flow, gallery, history, library, logbook, stackimport, stacking, stackview, tasks, trash
 from .flow import insights
 from .flow import plan as fplan
 from .flow.headers import summarize_new
@@ -119,7 +119,17 @@ class Core:
 
     def add_folders(self, project, folders: list[str]) -> dict:
         pid = self._pid(project)
-        library.add_folders(self.db, pid, folders)
+        # hineingezogene Dateien (Drag & Drop) stehen für ihren Ordner; doppelte fallen weg
+        seen, clean = set(), []
+        for f in folders or []:
+            f = (f or "").strip().strip('"')
+            if f and os.path.isfile(f):
+                f = os.path.dirname(f)
+            k = os.path.normcase(os.path.normpath(f)) if f else ""
+            if f and k not in seen:
+                seen.add(k)
+                clean.append(f)
+        library.add_folders(self.db, pid, clean)
         return dict(id=pid, task=self.refresh(pid, reason="Ordner hinzugefügt").as_dict())
 
     def remove_folder(self, project, folder_id: int) -> None:
@@ -151,12 +161,36 @@ class Core:
         self.refresh(pid, reason="Projekt geöffnet")
         return self.project(pid)
 
+    def folder_suggestions(self, project=None, limit: int = 6) -> list[dict]:
+        """Häufig verwendete Quellordner aus anderen Projekten – z. B. der gemeinsame Flat- und Bias-Ordner – als
+        Ein-Klick-Vorschläge (Feedback 0.13.1). Schon hinzugefügte und Ordner innerhalb davon fallen weg."""
+        pid = self._pid(project) if project is not None else None
+        mine = [os.path.normcase(os.path.normpath(r[0])) for r in self.db.query(
+            "SELECT path FROM source_folders WHERE project_id = ?", (pid,))] if pid else []
+        out = []
+        for r in self.db.query("SELECT path, COUNT(DISTINCT project_id) n, MAX(online) online FROM source_folders "
+                               "GROUP BY path ORDER BY n DESC, MAX(added_at) DESC LIMIT 12"):
+            k = os.path.normcase(os.path.normpath(r["path"]))
+            if any(k == m or k.startswith(m.rstrip("\\/") + os.sep) for m in mine):
+                continue
+            # Kalibrierordner zuerst: dort liegen Flats/Bias/Darks, die mehrere Projekte teilen
+            kinds = dict(self.db.query(
+                "SELECT f.type, COUNT(*) FROM files f JOIN project_files pf ON pf.file_id = f.id JOIN source_folders s "
+                "ON s.id = pf.source_folder_id WHERE s.path = ? GROUP BY f.type", (r["path"],)))
+            calib = sum(v for k2, v in kinds.items() if k2 in ("flat", "bias", "dark", "darkflat"))
+            out.append(dict(path=r["path"], projects=int(r["n"]), online=bool(r["online"]),
+                            kind="Kalibrierung" if calib and calib >= kinds.get("light", 0) else
+                            "Lights" if kinds.get("light") else ""))
+        out.sort(key=lambda x: (-x["projects"], x["kind"] != "Kalibrierung"))
+        return out[:limit]
+
     def project(self, project) -> dict:
         pid = self._pid(project)
         p = dict(library.get_project(self.db, pid))
         p["folders"] = [dict(r) for r in self.db.query(
             "SELECT id, path, online, checked_at, (SELECT COUNT(*) FROM project_files pf WHERE pf.source_folder_id = "
             "s.id) AS files FROM source_folders s WHERE project_id = ? ORDER BY id", (pid,))]
+        p["folder_suggestions"] = self.folder_suggestions(pid)
         counts = dict(self.db.query(
             "SELECT COALESCE(f.type, 'neu'), COUNT(*) FROM files f JOIN project_files pf ON pf.file_id = f.id "
             "WHERE pf.project_id = ? AND f.missing_since IS NULL GROUP BY f.type", (pid,)))
@@ -319,6 +353,38 @@ class Core:
         dieselben Auswertungen wie der Bericht aus 0.10, aus den gespeicherten Messwerten."""
         return insights.build(self.db, self._pid(project), self.ws)
 
+    def tonight(self, project, night: str | None = None) -> dict:
+        """Sichtbarkeit des Objekts in der kommenden Nacht: Höhe, Mond (Auf-/Untergang, Phase), Dämmerung, beste
+        Zeit. Standort aus den Einstellungen (sonst aus den Headern), Koordinaten des Objekts aus den Headern."""
+        from .flow.headers import meta_from_json
+        from .report.sky import tonight as _tonight
+        from .settings import Settings
+        pid = self._pid(project)
+        row = self.db.one("SELECT f.meta_json FROM files f JOIN project_files pf ON pf.file_id = f.id WHERE "
+                          "pf.project_id = ? AND f.type = 'light' AND f.meta_json IS NOT NULL AND f.missing_since IS NULL "
+                          "ORDER BY f.date_obs DESC LIMIT 1", (pid,))
+        meta = meta_from_json(row["meta_json"]) if row else None
+        if meta is None or meta.ra is None or meta.dec is None:
+            return dict(available=False, why="Die Lights nennen keine Objektkoordinaten (RA/DEC) im Header.")
+        try:
+            s = Settings.load()
+            lat, lon, elev = s.site_lat, s.site_lon, s.site_elev
+        except Exception:  # noqa: BLE001
+            lat = lon = elev = None
+        src = "Einstellungen"
+        if lat is None or lon is None:
+            lat, lon, elev, src = meta.site_lat, meta.site_lon, meta.site_elev, "Aufnahmen"
+        if lat is None or lon is None:
+            return dict(available=False, why="Kein Standort – unter Einstellungen eintragen.")
+        key = (pid, round(lat, 3), round(lon, 3), round(meta.ra, 3), round(meta.dec, 3), night,
+               __import__("datetime").date.today().isoformat(), __import__("datetime").datetime.now().hour >= 8)
+        cache = self.__dict__.setdefault("_tonight", {})
+        if key not in cache:
+            cache.clear()
+            cache[key] = dict(_tonight(lat, lon, elev, meta.ra, meta.dec, night=night), available=True, site=src,
+                              target=meta.object or "")
+        return cache[key]
+
     def report_html(self, project) -> str:
         """Ausführlicher Bericht (eigene HTML-Seite, wie in 0.10) mit Nächten, Mond, Qualität und Diagrammen."""
         return insights.report_html(self.db, self._pid(project), self.ws)
@@ -467,6 +533,14 @@ class Core:
         """Alle Stacks, neueste zuerst: Dateien (mit „fehlt“), Größe, Qualität, Vorschau, Notiz.
         Fehlen bei fertigen Stacks die Qualitätswerte, werden sie im Hintergrund nachgerechnet."""
         pid = self._pid(project)
+        filled = self.__dict__.setdefault("_exposure_filled", set())
+        if pid not in filled:                        # übernommene Stacks ohne Gesamtbelichtung (vor 0.14) nachtragen
+            filled.add(pid)
+            try:
+                stackimport.fill_missing(self.db, pid)
+            except Exception:  # noqa: BLE001 – Zusatzinfo
+                import logging
+                logging.getLogger(__name__).exception("Belichtung übernommener Stacks")
         cover = self.db.value("SELECT cover_asset_id FROM projects WHERE id = ?", (pid,))
         out, todo = [], []
         for r in self.db.query("SELECT * FROM stacks WHERE project_id = ? ORDER BY created_at DESC, id DESC", (pid,)):
@@ -531,6 +605,12 @@ class Core:
     def note(self, project, stack_id: int, text: str) -> None:
         pid = self._pid(project)
         stacking.set_note(self.db, pid, int(stack_id), text)
+        self._notify("project", id=pid)
+
+    def set_stack_exposure(self, project, stack_id: int, hours: float | None) -> None:
+        """Gesamtbelichtung eines übernommenen Stacks von Hand eintragen (wenn sie aus der Datei nicht hervorgeht)."""
+        pid = self._pid(project)
+        stackimport.set_exposure(self.db, pid, int(stack_id), hours)
         self._notify("project", id=pid)
 
     def delete_stack(self, project, stack_id: int) -> list[str]:
@@ -771,6 +851,36 @@ class Core:
                             environment={k: (r.get("environment") or {}).get(k) for k in
                                          ("pixinsight_version", "test_folder", "test_folder_remote")}))
         return out
+
+    def reveal(self, path: str, opener=None) -> str:
+        """Datei im Explorer zeigen: Ordner öffnen und die Datei markieren (Feedback 0.13.1). Nur Dateien, die
+        b2stacker kennt (Frames, Bilder, Stacks, Master) – kein beliebiger Pfad von außen."""
+        import subprocess
+        import sys
+        p = os.path.normpath(str(path or ""))
+        known = self.db.value("SELECT 1 FROM files WHERE path = ? UNION SELECT 1 FROM assets WHERE path = ? "
+                              "UNION SELECT 1 FROM masters WHERE path = ? LIMIT 1", (path, path, path))
+        if not known:
+            known = self.db.value("SELECT 1 FROM files WHERE path = ? UNION SELECT 1 FROM assets WHERE path = ? "
+                                  "UNION SELECT 1 FROM masters WHERE path = ? LIMIT 1", (p, p, p))
+        if not known:
+            raise ValueError("Unbekannte Datei – im Explorer zeigen geht nur für Dateien des Projekts.")
+        target = p if os.path.exists(p) else os.path.dirname(p)
+        if not os.path.exists(target):
+            raise ValueError("Nicht gefunden (Laufwerk offline?): %s" % p)
+        if opener:
+            opener(target)
+        elif sys.platform == "win32":
+            if os.path.isfile(p):
+                subprocess.Popen(["explorer", "/select,", p])          # Ordner öffnen, Datei markiert
+            else:
+                os.startfile(target)  # noqa: S606
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", p] if os.path.isfile(p) else ["open", target])
+        else:
+            subprocess.Popen(["xdg-open", os.path.dirname(p) if os.path.isfile(p) else target],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return target
 
     def open_stack_folder(self, project, stack_id: int, opener=None) -> str:
         """Ordner eines Stacks (bei Fehlschlag: mit dem WBPP-Protokoll) im Explorer öffnen."""

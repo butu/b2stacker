@@ -275,14 +275,23 @@ def test_frames_sort_filter_group_size_and_click_zoom(page, app):
     page.select_option("#fGroup", "night")
     expect(page.locator("#vgrid .vgh")).to_have_count(2)                      # 12.10. und 20.07.
     expect(page.locator("#vgrid .vgh").first).to_contain_text("Nacht vom")
-    # Akkordeon: Gruppe zuklappen → ihre Kacheln verschwinden, Überschrift mit Anzahl bleibt
-    n0 = page.locator("#vgrid .vt").count()
-    page.locator("#vgrid .vgh").first.click()
+    # Akkordeon im Solo-Modus: zu Beginn ist nur die erste Gruppe offen; die zweite öffnen schließt die erste
     expect(page.locator("#vgrid .vgh.closed")).to_have_count(1)
     expect(page.locator("#vgrid .vgh.closed")).to_contain_text("Frames")
-    assert page.locator("#vgrid .vt").count() < n0
+    n0 = page.locator("#vgrid .vt").count()
     page.locator("#vgrid .vgh.closed").click()
+    expect(page.locator("#vgrid .vgh.closed")).to_have_count(1)
+    expect(page.locator("#vgrid .vgh").first).to_have_class(re.compile(r"\bclosed\b"))
+    page.locator("#vgrid .vgh").first.click()
     expect(page.locator("#vgrid .vt")).to_have_count(n0)
+    # alle zu: die Hilfezeile darunter rutscht nicht ins Akkordeon (Feedback 0.13.1)
+    page.locator("#vgrid .vgh").first.click()
+    expect(page.locator("#vgrid .vgh.closed")).to_have_count(2)
+    gb = page.locator("#vgrid").bounding_box()
+    last = page.locator("#vgrid .vgh").last.bounding_box()
+    assert gb["y"] + gb["height"] >= last["y"] + last["height"] - 1
+    assert page.locator("#fKeys").bounding_box()["y"] >= last["y"] + last["height"]
+    page.locator("#vgrid .vgh").first.click()
     page.select_option("#fGroup", "status")
     expect(page.locator("#vgrid .vgh").first).to_contain_text("Verwendet")
     page.select_option("#fGroup", "night")
@@ -430,11 +439,13 @@ def test_selected_frame_keeps_image_and_checkbox(page, app):
     page.goto(app.url + "#/p/%d/frames" % pid)
     t = page.locator("#vgrid .vt[data-i='0']")
     expect(t).to_be_visible()
-    h0 = t.bounding_box()["height"]
+    hgt = "e => e.getBoundingClientRect().height"                    # wartet auf die (ggf. neu gezeichnete) Kachel
+    h0 = t.evaluate(hgt)
     t.locator(".cb").click()
     expect(t).to_have_class(re.compile(r"\bsel\b"))
     expect(t.locator(".cb")).to_be_visible()
-    assert abs(t.bounding_box()["height"] - h0) < 2
+    page.wait_for_function("h0 => {const e=document.querySelector(\"#vgrid .vt[data-i='0']\");"
+                           "return e && Math.abs(e.getBoundingClientRect().height-h0)<2}", arg=h0)
     bg = t.evaluate("e => getComputedStyle(e).backgroundColor")
     assert "rgba(255, 255, 255, 0.08)" not in bg                    # nicht mehr das Grau der Auswahlbox
     t.locator(".cb").click()
@@ -445,35 +456,80 @@ def test_stacking_tab_tiles_and_new_stack(page, app):
     pid = pid_of(app, "vdB 131")
     _stack(app, pid)
     page.goto(app.url + "#/p/%d/stacks" % pid)
-    expect(page.locator("#pTabs a.on")).to_have_text(re.compile("Stacking"))
+    expect(page.locator("#pTabs a.on")).to_have_text(re.compile("^Stacks"))           # Feedback 0.13.1
+    expect(page.locator("#pTabs")).not_to_contain_text("bereit")                       # Ruhe, wenn alles passt
     expect(page.locator(".stks .newstk")).to_be_visible()
     expect(page.locator(".stks .stk[data-sid]")).to_have_count(1)
     expect(page.locator(".stks .stk[data-sid] h3")).to_contain_text(re.compile(r"\d{4}-\d\d-\d\d HaO3 \d+h\d\d"))
     shot(page, "stacking-tab")
     page.click(".stks .newstk")
     expect(page).to_have_url(re.compile(r"#/p/%d/plan$" % pid))
-    expect(page.locator("#pTabs a.on")).to_have_text(re.compile("Stacking"))
-    expect(page.locator(".back", has_text="Stacking")).to_be_visible()
+    expect(page.locator("#pTabs a.on")).to_have_text(re.compile("^Stacks"))
+    expect(page.locator(".back", has_text="Stacks")).to_be_visible()
     shot(page, "neuer-stack-plan")
 
 
 def test_overview_flat_problems_one_line_per_set_with_reason(page, app):
-    """Feedback 0.13: „Was auffällt“ zeigte je Nacht eine rote Zeile „Flats … (7 Tage entfernt)“ – rot war aber die
-    Helligkeit der Flats, nicht der Abstand. Jetzt: eine Zeile je Flat-Satz mit dem Grund; Abstand nur als Info."""
+    """Feedback 0.13: eine Zeile je Flat-Satz mit dem Grund. Feedback 0.13.1 („Ruhe, wenn alles passt“): der Abstand
+    erscheint gar nicht mehr, von Hand gewählte Flats auch nicht; ein vorhandener Master steht mit Namen da."""
     page.wait_for_function("typeof problems==='function'")
-    fl = lambda night, days, ok=False: dict(  # noqa: E731
-        night=night, flat_night="2026-10-31", file_ids=[1, 2, 3], verdict="critical", confirmed=ok,
-        reason="Flats vom 2026-10-31 (%d Tage entfernt), 43 Frames" % days,
-        findings=[dict(level="critical", title="Flats zu hell"), dict(level="warning", title="Farbring")],
-        hints=[dict(kind="distance", level="info")] if days > 14 else [])
+    fl = lambda night, days, manual=False: dict(  # noqa: E731
+        night=night, flat_night="2026-10-31", file_ids=[1, 2, 3], verdict="manual" if manual else "critical",
+        manual=manual, far=days > 14, days=days, reason="Flats vom 2026-10-31 (%d Tage entfernt), 43 Frames" % days,
+        findings=[dict(level="info" if manual else "critical", title="Flats zu hell"),
+                  dict(level="warning", title="Farbring")], hints=[])
     plan = dict(runs=[dict(name="HaO3", enabled=True, problems=[],
                            flats=[fl("2026-07-28", 95), fl("2026-10-18", 13), fl("2026-10-24", 7)])])
     out = page.evaluate("p=>problems(p)", plan)
     errs = [x for x in out if x["lvl"] == "err"]
-    assert len(errs) == 1 and "Flats zu hell" in errs[0]["t"] and "Tage entfernt" not in errs[0]["t"]
+    assert len(errs) == 1 and "Flats zu hell" in errs[0]["t"] and "Tage" not in errs[0]["t"]
     assert "3 Nächte" in errs[0]["t"] and "Farbring" not in errs[0]["t"]
-    infos = [x for x in out if x["lvl"] == "info"]
-    assert len(infos) == 1 and "1 Nacht" in infos[0]["t"]
-    plan["runs"][0]["flats"] = [fl("2026-07-28", 95, ok=True)]   # bestätigt → kein Abstands-Hinweis
-    plan["runs"][0]["flats"][0]["verdict"] = "good"
+    assert not [x for x in out if x["lvl"] == "info"]
+    plan["runs"][0]["flats"][0]["master"] = dict(label="Master Flat 31.10. (aus 3 Flats)")
+    assert "Master Flat 31.10." in page.evaluate("p=>problems(p)", plan)[0]["t"]
+    plan["runs"][0]["flats"] = [fl("2026-07-28", 95, manual=True)]   # von Hand gewählt → bestätigt, Ruhe
     assert page.evaluate("p=>problems(p)", plan) == []
+    plan["runs"][0]["flats"] = [dict(fl("2026-07-28", 95), verdict="good", findings=[])]
+    assert page.evaluate("p=>problems(p)", plan) == []
+
+
+def test_overview_quiet_solo_accordion_and_tonight(page, app):
+    """Feedback 0.13.1: Nächte und Rig-Hinweise als Akkordeon (Solo: eines auf, die anderen zu), Spalte „Kalibriert“
+    wie im Plan, Sichtbarkeit heute Nacht (hier ohne Koordinaten: Klartext), Quellordner eingeklappt."""
+    pid = pid_of(app, "vdB 131")
+    page.goto(app.url + "#/p/%d/overview" % pid)
+    expect(page.locator("#insBox .ntab tr.nrow").first).to_be_visible(timeout=20000)
+    expect(page.locator("#insBox .ntab thead")).to_contain_text("Kalibriert")
+    expect(page.locator("#tonCard")).to_contain_text("Sichtbarkeit heute Nacht")
+    page.locator("#insBox .acch[data-acck='rig']").click()
+    expect(page.locator("#insBox .ntab")).to_have_count(0)                  # Solo: Nächte zu
+    expect(page.locator("#insBox .acch[data-acck='rig']")).to_have_attribute("aria-expanded", "true")
+    page.locator("#srcCard .acch").click()
+    expect(page.locator("#insBox .acch[data-acck='rig']")).to_have_attribute("aria-expanded", "false")
+    expect(page.locator(".srcrow")).to_have_count(1)
+    page.reload()                                                          # Zustand bleibt
+    expect(page.locator(".srcrow")).to_have_count(1)
+    expect(page.locator("#pAddSrc")).to_be_visible()
+
+
+def test_drop_folder_into_window_and_new_project_suggestions(page, app, tmp_path):
+    """Feedback 0.13.1: Ordner ins Fenster ziehen (das Programmfenster ruft window.b2Drop mit vollen Pfaden auf);
+    Vorschläge „Häufig verwendet“ im Dialog „Neues Projekt“."""
+    pid = pid_of(app, "vdB 131")
+    extra = tmp_path / "neu_dazu"
+    extra.mkdir()
+    page.goto(app.url + "#/p/%d/overview" % pid)
+    expect(page.locator("#pName")).to_be_visible()
+    page.evaluate("p => { window.b2Drop([p]); }", str(extra))
+    expect(page.locator("#askT")).to_contain_text("Ordner hinzufügen?")
+    page.click("#askOk")
+    page.wait_for_function("() => true")
+    assert app.core.tasks.wait_idle(60)
+    assert any(f["path"] == str(extra) for f in app.core.project(pid)["folders"])
+    # Startseite: Ziehen öffnet „Neues Projekt“ mit dem Ordner
+    page.goto(app.url + "#/")
+    page.evaluate("p => { window.b2Drop([p]); }", str(extra))
+    expect(page.locator("#newDlg")).to_be_visible()
+    expect(page.locator("#npFolders input").first).to_have_value(str(extra))
+    expect(page.locator("#npName")).to_have_value("neu_dazu")
+    expect(page.locator("#npSug")).to_contain_text("Häufig verwendet")
