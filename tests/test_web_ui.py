@@ -522,10 +522,13 @@ def test_compare_overlay_slider_and_values(page, app):
     page.keyboard.press("Escape")
     # Haken „zum Vergleich“ lässt die Karte, wie sie ist (früher schrumpfte sie auf 34 px – Klasse .sel doppelt belegt)
     card = page.locator(".stk[data-sid='%d']" % a)
-    h0 = card.bounding_box()["height"]
+    hgt = "e => e.getBoundingClientRect().height"                       # wartet auf die (ggf. neu gezeichnete) Karte
+    h0 = card.evaluate(hgt)
     card.locator("[data-pick]").check()
     expect(card).to_have_class(re.compile(r"\bsel\b"))
-    assert abs(card.bounding_box()["height"] - h0) < 2
+    page.wait_for_function("([sel, h0]) => {const e=document.querySelector(sel);"
+                           "return e && Math.abs(e.getBoundingClientRect().height-h0)<2}",
+                           arg=[".stk[data-sid='%d']" % a, h0])
     card.locator("[data-pick]").uncheck()
     expect(card).not_to_have_class(re.compile(r"\bsel\b"))
 

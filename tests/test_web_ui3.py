@@ -287,10 +287,9 @@ def test_frames_sort_filter_group_size_and_click_zoom(page, app):
     # alle zu: die Hilfezeile darunter rutscht nicht ins Akkordeon (Feedback 0.13.1)
     page.locator("#vgrid .vgh").first.click()
     expect(page.locator("#vgrid .vgh.closed")).to_have_count(2)
-    gb = page.locator("#vgrid").bounding_box()
-    last = page.locator("#vgrid .vgh").last.bounding_box()
-    assert gb["y"] + gb["height"] >= last["y"] + last["height"] - 1
-    assert page.locator("#fKeys").bounding_box()["y"] >= last["y"] + last["height"]
+    page.wait_for_function("""() => {const g=document.querySelector('#vgrid'),h=[...g.querySelectorAll('.vgh')].pop(),
+        k=document.querySelector('#fKeys');if(!g||!h||!k)return false;const G=g.getBoundingClientRect(),
+        H=h.getBoundingClientRect(),K=k.getBoundingClientRect();return G.bottom>=H.bottom-1&&K.top>=H.bottom;}""")
     page.locator("#vgrid .vgh").first.click()
     page.select_option("#fGroup", "status")
     expect(page.locator("#vgrid .vgh").first).to_contain_text("Verwendet")
